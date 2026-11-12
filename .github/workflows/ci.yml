@@ -1,0 +1,25 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm audit --omit=dev --audit-level=moderate
+      - name: Synthesize example infrastructure without AWS credentials
+        run: npm run synth -- -c config=config/example.json -c preview=true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: example-cloudformation
+          path: cdk.out/ObsidianS3Mcp.template.json

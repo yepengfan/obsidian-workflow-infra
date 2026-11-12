@@ -1,0 +1,7 @@
+{
+  "app": "npx --no-install tsx bin/app.ts",
+  "versionReporting": false,
+  "context": {
+    "@aws-cdk/aws-lambda-nodejs:useLatestRuntimeVersion": false
+  }
+}

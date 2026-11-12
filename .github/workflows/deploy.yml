@@ -1,0 +1,88 @@
+name: Review diff and deploy
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type deploy to request production approval
+        required: true
+        type: string
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: obsidian-production
+  cancel-in-progress: false
+jobs:
+  diff:
+    # Disabled until deployment identity and private-repo approval protection are configured.
+    if: vars.ENABLE_AWS_DEPLOY == 'true' && github.ref == 'refs/heads/main' && inputs.confirm == 'deploy'
+    runs-on: ubuntu-latest
+    environment: production-plan
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm audit --omit=dev --audit-level=moderate
+      - name: Write non-secret deployment configuration
+        env:
+          DEPLOY_CONFIG_JSON: ${{ vars.DEPLOY_CONFIG_JSON }}
+        run: |
+          node --input-type=commonjs -e 'require("fs").writeFileSync("config/local.json", process.env.DEPLOY_CONFIG_JSON)'
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+      - name: Synthesize and review actual environment diff
+        run: |
+          npm run synth
+          npm run diff 2>&1 | tee cdk-diff.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-cloud-assembly
+          path: |
+            cdk.out/
+            cdk-diff.txt
+          retention-days: 3
+  deploy:
+    needs: diff
+    runs-on: ubuntu-latest
+    # Configure required reviewers and main-only deployment branches BEFORE enabling.
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: reviewed-cloud-assembly
+          path: reviewed
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+      - name: Deploy the assembly already reviewed in the diff job
+        run: npx --no-install cdk deploy ObsidianS3Mcp --app reviewed/cdk.out --require-approval never --outputs-file cdk-outputs.json
+      - name: Verify anonymous access is denied and discovery is public
+        run: |
+          ENDPOINT=$(node --input-type=commonjs -p 'require("./cdk-outputs.json").ObsidianS3Mcp.McpEndpoint')
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' "$ENDPOINT")" = 401
+          curl --fail --silent "${ENDPOINT%/mcp}/.well-known/oauth-protected-resource/mcp" | jq -e --arg endpoint "$ENDPOINT" '.resource == $endpoint'
+      - name: Check the newly available Cognito discovery metadata
+        run: npm run check:oauth

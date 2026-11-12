@@ -1,0 +1,78 @@
+
+> obsidian-s3-mcp@1.0.0 diff:preview
+> cdk diff ObsidianS3Mcp --template config/empty-template.json --no-lookups -c config=config/example.json -c preview=true --no-color
+
+AI agent detected
+Bundling asset ObsidianS3Mcp/McpFunction/Code/Stage...
+
+  ...99c49bf1398e338db8d3481437ad3259424149bfd988f-building/index.mjs  1.3mb ⚠️
+
+⚡ Done in 154ms
+Stack ObsidianS3Mcp
+IAM Statement Changes
+┌───┬─────────────────────────────────────────────────────────────────────────┬────────┬───────────────────────┬──────────────────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│   │ Resource                                                                │ Effect │ Action                │ Principal                        │ Condition                                                                                                                                      │
+├───┼─────────────────────────────────────────────────────────────────────────┼────────┼───────────────────────┼──────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ + │ ${FunctionLogs.Arn}                                                     │ Allow  │ logs:CreateLogStream  │ AWS:${ReaderRole}                │                                                                                                                                                │
+│   │                                                                         │        │ logs:PutLogEvents     │                                  │                                                                                                                                                │
+├───┼─────────────────────────────────────────────────────────────────────────┼────────┼───────────────────────┼──────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ + │ ${McpFunction.Arn}                                                      │ Allow  │ lambda:InvokeFunction │ Service:apigateway.amazonaws.com │ "ArnLike": {                                                                                                                                   │
+│   │                                                                         │        │                       │                                  │   "AWS:SourceArn": "arn:${AWS::Partition}:execute-api:ap-southeast-2:111111111111:${ApiF70053CD}/*/*/mcp"                                      │
+│   │                                                                         │        │                       │                                  │ }                                                                                                                                              │
+│ + │ ${McpFunction.Arn}                                                      │ Allow  │ lambda:InvokeFunction │ Service:apigateway.amazonaws.com │ "ArnLike": {                                                                                                                                   │
+│   │                                                                         │        │                       │                                  │   "AWS:SourceArn": "arn:${AWS::Partition}:execute-api:ap-southeast-2:111111111111:${ApiF70053CD}/*/*/.well-known/oauth-protected-resource"     │
+│   │                                                                         │        │                       │                                  │ }                                                                                                                                              │
+│ + │ ${McpFunction.Arn}                                                      │ Allow  │ lambda:InvokeFunction │ Service:apigateway.amazonaws.com │ "ArnLike": {                                                                                                                                   │
+│   │                                                                         │        │                       │                                  │   "AWS:SourceArn": "arn:${AWS::Partition}:execute-api:ap-southeast-2:111111111111:${ApiF70053CD}/*/*/.well-known/oauth-protected-resource/mcp" │
+│   │                                                                         │        │                       │                                  │ }                                                                                                                                              │
+├───┼─────────────────────────────────────────────────────────────────────────┼────────┼───────────────────────┼──────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ + │ ${ReaderRole.Arn}                                                       │ Allow  │ sts:AssumeRole        │ Service:lambda.amazonaws.com     │                                                                                                                                                │
+├───┼─────────────────────────────────────────────────────────────────────────┼────────┼───────────────────────┼──────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ + │ arn:${AWS::Partition}:s3:::replace-with-private-obsidian-bucket         │ Allow  │ s3:ListBucket         │ AWS:${ReaderRole}                │ "StringLike": {                                                                                                                                │
+│   │                                                                         │        │                       │                                  │   "s3:prefix": [                                                                                                                               │
+│   │                                                                         │        │                       │                                  │     "vault/*"                                                                                                                                  │
+│   │                                                                         │        │                       │                                  │   ]                                                                                                                                            │
+│   │                                                                         │        │                       │                                  │ }                                                                                                                                              │
+├───┼─────────────────────────────────────────────────────────────────────────┼────────┼───────────────────────┼──────────────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ + │ arn:${AWS::Partition}:s3:::replace-with-private-obsidian-bucket/vault/* │ Allow  │ s3:GetObject          │ AWS:${ReaderRole}                │                                                                                                                                                │
+└───┴─────────────────────────────────────────────────────────────────────────┴────────┴───────────────────────┴──────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+(NOTE: There may be security-related changes not in this list. See https://github.com/aws/aws-cdk/issues/1299)
+
+Parameters
+[+] Parameter BootstrapVersion BootstrapVersion: {"Type":"AWS::SSM::Parameter::Value<String>","Default":"/cdk-bootstrap/hnb659fds/version","Description":"Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"}
+
+Resources
+[+] AWS::ApiGatewayV2::Api Api ApiF70053CD
+[+] AWS::ApiGatewayV2::Stage Api/DefaultStage ApiDefaultStage189A7074
+[+] AWS::ApiGatewayV2::Integration Api/ANY--mcp/LambdaIntegration ApiANYmcpLambdaIntegration0497298D
+[+] AWS::Lambda::Permission Api/ANY--mcp/LambdaIntegration-Permission ApiANYmcpLambdaIntegrationPermissionC1A49795
+[+] AWS::ApiGatewayV2::Route Api/ANY--mcp ApiANYmcpEB0FE1FF
+[+] AWS::Lambda::Permission Api/GET--.well-known--oauth-protected-resource/LambdaIntegration-Permission ApiGETwellknownoauthprotectedresourceLambdaIntegrationPermission7ACCB161
+[+] AWS::ApiGatewayV2::Route Api/GET--.well-known--oauth-protected-resource ApiGETwellknownoauthprotectedresource0A66AD75
+[+] AWS::Lambda::Permission Api/GET--.well-known--oauth-protected-resource--mcp/LambdaIntegration-Permission ApiGETwellknownoauthprotectedresourcemcpLambdaIntegrationPermission1B9C0CB4
+[+] AWS::ApiGatewayV2::Route Api/GET--.well-known--oauth-protected-resource--mcp ApiGETwellknownoauthprotectedresourcemcp997B55A1
+[+] AWS::Cognito::UserPool Auth/UserPool AuthUserPool8115E87F
+[+] AWS::Cognito::UserPoolDomain Auth/UserPool/Domain AuthUserPoolDomain31C6792A
+[+] AWS::Cognito::UserPoolResourceServer Auth/ResourceServer AuthResourceServer361B1A66
+[+] AWS::Cognito::UserPoolClient Auth/ChatGptClient AuthChatGptClientDAB03E20
+[+] AWS::Cognito::ManagedLoginBranding Auth/LoginBranding AuthLoginBranding7D080CF6
+[+] AWS::Logs::LogGroup FunctionLogs FunctionLogsAE28C13D
+[+] AWS::IAM::Role ReaderRole ReaderRole6150FC74
+[+] AWS::IAM::Policy ReaderRole/DefaultPolicy ReaderRoleDefaultPolicyF70EDFD1
+[+] AWS::Lambda::Function McpFunction McpFunctionF370A1F8
+[+] AWS::Logs::LogGroup AccessLogs AccessLogs8B620ECA
+
+Outputs
+[+] Output CognitoUserPoolId CognitoUserPoolId: {"Value":{"Ref":"AuthUserPool8115E87F"}}
+[+] Output CognitoLoginUrl CognitoLoginUrl: {"Value":{"Fn::Join":["",["https://",{"Ref":"AuthUserPoolDomain31C6792A"},".auth.ap-southeast-2.amazoncognito.com"]]}}
+[+] Output OAuthLoginEnabled OAuthLoginEnabled: {"Value":"false"}
+[+] Output McpEndpoint McpEndpoint: {"Value":{"Fn::Join":["",[{"Fn::GetAtt":["ApiF70053CD","ApiEndpoint"]},"/mcp"]]}}
+[+] Output OAuthAudience OAuthAudience: {"Value":{"Fn::Join":["",[{"Fn::GetAtt":["ApiF70053CD","ApiEndpoint"]},"/mcp"]]}}
+[+] Output OAuthIssuer OAuthIssuer: {"Value":{"Fn::Join":["",["https://cognito-idp.ap-southeast-2.",{"Ref":"AWS::URLSuffix"},"/",{"Ref":"AuthUserPool8115E87F"}]]}}
+[+] Output OAuthClientId OAuthClientId: {"Value":{"Ref":"AuthChatGptClientDAB03E20"}}
+[+] Output OAuthScope OAuthScope: {"Value":"obsidian-mcp/read"}
+[+] Output FunctionLogGroup FunctionLogGroup: {"Value":{"Ref":"FunctionLogsAE28C13D"}}
+
+
+
+✨  Number of stacks with differences: 1

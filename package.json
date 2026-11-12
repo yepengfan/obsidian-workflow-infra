@@ -1,0 +1,46 @@
+{
+  "name": "obsidian-s3-mcp",
+  "version": "1.0.0",
+  "description": "Read-only OAuth-protected S3 Obsidian MCP server on AWS Lambda",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "synth": "cdk synth ObsidianS3Mcp --no-lookups",
+    "diff": "cdk diff ObsidianS3Mcp --method=template --no-lookups",
+    "deploy": "cdk deploy ObsidianS3Mcp --require-approval broadening --no-lookups",
+    "check:oauth": "tsx bin/check-oauth.ts",
+    "diff:preview": "cdk diff ObsidianS3Mcp --template config/empty-template.json --no-lookups -c config=config/example.json -c preview=true"
+  },
+  "keywords": [],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1167.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "jose": "6.2.17",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/aws-lambda": "8.10.164",
+    "@types/node": "26.6.6",
+    "aws-cdk": "2.1148.1",
+    "aws-cdk-lib": "2.276.0",
+    "constructs": "10.8.1",
+    "esbuild": "0.28.2",
+    "eslint": "10.14.0",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2",
+    "vitest": "5.1.0"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0 <23"
+  },
+  "overrides": {
+    "minimatch": "11.0.1"
+  }
+}
