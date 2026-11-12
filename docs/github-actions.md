@@ -12,6 +12,8 @@ Actions 固定在核对过的提交 SHA，使用 Node.js 24 的 Action 运行时
 
 ## 部署工作流默认关闭
 
+实际账号核对结果：`obsidian-workflow-infra` 的两个 environment 已限制 main；Required reviewers 配置被 GitHub 返回 HTTP 422，说明当前私有仓库套餐不支持该规则。下述单工作流的审批前提目前不满足，必须保持关闭。Plan / Deploy 两个手动入口的替代路径见 [纳管方案](infrastructure-adoption.md)，尚未实现。
+
 `deploy.yml` 仅支持手动 dispatch，且要求 repository variable `ENABLE_AWS_DEPLOY=true`、main 分支、输入 `deploy` 三项同时满足，默认不会运行任何部署 job。
 
 启用前必须独立完成并批准 AWS OIDC roles / bootstrap、实际配置以及私有仓库的审批保护。不要把仅写 `environment: production` 当作保护规则生效。

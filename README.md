@@ -1,8 +1,12 @@
-# obsidian-s3-mcp
+# obsidian-workflow-infra
+
+统一管理 Obsidian 工作流的 AWS 基础设施。仓库：[yepengfan/obsidian-workflow-infra](https://github.com/yepengfan/obsidian-workflow-infra)。
+
+当前已实现下面的 S3 MCP 服务。两个现有 Bucket、同步 IAM 用户及其权限也纳入 IaC 目标范围，存量资源导入方案见 [infrastructure-adoption.md](docs/infrastructure-adoption.md)；数据栈尚未实现或导入。
 
 使用 TypeScript、AWS CDK、Node.js 22 Lambda 和官方 MCP SDK，让 ChatGPT 按需搜索、读取私人 S3 Obsidian 知识库。
 
-代码和 IaC 放 GitHub，笔记保留在已有私有 S3。应用不上传、修改或删除笔记，不创建或修改已有 Bucket / BucketPolicy。
+代码和 IaC 放 GitHub，笔记保留在已有私有 S3。MCP 运行时不上传、修改或删除笔记。存量基础设施导入与后续配置变更单独审阅，当前 MCP 应用栈仍只引用已有 Bucket。
 
 ## 当前状态
 
@@ -10,7 +14,7 @@
 - Cognito User Pool、App Client、登录域名、只读 scope 由 CDK 管理。你只在 Console 创建自己的登录用户，设置密码和 MFA。
 - 本机只读 S3 连通已验证。真实参数仅在被 gitignore 排除的 `config/local.json` 中；示例配置不包含真实笔记或凭据。
 - 本地验证见 [validation.md](docs/validation.md)，架构决定见 [architecture-decisions.md](docs/architecture-decisions.md)。
-- **没有部署 AWS，也没有完成真实 Cognito / ChatGPT 登录验收。** Cognito discovery 的 S256 声明是上线前的必检项，详情见 [认证说明](docs/authentication.md)。本项目不伪造 issuer、不绕过认证，也不声称原生 Cognito 已被证明能直接连接当前 ChatGPT。
+- **应用尚未部署，也没有完成真实 Cognito / ChatGPT 登录验收。** Cognito discovery 的 S256 声明是上线前的必检项，详情见 [认证说明](docs/authentication.md)。本项目不伪造 issuer、不绕过认证，也不声称原生 Cognito 已被证明能直接连接当前 ChatGPT。
 
 ## 请求路径与权限
 
@@ -83,7 +87,7 @@ cp config/example.json config/local.json
 
 使用 `DEPLOY_CONFIG` 可指定其他配置文件。不要填 AWS Access Key、密码、OAuth client secret 或 token。Client ID、issuer/JWKS 由 CDK 资源引用取得；client secret 由 Cognito 生成，你在 Console 查看并填入 ChatGPT，不作为 CloudFormation Output 输出。
 
-Cognito 使用 Essentials + 新版 managed login、关闭公开注册、邮箱登录、必需 TOTP MFA 和 refresh token rotation。Identity Pool 不需要。现有 S3 由原拥有者管理，Cognito 池/客户端/资源 scope 保留并启用池删除保护，不由应用删除操作清除身份。
+Cognito 使用 Essentials + 新版 managed login、关闭公开注册、邮箱登录、必需 TOTP MFA 和 refresh token rotation。Identity Pool 不需要。现有 S3 尚未导入本项目的数据栈；Cognito 池/客户端/资源 scope 保留并启用池删除保护，不由应用删除操作清除身份。
 
 当前确认空 Prefix，IAM 因而可读取指定 Bucket 的所有对象，应用再过滤 Markdown。IAM 权限不等同于应用的 Markdown 过滤；没有写入、删除或访问其他 Bucket 权限。跨账号桶和 KMS Key 还需要拥有者预先授予对应权限，本项目不修改它们。
 

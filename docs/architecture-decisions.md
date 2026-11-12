@@ -2,6 +2,14 @@
 
 此文件记录已确认的产品和管理边界；尚未确认的设计不能视为实施或部署授权。
 
+## 仓库与基础设施范围
+
+- 仓库已按用户指示重命名为 `yepengfan/obsidian-workflow-infra`；Obsidian 相关基础设施均应纳入 IaC。
+- 存量范围包括两个现有 Bucket、同步 IAM 用户和内联策略。拟通过 CloudFormation import 纳管，具体分层与执行方案见 [infrastructure-adoption.md](infrastructure-adoption.md)，尚未实现数据栈或执行导入。
+- 不将 Bucket 引用误称为纳管；不迁移对象、不改变同步布局。首次导入先匹配现状，配置改进单独审阅。
+- 旧 us-east-1 的 BedrockCostMonitoring 与 CDKToolkit 已按用户单独明确授权删除，残留已核对；这不构成创建 Sydney 新资源的授权。
+- 本机 SSO 管理身份已验收。GitHub 环境已限制 main，但私有仓库 Required reviewers 被套餐限制拒绝，部署开关仍关闭。
+
 ## Cognito 分工
 
 - 使用 Amazon Cognito。
