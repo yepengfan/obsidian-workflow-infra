@@ -18,14 +18,16 @@ jobs:
   diff:
     # Disabled until deployment identity and private-repo approval protection are configured.
     if: vars.ENABLE_AWS_DEPLOY == 'true' && github.ref == 'refs/heads/main' && inputs.confirm == 'deploy'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: production-plan
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -37,7 +39,7 @@ jobs:
           DEPLOY_CONFIG_JSON: ${{ vars.DEPLOY_CONFIG_JSON }}
         run: |
           node --input-type=commonjs -e 'require("fs").writeFileSync("config/local.json", process.env.DEPLOY_CONFIG_JSON)'
-      - uses: aws-actions/configure-aws-credentials@v5
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -46,7 +48,7 @@ jobs:
         run: |
           npm run synth
           npm run diff 2>&1 | tee cdk-diff.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: reviewed-cloud-assembly
           path: |
@@ -55,24 +57,26 @@ jobs:
           retention-days: 3
   deploy:
     needs: diff
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Configure required reviewers and main-only deployment branches BEFORE enabling.
     environment: production
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: reviewed-cloud-assembly
           path: reviewed
-      - uses: aws-actions/configure-aws-credentials@v5
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}

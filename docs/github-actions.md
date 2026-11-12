@@ -6,6 +6,8 @@
 
 `ci.yml` 在 PR 和 main push 运行：`npm ci`、typecheck、lint、单元与 HTTP 集成测试、运行时依赖审计、示例配置 synth。测试使用合成笔记和临时 RSA 密钥，不需要 AWS/OAuth 凭据，不读取生产知识库。产物只有示例 CloudFormation 模板。
 
+Actions 固定在核对过的提交 SHA，使用 Node.js 24 的 Action 运行时，runner 固定 ubuntu-24.04。项目测试和 Lambda 仍使用 .nvmrc 中的 Node.js 22，两者不是同一层运行时。
+
 本次授权是完成实现、配置 CI、开 PR；不自动合并，也不部署 AWS。
 
 ## 部署工作流默认关闭
