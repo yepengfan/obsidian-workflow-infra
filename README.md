@@ -35,7 +35,9 @@ SSE-KMS, and these buckets currently use AES256.
 The CloudFormation registry schema in Sydney was checked for native support of
 `BlockedEncryptionTypes`. No custom resource or SDK-based configuration writer
 is used. Retain policies protect both resources during stack deletion or
-replacement. There is no auto-empty code or object deletion permission here.
+replacement. There is no auto-empty code or direct object deletion permission.
+See [execution-role permission scope](docs/github-actions.md#permission-scope-and-future-changes)
+for the lifecycle grant's indirect deletion capability.
 
 ## Local validation
 

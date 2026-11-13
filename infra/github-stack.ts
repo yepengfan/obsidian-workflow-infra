@@ -59,11 +59,14 @@ export class GitHubTrustStack extends Stack {
       resources: bucketArns,
     }));
     execution.addToPolicy(new iam.PolicyStatement({
-      // Only properties modeled today. Future capabilities require a reviewed
+      // Reviewed configuration writes. Future capabilities require a reviewed
       // foundation update via local SSO before the resource deployment.
       actions: [
         's3:PutEncryptionConfiguration', 's3:PutBucketPublicAccessBlock',
         's3:PutBucketOwnershipControls', 's3:PutBucketVersioning',
+        // S3 lifecycle expiry can delete history without DeleteObject permission.
+        // Activation belongs to a separate, reviewed bucket-resource change.
+        's3:PutLifecycleConfiguration',
       ],
       resources: bucketArns,
     }));
