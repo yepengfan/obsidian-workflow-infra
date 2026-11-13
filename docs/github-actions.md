@@ -1,62 +1,42 @@
-# GitHub Actions and native storage import
+# GitHub Actions: automatic Plan, approval, Apply
 
-This branch prepares adoption of the two existing buckets. No AWS resource has
-been deployed or imported, and no object has been copied or deleted. The user
-reviews and merges the App-authored PR, then reviews each concrete AWS plan.
+The repository uses two workflows. `CI` checks pull requests and main without
+AWS credentials. After a successful CI **push on main**, `Deploy storage`
+automatically plans the exact verified commit, waits for the owner's native
+GitHub environment approval, then applies that same CloudFormation change set.
+There is no routine Run workflow action, operation input, ARN copy, or second
+manual Apply trigger. First import is planned automatically too.
 
-## 1. CI on the PR
+No AWS foundation, import, deployment, object copy or lifecycle cleanup has been
+executed as part of preparing these workflows. The user reviews and merges
+App-authored PRs, and separately approves concrete AWS changes.
 
-`.github/workflows/ci.yml` runs type checking, ESLint, unit tests, actionlint,
-dependency audit and offline CDK synth on pull requests and main. It has only
-Contents read, no AWS OIDC token and no App private key. The two templates and
-native import mapping are available as a review artifact.
+## What to review in CI
 
-The audit fails on high/critical reports. See the
-[dependency audit limitation](../README.md#dependency-audit) for the remaining
-build-tool findings.
+Open a CI run's Summary. It includes the synthesized storage definitions and
+GitHub OIDC / IAM diff against `config/empty-template.json`, plus the standard
+CDK bootstrap template and its default AdministratorAccess execution-role
+warning. Download `cloudformation-review` for the full templates and diff files.
+Artifacts are retained for seven days.
 
-## 2. One-time AWS foundation, after separate review
+This is an **offline first-adoption preview**, not a live AWS plan or a diff
+against the PR's base commit. Added bucket definitions mean definitions to
+import, not permission to create replacement buckets. CI has only Contents read,
+no AWS OIDC permission and no App private key. Type checking, lint, tests,
+actionlint and dependency audit remain in Verify; see README for the known
+moderate CDK-bundled dependency findings.
 
-`config/github.json` identifies the immutable repository subject, native
-GitHub OIDC provider and bootstrap qualifier. `infra/github-stack.ts` defines
-the OIDC trust and two separate roles:
+## One-time foundation and GitHub environment setup
 
-- PlanRole, production-plan environment: reads bucket configuration and creates
-  unexecuted change sets for ObsidianWorkflowStorage. It cannot execute them.
-- DeployRole, production environment: executes reviewed change sets for that
-  stack. It cannot create a substitute plan or assume bootstrap roles.
-- Neither GitHub role can GetObject, PutObject or DeleteObject in the note
-  buckets. There is no runtime note reader in this storage-only branch.
+Before cloud planning can run, separately review the CI bootstrap template and
+GitHub trust diff. Use the local `obsidian-admin` SSO session only for the
+reviewed initial AWS foundation; do not upload a local profile to GitHub.
+The standard bootstrap CloudFormation execution role defaults to
+AdministratorAccess. Review or narrow this material permission explicitly;
+the separate GitHub Plan / Deploy roles do not reduce the execution role's
+permissions. Do not silently deploy or broaden it.
 
-Both trust the exact immutable repository/environment OIDC subject and the
-sts.amazonaws.com audience. Configure main-only deployment branches on both
-GitHub environments. The repository's private GitHub plan currently does not
-support required environment reviewers, so do not advertise a native reviewer
-gate: execution uses explicit manual dispatch and the enable flag below.
-
-The Sydney bootstrap SSM parameter is currently absent and the account has no
-GitHub OIDC provider. A native CDK record-only attempt stopped at that missing
-bootstrap prerequisite; it made no import or configuration change.
-
-Preview the foundation without deploying:
-
-```sh
-npx --no-install cdk bootstrap --show-template > /tmp/obsidian-bootstrap.yaml
-npx --no-install cdk diff ObsidianGitHubTrust \
-  --app 'npx --no-install tsx bin/github.ts' \
-  --template config/empty-template.json --no-lookups --output cdk.github.out
-```
-
-Review both the actual bootstrap template and GitHub trust diff with the user.
-The standard bootstrap includes a CloudFormation execution role with
-AdministratorAccess by default. This is a material foundation permission,
-separate from the narrower GitHub roles. The PlanRole can pass only that fixed
-role to CloudFormation, only for the configured storage stack and the S3
-Bucket/BucketPolicy resource types. Do not silently deploy or broaden it.
-
-Only after explicit confirmation, execute the reviewed foundation from the
-local SSO session. The local `obsidian-admin` profile is not uploaded to CI.
-Typical approved-session commands are:
+Only after the user confirms the concrete foundation plan, typical commands are:
 
 ```sh
 npx --no-install cdk bootstrap aws://391824190072/ap-southeast-2 \
@@ -67,74 +47,100 @@ npx --no-install cdk deploy ObsidianGitHubTrust \
   --outputs-file cdk-outputs-github.json
 ```
 
-Set repository/environment variables from the actual stack outputs:
-`AWS_PLAN_ROLE_ARN` and `AWS_DEPLOY_ROLE_ARN`. Keep `ENABLE_AWS_APPLY` unset
-until the user is ready to execute a reviewed plan. No static AWS key is needed.
-No GitHub App key is used in AWS jobs.
+Set `AWS_PLAN_ROLE_ARN` and `AWS_DEPLOY_ROLE_ARN` from the actual stack outputs.
+No static AWS key or GitHub App private key is used in the AWS jobs.
 
-## 3. Plan without executing bucket changes
+Configure repository Settings > Environments:
 
-After the PR is merged, manually run **Plan storage change set** on main:
-choose `import` for first adoption, `update` only for later reviewed changes.
+- `production-plan`: only the `main` branch; no manual reviewer gate.
+- `production`: only `main`; Required reviewers must include repository owner
+  `yepengfan`. This public repository supports native environment reviewers.
+- If the owner initiates the upstream main push and is the sole approver, enabling
+  Prevent self-review can prevent that owner from approving the deployment.
+  Choose that option consistently with the actual approval participants.
+- Disable administrator bypass if all deployments must use the reviewer gate.
 
-The job validates and synthesizes the storage code before obtaining AWS OIDC
-credentials. It then calls native CloudFormation CreateChangeSet with IMPORT
-and `config/import-resources.json`, or UPDATE for later changes. This creates
-plan metadata, and may create an empty REVIEW_IN_PROGRESS stack placeholder.
-It does not execute the plan or alter bucket configuration.
+The last read-only audit found no Required reviewers on `production`, and no
+AWS role variables. These settings still need to be configured; workflow YAML
+alone does not create environment protection. Both Plan and Apply check for the
+owner's reviewer rule before AWS authentication and stop if it is absent or
+cannot be read. This addresses the observed missing-rule configuration; it is
+not a substitute for the native environment approval itself.
 
-The native change set holds the exact template. Its description binds the
-repository ID, full commit SHA and operation; the summary shows the immutable
-ChangeSet ARN. Review the resource actions, physical bucket identifiers and
-artifact. For initial adoption require exactly Vault and Library Import actions
-for the original buckets. No BucketPolicy, lifecycle, IAM or object operation
-belongs in that first import.
+`infra/github-stack.ts` defines native OIDC trust for the exact immutable
+repository/environment subjects and `sts.amazonaws.com` audience. PlanRole can
+create an unexecuted change set and pass only the fixed CDK execution role.
+DeployRole can execute reviewed change sets but cannot create substitute plans
+or pass roles. Neither GitHub role has direct GetObject, PutObject or DeleteObject
+permissions on the note buckets.
 
-`config/import-resources.json` is CloudFormation's `--resources-to-import`
-format, not CDK's separate resource-mapping format. No custom import controller
-is used. CDK's ordinary diff adds two resource *definitions* relative to an
-empty stack; that is not permission to create two new physical buckets.
-The native IMPORT change set is the concrete execution plan.
+## Automatic deployment run
 
-## 4. Apply only the exact plan the user approved
+`deploy-storage.yml` listens to successful completed `CI` runs. It accepts only
+pushes to main in this repository, never PR or fork runs. It checks out the
+upstream run's exact `head_sha`, rejects a superseded main revision before AWS
+authentication, and binds that SHA into the native change-set description.
+It does not download or execute artifacts from untrusted PR runs.
 
-After the user reviews and confirms that AWS plan, enable `ENABLE_AWS_APPLY=true`
-and manually run **Apply storage change set** on main. Enter the exact reviewed
-ChangeSet ARN, matching operation and `execute` confirmation.
+### Plan
 
-The job requires an available, unexecuted change set for the expected stack,
-repository and current full main SHA. Immediately before execution it queries
-live main through the read-only GitHub API token and rejects an outdated
-workflow revision, including reruns. If main advanced, make a fresh plan.
-Initial import is restricted to the two expected bucket logical IDs. Updates
-reject removals, replacements, new buckets and non-S3 resource types; adding
-an S3 BucketPolicy is allowed for a later reviewed HTTPS policy.
+The Plan job uses the unapproved `production-plan` environment and PlanRole:
 
-The job executes the existing ARN. It never re-synthesizes or regenerates a
-template after review. Plan and Apply share a non-cancelling concurrency group.
-Execution then waits for completion, enables stack termination protection and
-checks modeled resource drift with a bounded native API poll.
+1. Synthesize storage from the verified commit.
+2. Read actual `ObsidianWorkflowStorage` state. An exact stack-not-found response
+   or an unexecuted `REVIEW_IN_PROGRESS` placeholder selects IMPORT. A stable
+   imported/created/updated stack selects UPDATE only after its two bucket
+   physical IDs match the versioned import mapping. Unsupported states,
+   permission failures and network errors stop; they never default to import.
+3. Create an unexecuted native CloudFormation change set. IMPORT passes
+   `config/import-resources.json`; no object copying or note reads are involved.
+4. Publish account, region, stack, full SHA, operation, ARN, resource actions,
+   replacement indicators and original bucket mapping in the job Summary.
+   Full plan/template/mapping are attached to this run's artifact.
 
-An AWS operation may finish even if a job later fails during drift verification.
-Inspect actual stack/change-set status before retrying; do not blindly re-import.
-Only IMPORT_COMPLETE, original physical IDs, IN_SYNC modeled properties and
-read-only client/sync-preview verification establish successful adoption.
-Drift does not inspect unmodeled properties or validate note contents.
+A no-change UPDATE is reported without requesting approval or running Apply.
+Other change-set creation failures fail the run. Plan creates metadata and may
+create an empty stack placeholder; it does not execute changes to bucket
+configuration. An IMPORT plan must contain only the two original buckets.
+Library versioning, policies and lifecycle changes remain separate updates.
 
-Normal configuration updates use the same Plan/Apply flow with `update`.
-Bucket names, Region and logical IDs must stay stable; changing them requires
-a separately designed migration.
+### Approval and Apply
 
-## 5. Post-import improvements are separate
+For a plan with changes, Apply depends on Plan and references `production`.
+GitHub waits for Required reviewers before starting that job. In the deployment
+run, read the **Plan** Summary/artifact, then use **Review deployments** to
+approve or reject. Approval starts Apply automatically; no ARN needs copying.
 
-Library versioning, HTTPS-only policy and historical retention are not enabled
-by the baseline. See [the post-import plan](post-import-plan.md) for the selected
-retention policy and required historical-impact review before activation.
+Apply receives the exact ARN and operation through job outputs. It checks the
+native plan's available status, stack, repository, verified SHA and allowed
+resource actions. IMPORT is exactly Vault / Library; UPDATE rejects removals,
+replacements, new buckets and non-S3 resources, while permitting a later reviewed
+BucketPolicy addition. Immediately before execution it queries live main again,
+rejecting a superseded commit even on a rerun. It executes that ARN without
+resynthesizing, waits for AWS completion, enables termination protection, and
+checks modeled resource drift with a bounded poll.
 
-Keep the source notes, original sync client configuration and existing history
-untouched during import. Do not create canary notes or turn on synchronization
-as an implicit test. Resume MCP/Cognito design after storage adoption.
+The workflow concurrency group does not interrupt an in-flight deployment.
+A newer main can queue while an old run awaits approval: reject or cancel the
+superseded waiting run so the current one can plan. Approving an old run cannot
+bypass the live-main check. If a deployment needs replanning, rerun CI for the
+current main commit; successful CI completion automatically triggers deployment.
+An old CI rerun is rejected if main advanced.
 
-References: [CDK import](https://docs.aws.amazon.com/cdk/v2/guide/ref-cli-cmd-import.html),
-[CloudFormation manual import](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/import-resources-manually.html),
-[CloudFormation IAM conditions](https://docs.aws.amazon.com/service-authorization/latest/reference/list_cloudformation.html).
+## Recovery and successful adoption
+
+An AWS operation may complete even if a later waiter or drift check fails.
+Inspect stack and change-set status before retrying; do not blindly re-import.
+Successful adoption requires IMPORT_COMPLETE, the original physical bucket IDs,
+IN_SYNC modeled properties and read-only client access / sync-preview checks.
+Drift does not inspect unmodeled properties or validate note contents. Do not
+create canary notes or activate sync as an implicit test.
+
+Keep bucket names, Region and logical IDs stable. Later configuration changes use
+reviewed PRs and the same automatic Plan / approved Apply flow. See
+[the post-import plan](post-import-plan.md) for the selected, not-yet-enabled
+historical retention policy and its separate impact review.
+
+References: [GitHub workflow_run](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run),
+[environment approval](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments),
+[CloudFormation change sets](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-cfn-updating-stacks-changesets.html).

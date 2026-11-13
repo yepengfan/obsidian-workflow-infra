@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
 type Step = { name?: string; env?: Record<string, string>; run?: string };
-const workflow = parse(fs.readFileSync('.github/workflows/apply-storage.yml', 'utf8')) as {
+const workflow = parse(fs.readFileSync('.github/workflows/deploy-storage.yml', 'utf8')) as {
   jobs: { apply: { permissions: Record<string, string>; steps: Step[] } };
 };
 const execute = workflow.jobs.apply.steps.find((step) => step.name === 'Execute that existing change set without resynthesizing')!;
@@ -38,7 +38,7 @@ printf '%s\\n' "$*" >> "$CALL_LOG"
         encoding: 'utf8',
         env: {
           ...process.env, PATH: `${directory}:${process.env.PATH}`, CALL_LOG: log,
-          LIVE_MAIN_SHA: live, API_STATUS: String(apiStatus), GITHUB_SHA: 'a'.repeat(40),
+          LIVE_MAIN_SHA: live, API_STATUS: String(apiStatus), SOURCE_SHA: 'a'.repeat(40),
           GITHUB_REPOSITORY: 'owner/repository', CHANGE_SET_ARN: 'reviewed-arn', OPERATION: 'import',
         },
       });

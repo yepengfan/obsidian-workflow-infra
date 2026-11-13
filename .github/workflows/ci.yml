@@ -27,11 +27,33 @@ jobs:
         run: npm run synth
       - name: Synthesize CI trust without AWS credentials
         run: npx --no-install cdk synth ObsidianGitHubTrust --app 'npx --no-install tsx bin/github.ts' --no-lookups --output cdk.github.out
+      - name: Publish the offline infrastructure preview in the run summary
+        env:
+          NO_COLOR: '1'
+          AWS_EC2_METADATA_DISABLED: 'true'
+        run: |
+          mkdir -p cdk.review.out
+          npx --no-install cdk diff ObsidianWorkflowStorage --app cdk.out --template config/empty-template.json --no-lookups > cdk.review.out/storage.diff.txt 2>&1
+          npx --no-install cdk diff ObsidianGitHubTrust --app cdk.github.out --template config/empty-template.json --no-lookups > cdk.review.out/github-trust.diff.txt 2>&1
+          npx --no-install cdk bootstrap --show-template > cdk.review.out/bootstrap.template.yaml
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const escape = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+          let summary = '## Offline infrastructure preview\n\nCommit: ' + process.env.GITHUB_SHA + '\n\n';
+          summary += 'These definitions are compared with the empty baseline in config/empty-template.json. This is not a live AWS change set or a PR-base diff. The existing note buckets require IMPORT, not creation. No AWS credentials are used.\n\n';
+          summary += '**Bootstrap permission review:** the standard CloudFormation execution role defaults to AdministratorAccess. Review it separately before any AWS setup.\n\n';
+          for (const [label, file] of [['GitHub OIDC / IAM diff', 'github-trust.diff.txt'], ['Existing bucket definitions', 'storage.diff.txt'], ['Standard CDK bootstrap template', 'bootstrap.template.yaml']]) {
+            summary += '<details><summary>' + label + '</summary><pre>' + escape(fs.readFileSync('cdk.review.out/' + file, 'utf8')) + '</pre></details>\n\n';
+          }
+          summary += 'After the AWS foundation is configured, successful CI pushes on main automatically start Deploy storage: Plan, production approval, then Apply of the same ChangeSet ARN.\n';
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+          NODE
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cloudformation-review
-          retention-days: 3
+          retention-days: 7
           path: |
             cdk.out/ObsidianWorkflowStorage.template.json
             cdk.github.out/ObsidianGitHubTrust.template.json
             config/import-resources.json
+            cdk.review.out/
