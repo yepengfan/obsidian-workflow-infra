@@ -5,86 +5,83 @@ ChatGPT MCP integration. GitHub holds code and IaC, never notes or credentials.
 
 ## Architecture
 
-One TypeScript CDK application defines the infrastructure. Existing native stack
-boundaries keep resource identities and scoped permissions stable.
+The C4 views below describe the intended runtime architecture. Deployment is
+staged; see the [rollout guide](docs/mcp-rollout.md#review-and-deployment-order)
+for the current stage and prerequisites.
+
+### C1: System context
+
+The owner maintains a private knowledge base and uses ChatGPT to ask questions
+about selected notes.
+
+```mermaid
+flowchart LR
+    Owner["Knowledge owner<br/>[Person]"]
+    ChatGPT["ChatGPT<br/>[External software system]<br/>Conversational client"]
+    Platform["Obsidian knowledge platform<br/>[Software system]<br/>Private notes and ebooks"]
+
+    Owner -->|"Asks questions"| ChatGPT
+    Owner -->|"Maintains knowledge; authorizes access"| Platform
+    ChatGPT -->|"Authenticates and retrieves selected notes"| Platform
+
+    classDef person fill:#08427b,color:#fff,stroke:#052e56
+    classDef external fill:#666,color:#fff,stroke:#444
+    classDef system fill:#1168bd,color:#fff,stroke:#0b4884
+    class Owner person
+    class ChatGPT external
+    class Platform system
+```
+
+### C2: Containers
+
+The platform separates authentication, the MCP endpoint, note retrieval and
+private storage. C4 containers represent applications and data stores, not
+Docker containers.
 
 ```mermaid
 flowchart TB
-    App["One TypeScript CDK application"] --> Storage["Storage stack"]
-    App --> Mcp["MCP application stack"]
-    App --> Foundation["Permission foundation"]
-    Storage --> Vault["Private S3 Obsidian vault"]
-    Storage --> Library["Private S3 ebook library"]
-    Mcp --> Login["Cognito managed login - owner account only"]
-    Mcp --> API["HTTPS API Gateway /mcp"]
-    Mcp --> Code["Private S3 deployment ZIPs"]
-    ChatGPT["ChatGPT"] -->|"Authorization code + PKCE"| Login
-    ChatGPT -->|"OAuth access token"| API
-    API --> Lambda["Node.js Lambda - stateless MCP SDK"]
-    Lambda -->|"Read selected Markdown notes"| Vault
-    Lambda --> Logs["Bounded metadata-only logs"]
-    Code -->|"Approved immutable code package"| Lambda
-    Foundation --> OIDC["GitHub OIDC: scoped Plan and Deploy roles"]
-    Foundation --> Execution["Scoped CloudFormation execution roles"]
-    Foundation --> RuntimeRole["Read-only Vault runtime role"]
-    RuntimeRole --> Lambda
+    Owner["Knowledge owner<br/>[Person]"]
+    ChatGPT["ChatGPT<br/>[External software system]<br/>MCP client"]
+
+    subgraph Platform["Obsidian knowledge platform [Software system]"]
+        Auth["Owner authentication<br/>[Container: Amazon Cognito]<br/>OAuth and MFA"]
+        API["MCP endpoint<br/>[Container: API Gateway HTTP API]<br/>HTTPS /mcp"]
+        Server["MCP server<br/>[Container: Node.js Lambda]<br/>Stateless TypeScript MCP tools"]
+        Vault[("Obsidian vault<br/>[Container: Amazon S3]<br/>Private Markdown notes")]
+        Library[("Ebook library<br/>[Container: Amazon S3]<br/>Private ebooks; no MCP access")]
+        Logs[("Operational logs<br/>[Container: CloudWatch Logs]<br/>Request status and timing only")]
+    end
+
+    Owner -->|"Signs in with MFA<br/>[HTTPS]"| Auth
+    Owner -->|"Maintains notes<br/>[Obsidian sync]"| Vault
+    Owner -->|"Maintains private ebooks"| Library
+    ChatGPT -->|"Obtains and refreshes tokens<br/>[OAuth 2.0 / PKCE]"| Auth
+    ChatGPT -->|"Calls read-only tools<br/>[MCP Streamable HTTP / HTTPS]"| API
+    API -->|"Invokes handler<br/>[Lambda integration]"| Server
+    Server -->|"Fetches signing keys<br/>[HTTPS / JWKS]"| Auth
+    Server -->|"Lists metadata; reads selected notes<br/>[S3 API / IAM]"| Vault
+    Server -->|"Writes request metadata<br/>[CloudWatch Logs API]"| Logs
+
+    classDef person fill:#08427b,color:#fff,stroke:#052e56
+    classDef external fill:#666,color:#fff,stroke:#444
+    classDef container fill:#438dd5,color:#fff,stroke:#2e6295
+    class Owner person
+    class ChatGPT external
+    class Auth,API,Server,Vault,Library,Logs container
+    style Platform fill:none,stroke:#777,stroke-dasharray:6 4
 ```
 
 The application implements `list_notes`, `search_notes`, and `read_note`.
 ChatGPT browses one folder page, chooses note paths, then retrieves or searches
 only those notes. There is no whole-vault scan, recursive traversal or index.
-The ebook library is outside the MCP reader's scope.
+The MCP server has read-only access to the vault and no access to the ebook
+library. The committed configuration denies note access until an owner is
+allowlisted and leaves OAuth disabled until the exact ChatGPT callback is configured.
 
-The diagram shows the complete runtime architecture. The reviewed stage in
-[config/mcp-deployment.json](config/mcp-deployment.json) selects what is synthesized.
-Follow the [staged rollout](docs/mcp-rollout.md#review-and-deployment-order)
-for deployment prerequisites and stage advancement.
-Local SDK, JWT and packaging tests do not establish live ChatGPT compatibility.
-The committed runtime configuration denies all note access until an owner is
-allowlisted; OAuth remains disabled until the exact ChatGPT callback is reviewed.
-
-The authoritative definitions and settings live in the
-[CDK app](bin/infrastructure.ts), [infrastructure modules](infra/), and
-[versioned configuration](config/). Resource inventory, properties and import
-mappings belong there rather than in a duplicated README inventory.
-
-## CI pipeline
-
-The repository uses two workflows: [validate](.github/workflows/ci.yml) and
-[plan and apply](.github/workflows/plan-and-apply.yml).
-
-```mermaid
-flowchart TD
-    PR["Bot PR"] --> Verify["validate: tests, lint, synth and offline preview"]
-    Verify --> Review["Owner reviews and merges"]
-    Review --> Main["validate on main"]
-    Main --> Plan["plan and apply: synth once for reviewed rollout stage"]
-    Plan --> Artifact["Retain exact templates and native plans; ZIP and digest in runtime stage"]
-    Plan --> Changed{"Any infrastructure changes?"}
-    Changed -->|No| Unchanged["Discovery check; skip Apply"]
-    Changed -->|Yes| Approval["Owner approves production"]
-    Artifact --> Download["Download this run's reviewed artifact"]
-    Approval --> Download
-    Download --> Guard["Validate every exact native plan and source revision"]
-    Guard --> Runtime{"Runtime stage?"}
-    Runtime -->|Yes| Upload["Conditionally upload immutable ZIP to deployed code storage"]
-    Runtime -->|No| Apply["Execute approved change-set ARNs without resynthesis"]
-    Upload --> Apply
-    Apply --> Check["Storage drift and discovery; runtime adds code checksum/auth checks"]
-```
-
-CI authenticates to AWS through GitHub OIDC. One combined Plan and one production
-approval cover the business stacks. Apply uses the verified source revision and
-existing change sets without resynthesis. CloudFormation executes each stack
-independently, so a later failure can leave earlier stacks completed.
-
-The IAM foundation is included in the shared synthesis and preview. Permission
-updates remain a separate reviewed, approved local SSO operation; ordinary CI
-cannot expand its own permissions. Agents create PRs through the configured
-GitHub App; the owner reviews, merges and approves AWS changes.
-
-Keep both diagrams aligned with the CDK app and workflows in the same PR whenever
-infrastructure or delivery architecture changes.
+Keep these C1 and C2 views aligned with changes to the system's users,
+integrations, applications and data stores. Authoritative definitions and
+settings live in the [CDK app](bin/infrastructure.ts),
+[infrastructure modules](infra/), and [versioned configuration](config/).
 
 ## Local validation
 
