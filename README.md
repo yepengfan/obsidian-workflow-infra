@@ -65,12 +65,8 @@ Bucket names and Region cannot change in place. Keep logical IDs stable.
 
 Import is a separate operation from improvements. The baseline deliberately
 does not enable HTTPS policies, library versioning, lifecycle expiry or IAM
-changes. The user selected age-only expiry for noncurrent versions after 90
-days, with no retention-count floor, current-object expiry or delete-marker
-cleanup. This is a separate post-import change, not enabled by this baseline.
-See [the post-import plan](docs/post-import-plan.md). It requires an impact
-review before activation because it can permanently remove existing historical
-versions. Retain does not stop lifecycle expiry.
+changes. See [the post-import plan](docs/post-import-plan.md) for the selected
+retention policy and required historical-impact review before activation.
 
 ## GitHub identity
 

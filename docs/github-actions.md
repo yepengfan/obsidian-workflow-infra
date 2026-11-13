@@ -11,9 +11,9 @@ dependency audit and offline CDK synth on pull requests and main. It has only
 Contents read, no AWS OIDC token and no App private key. The two templates and
 native import mapping are available as a review artifact.
 
-The audit fails on high/critical reports and displays the known CDK-bundled
-moderate minimatch issue described in README. The separately installed
-minimatch copy is overridden to its fixed version.
+The audit fails on high/critical reports. See the
+[dependency audit limitation](../README.md#dependency-audit) for the remaining
+build-tool findings.
 
 ## 2. One-time AWS foundation, after separate review
 
@@ -127,11 +127,9 @@ a separately designed migration.
 
 ## 5. Post-import improvements are separate
 
-Library versioning, HTTPS-only policy and the selected 90-day historical
-retention are not enabled by the baseline. See
-[the post-import plan](post-import-plan.md). Complete the historical-impact
-review before activating expiry; it can permanently delete eligible old
-versions. Retain does not stop lifecycle deletion.
+Library versioning, HTTPS-only policy and historical retention are not enabled
+by the baseline. See [the post-import plan](post-import-plan.md) for the selected
+retention policy and required historical-impact review before activation.
 
 Keep the source notes, original sync client configuration and existing history
 untouched during import. Do not create canary notes or turn on synchronization

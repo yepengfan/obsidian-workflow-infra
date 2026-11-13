@@ -92,7 +92,7 @@ jobs:
       - name: Verify modeled resource drift without writing objects
         run: |
           detection=$(aws cloudformation detect-stack-drift --stack-name ObsidianWorkflowStorage --query StackDriftDetectionId --output text)
-          for attempt in {1..30}; do
+          for _ in {1..30}; do
             aws cloudformation describe-stack-drift-detection-status --stack-drift-detection-id "$detection" > drift.json
             status=$(jq -r '.DetectionStatus' drift.json)
             case "$status" in
