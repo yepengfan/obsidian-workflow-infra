@@ -13,52 +13,23 @@ note access or credentials are part of this stage.
 
 ## Deployment order
 
-1. Confirm the separate Cognito IAM prerequisite has been reviewed, merged and
-   applied using the
-   [local SSO foundation UPDATE procedure](github-actions.md#permission-scope-and-future-changes).
-   That procedure requires inspection and user confirmation of the exact change
-   set before execution. This resource PR does not change the IAM foundation.
-2. Review the resource PR extending the existing `plan and apply`
-   workflow to the `ObsidianMcp` stack. It initially defines only a Cognito user pool
-   and AWS prefix domain, with public signup disabled, required TOTP MFA,
-   deletion protection and retained identity resources. No app client, user,
-   note-reading Lambda, API endpoint or registration endpoint is enabled by
-   this initial compatibility probe. The existing storage checks remain intact.
-   After merge, inspect the combined **Plan** in the Actions run and approve
-   the single infrastructure **Apply** through the native `production` environment after
-   reviewing all exact change-set ARNs, source SHA, resource actions and templates.
-3. Read the real issuer's discovery metadata. Require a matching issuer, HTTPS
+1. Start from the existing deployed identity probe. Follow the
+   [foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
+   and [resource deployment procedure](github-actions.md#automatic-deployment-run)
+   for the required ordering, native approval and retained-identity guards.
+2. Read the real issuer's discovery metadata. Require a matching issuer, HTTPS
    endpoints and `code_challenge_methods_supported` containing `S256`.
    Stop if the metadata fails; do not fake discovery, disable authentication or
    relax token audience checks to work around incompatibility.
-4. The pool remains defined by `infra/cognito-stack.ts`. Publish its native
-   `ObsidianMcp:UserPoolArn` export through the approved resource workflow before
-   applying the permission-foundation update via local SSO. IAM imports this ARN;
-   no deployed pool ID is copied into GitHub configuration. See the
-   [rollout order](mcp-rollout.md#review-and-deployment-order).
-5. Follow the [staged MCP rollout](mcp-rollout.md#review-and-deployment-order)
+3. Follow the [staged MCP rollout](mcp-rollout.md#review-and-deployment-order)
    for code storage and the authenticated application. The owner creates their
    Cognito user in the Console and handles passwords, MFA and ChatGPT's exact
-   callback URI. Never
-   put credentials or note content in Git, logs or chat.
-
-Applying only the IAM prerequisite does not deploy the pool. The resource
-workflow starts after a successful `validate` push on main. The current resource
-workflow requires the existing identity stack and never recreates it when absent.
-Existing stable stacks must contain the expected pool/domain logical IDs and
-resource types. Native plan and Apply guards reject replacement or removal;
-CloudFormation export/import binding prevents changing the pool ARN while the
-foundation imports it. Other failures and in-progress/failed states stop the
-workflow. A future new-account bootstrap requires a separately reviewed IAM path.
-
-See the [infrastructure deployment procedure](github-actions.md#automatic-deployment-run)
-for the shared Plan/Apply identity, source and resource-action guards, native
-approval, exact-ARN execution and completion checks.
+   callback URI. Never put credentials or note content in Git, logs or chat.
 
 The shared pipeline coordinates the existing native stacks without moving
 resources or broadening IAM. It is not an atomic transaction across stacks;
-inspect actual AWS state after partial failure. The protected pool requires
-TOTP MFA, uses email sign-in and the Essentials
+inspect actual AWS state after partial failure. The protected pool disables
+public signup, requires TOTP MFA, uses email sign-in and the Essentials
 tier, and has a 14-character password policy. The prefix domain uses managed
 login v2. Both resources have `DeletionPolicy` and `UpdateReplacePolicy` Retain.
 Failed creation can leave retained resources or a failed stack: inspect native
@@ -76,7 +47,7 @@ actionlint
 
 Tests execute the workflow's shell steps with controlled AWS/GitHub responses,
 including no-change updates, stale source, unavailable plans, access errors,
-missing approval protection, destructive plans and pinned-pool mismatch. They
+missing approval protection, destructive plans and pool-ARN output mismatch. They
 also synthesize the actual CDK entry point and exercise discovery validation.
 These checks do not prove hosted OIDC, native reviewer routing, the Cognito
 CloudFormation handler, live metadata or OAuth login. Those require the

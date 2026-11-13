@@ -45,7 +45,7 @@ foundation into `cdk.out`. Native stack IDs and scoped CloudFormation service
 roles remain stable, so no existing resources need to move between stacks.
 The foundation is part of the shared review preview; its permissions remain
 outside CI deployment and require the approved local SSO procedure.
-See [Cognito preflight](cognito-preflight.md) for discovery and the native pool ARN binding.
+See [Cognito preflight](cognito-preflight.md) for discovery and authentication checks.
 
 Before updating the IAM foundation for the MCP runtime permissions, publish the
 existing `ObsidianMcp` application stack's native `ObsidianMcp:UserPoolArn`
@@ -55,7 +55,8 @@ properties; an UPDATE change set may have no resource actions. Only after that
 export is published, synthesize and review the local SSO foundation UPDATE and
 obtain owner approval of its concrete IAM change set before execution. The
 foundation uses `Fn::ImportValue` for the exact pool ARN and fails closed if the
-export is missing. Do not copy a deployed pool ID into GitHub configuration.
+export is missing. The imported export cannot change while the foundation uses
+it. Do not copy a deployed pool ID into GitHub configuration.
 This export publication uses existing resource permissions; ordinary CI cannot
 apply the IAM foundation or widen its own permissions.
 
@@ -169,7 +170,8 @@ that property is not modeled here). Granting every advertised create/update
 handler permission would unnecessarily include object deletion and PassRole;
 those permissions are deliberately absent.
 
-Permission changes follow a separate, infrequent path:
+After any prerequisite updates described above, permission expansion follows
+a separate, infrequent path:
 
 1. Open a Bot-authored PR changing the foundation policy to cover the intended
    IaC scope. Review the IAM diff and merge it yourself.
@@ -238,8 +240,7 @@ entire CDK app once, then runs `bin/plan-infrastructure.sh`:
    Cognito stops on that same absence/placeholder condition; never silently
    recreate retained identity resources. A future new-account bootstrap requires
    separately reviewed authorization. Stable Cognito must contain exactly the
-   expected pool/domain logical IDs and resource types. Its native pool ARN
-   export binds the foundation to that identity without a configured pool-ID pin.
+   expected pool/domain logical IDs and resource types.
    Other errors and unsupported states fail the entire Plan.
 2. Prepare native source-bound change sets for both stacks using their dedicated
    service roles and reviewed resource-type scopes. The IAM foundation is never

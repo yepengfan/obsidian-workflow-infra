@@ -48,7 +48,7 @@ flowchart TD
     Verify --> Review["Owner reviews and merges"]
     Review --> Main["validate on main"]
     Main --> Plan["Plan the entire business infrastructure"]
-    Plan --> Changes{"Any resource changes?"}
+    Plan --> Changes{"Any stack changes?"}
     Changes -->|No| Unchanged["Read-only discovery check; skip Apply"]
     Changes -->|Yes| Approval["Owner approves production deployment"]
     Approval --> Preflight["Validate every changed native plan"]

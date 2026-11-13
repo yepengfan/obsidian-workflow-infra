@@ -9,17 +9,9 @@ Selected notes can be read in chunks without editing S3 objects.
 
 ## Review and deployment order
 
-1. Review the permission-foundation PR. Resource identities are defined once in
-   `infra/mcp-resources.ts`; `config/github.json` contains only the GitHub OIDC
-   subject and IAM role names. The application stack exports its managed pool ARN
-   as `ObsidianMcp:UserPoolArn`; the IAM foundation imports that exact value.
-   First approve the ordinary CI update that publishes this native export. It
-   changes no pool properties or note resources. Resource metadata ensures AWS
-   recognizes the output update; a native UPDATE can have no resource actions.
-   Then synthesize and review the foundation diff and apply only its concrete,
-   approved IAM change set through local SSO, following the
-   [foundation procedure](github-actions.md). Missing exports fail closed. Do not
-   attempt IAM first or restore wildcard pool creation to bypass the dependency.
+1. Review the permission-foundation PR and follow the
+   [foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
+   for resource identities, configuration ownership and prerequisite deployment order.
    This stage creates no Lambda, API, OAuth client, code bucket or note endpoint.
 2. Review the code-storage PR and its native CI plan. Create the separate private
    code-artifact bucket before uploading any Lambda ZIP. Keep existing bucket
