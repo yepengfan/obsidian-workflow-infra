@@ -61,11 +61,9 @@ selects first import or later update, publishes the actual native change set,
 and Apply waits for the owner's production environment approval before
 automatically executing that exact ARN. See [setup and review steps](docs/github-actions.md).
 
-All three IAM role names are defined in `config/github.json`. CI calculates
-role ARNs from that configuration and the account in `config/storage.json`,
-so no AWS Repository variables or static AWS keys are required. The permission
-foundation uses a dedicated execution role scoped to the two configured buckets. See [foundation setup and permission updates](docs/github-actions.md)
-for its permission boundaries and the required local SSO update procedure.
+See [foundation setup and permission updates](docs/github-actions.md) for
+versioned role configuration, the migration of existing CI roles, permission
+boundaries and the required local SSO update procedure.
 
 ## Changes after import
 

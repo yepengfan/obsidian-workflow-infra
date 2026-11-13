@@ -46,8 +46,11 @@ CloudFormation stack; full AdministratorAccess is not intrinsically required.
 Its credentials are never uploaded to GitHub. CloudFormation uses the caller's
 session for this foundation; it is not assigned a permanent administrator role.
 
-From the reviewed, merged revision, create and inspect an unexecuted foundation
-plan (these commands create CloudFormation metadata, not IAM resources):
+The foundation already exists. From the reviewed, merged revision, create and
+inspect an unexecuted foundation UPDATE plan (these commands create
+CloudFormation metadata, not IAM resources). Only when setting up a new,
+absent foundation, use `CREATE` and `stack-create-complete` instead of the
+UPDATE type and waiter below.
 
 ```sh
 npx --no-install cdk synth ObsidianGitHubTrust \
@@ -56,7 +59,7 @@ npx --no-install cdk synth ObsidianGitHubTrust \
 FOUNDATION_CHANGE_SET="obsidian-foundation-$(git rev-parse --short=12 HEAD)"
 aws cloudformation create-change-set \
   --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
-  --change-set-type CREATE --capabilities CAPABILITY_NAMED_IAM \
+  --change-set-type UPDATE --capabilities CAPABILITY_NAMED_IAM \
   --template-body file://cdk.github.out/ObsidianGitHubTrust.template.json \
   --description "Reviewed foundation $(git rev-parse HEAD)" \
   --profile obsidian-admin --region ap-southeast-2
@@ -74,7 +77,7 @@ Only after the user confirms that actual plan and its IAM policies:
 aws cloudformation execute-change-set \
   --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
   --profile obsidian-admin --region ap-southeast-2
-aws cloudformation wait stack-create-complete \
+aws cloudformation wait stack-update-complete \
   --stack-name ObsidianGitHubTrust \
   --profile obsidian-admin --region ap-southeast-2
 aws cloudformation update-termination-protection --enable-termination-protection \
@@ -105,9 +108,8 @@ Review the actual foundation diff before applying this migration. Avoid an
 active Plan or Apply run during role replacement.
 
 After this PR is reviewed and merged, synthesize the exact merged revision and
-follow the local SSO foundation procedure above with `--change-set-type UPDATE`,
-then inspect the native change set. Execute only after the user confirms it and
-wait with `stack-update-complete`. Verify that PlanRoleArn / DeployRoleArn use
+follow the local SSO foundation UPDATE procedure above, including inspection,
+user confirmation, execution and the completion waiter. Verify that PlanRoleArn / DeployRoleArn use
 the configured names and that execution permissions have not broadened.
 
 A main deployment that starts between the merge and the foundation update can
@@ -138,7 +140,7 @@ Permission changes follow a separate, infrequent path:
 1. Open a Bot-authored PR changing the foundation policy to cover the intended
    IaC scope. Review the IAM diff and merge it yourself.
 2. From that reviewed revision, use the local SSO session to synthesize the
-   foundation and create an **UPDATE** change set instead of CREATE. Review
+   foundation and create an **UPDATE** change set as shown above. Review
    and approve it, execute it, then wait with `stack-update-complete`.
    Keep role names stable during ordinary permission updates; CI calculates
    the ARN from the same reviewed configuration.
