@@ -120,7 +120,7 @@ rejecting a superseded commit even on a rerun. It executes that ARN without
 resynthesizing, waits for AWS completion, enables termination protection, and
 checks modeled resource drift with a bounded poll.
 
-The environment concurrency group does not interrupt an in-flight deployment.
+The workflow concurrency group does not interrupt an in-flight deployment.
 A newer main can queue while an old run awaits approval: reject or cancel the
 superseded waiting run so the current one can plan. Approving an old run cannot
 bypass the live-main check. If a deployment needs replanning, rerun CI for the
@@ -139,7 +139,7 @@ create canary notes or activate sync as an implicit test.
 Keep bucket names, Region and logical IDs stable. Later configuration changes use
 reviewed PRs and the same automatic Plan / approved Apply flow. See
 [the post-import plan](post-import-plan.md) for the selected, not-yet-enabled
-90-day historical retention policy and its separate impact review.
+historical retention policy and its separate impact review.
 
 References: [GitHub workflow_run](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run),
 [environment approval](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments),
