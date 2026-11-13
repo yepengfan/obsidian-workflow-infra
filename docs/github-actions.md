@@ -48,6 +48,13 @@ The foundation is part of the shared review preview; its permissions remain
 outside CI deployment and require the approved local SSO procedure.
 See [Cognito preflight](cognito-preflight.md) for discovery and authentication checks.
 
+Follow the [staged rollout](mcp-rollout.md#review-and-deployment-order) for
+configuration ownership, deployment prerequisites and stage advancement.
+Prerequisite stages synthesize no code bundle and perform no S3 code upload or
+Lambda checksum check. Plan requests only the resource types in that stage's
+template, so publishing the identity export uses the existing pre-expansion role.
+All stages preserve the Plan and Apply guards described below.
+
 Before updating the IAM foundation for the MCP runtime permissions, publish the
 existing `ObsidianMcp` application stack's native `ObsidianMcp:UserPoolArn`
 CloudFormation export through the approved resource CI Plan/Apply. Resource
@@ -234,9 +241,9 @@ production reviewer rule before AWS authentication. The same checks protect
 ### One infrastructure Plan
 
 The Plan job uses `production-plan` and the fixed Plan role. It synthesizes the
-entire CDK app once, building a deterministic runtime ZIP and source-bound
-SHA-256 manifest in `cdk.out`, then runs `bin/plan-infrastructure.sh`. No AWS code
-upload occurs during Plan:
+entire CDK app once for the reviewed stage, then runs `bin/plan-infrastructure.sh`.
+Only the `runtime` stage builds a deterministic ZIP and source-bound SHA-256
+manifest in `cdk.out`. No AWS code upload occurs during Plan:
 
 1. Inspect actual state for both deployment stacks. Storage selects IMPORT only
    on an exact stack-not-found response or unexecuted `REVIEW_IN_PROGRESS`
@@ -246,15 +253,16 @@ upload occurs during Plan:
    separately reviewed authorization. Stable Cognito must contain the expected
    pool/domain logical IDs. Every live resource must match a logical ID and type
    in the emitted `ObsidianMcp` template; code-bucket/policy physical IDs and the
-   runtime function name must match that model. The code bucket and policy must
-   already exist from the separately approved code-storage deployment.
+   runtime function name must match that model. For `runtime`, the code bucket
+   and policy must already exist from the approved `code-storage` deployment.
+   The `identity` and `code-storage` stages do not require that later prerequisite.
    Other errors and unsupported states fail the entire Plan.
 2. Prepare native source-bound change sets for both stacks using their dedicated
    service roles and reviewed resource-type scopes. The IAM foundation is never
    included in this execution list. Plan creates metadata, not resources.
 3. Publish one `infrastructure-plan.json`, one summary covering both stacks and
    their exact ARNs/actions/replacements, and one review artifact containing all
-   templates, native plans, exact runtime ZIP and its digest manifest. A failed
+   templates, native plans and, for `runtime`, the exact ZIP and digest manifest. A failed
    second plan prevents any Apply.
 
 Only a recognized no-change UPDATE is tolerated as unchanged. Approval is
@@ -272,7 +280,7 @@ compares its manifest with those outputs. It never resynthesizes templates or
 constructs replacement plans.
 
 `bin/apply-infrastructure.sh` verifies the manifest's source/repository/account/
-Region and exact deployment stack set. It inspects **every changed native plan
+Region, template-bound rollout stage and exact deployment stack set. It inspects **every changed native plan
 before any code upload or stack execution**. Each must be available, bound to
 the expected stack and source, and pass its existing resource checks: storage IMPORT is exactly Vault /
 Library; storage UPDATE permits original bucket modifications or reviewed later
@@ -282,7 +290,7 @@ additions/modifications whose logical IDs and resource types match that model,
 excluding IAM roles/policies. An UPDATE with no resource actions is allowed for
 native metadata/output changes. Removals and replacements are rejected.
 
-For a changed MCP stack, Apply checks that live main still matches the verified
+For a changed MCP stack in the `runtime` stage, Apply checks that live main still matches the verified
 source and that the downloaded code manifest matches the combined plan. It
 verifies the ZIP digest, size, source revision and template code key, then writes
 `releases/<sha256>.zip` to the modeled private code bucket using AES256, SHA-256
@@ -293,7 +301,7 @@ No overwrite or delete is attempted.
 Apply rechecks live main immediately before each execution, enables termination
 protection, executes the exact approved ARN and waits for the correct import
 or update completion. It preserves the bounded storage drift check and
-verifies the changed Lambda's `CodeSha256`, `State` and `LastUpdateStatus`, then
+verifies the changed Lambda's `CodeSha256`, `State` and `LastUpdateStatus` in the runtime stage, then
 runs the [public discovery check](cognito-preflight.md#local-checks-and-post-deployment-discovery),
 with propagation retries only if that stack changed. A discovery failure leaves
 OAuth/private-note access disabled.

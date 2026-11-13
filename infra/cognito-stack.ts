@@ -24,6 +24,7 @@ export class CognitoStack extends Stack {
       terminationProtection: true,
       description: 'Retained Cognito issuer compatibility probe for private Obsidian MCP',
     });
+    this.templateOptions.metadata = { McpDeploymentStage: application ? 'runtime' : deployment ? 'code-storage' : 'identity' };
     const pool = new CfnUserPool(this, 'UserPool', {
       userPoolName: settings.userPoolName,
       userPoolTier: 'ESSENTIALS',

@@ -6,20 +6,34 @@ the authoritative tool scope, paging and no-scan contract.
 
 ## Review and deployment order
 
-1. Review the permission-foundation PR and follow the
-   [foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
-   for resource identities, configuration ownership and prerequisite deployment order.
-   That foundation stage creates no Lambda, API, OAuth client, code bucket or note endpoint.
-2. Review the code-storage PR and its native CI plan. Create the separate private
-   code-artifact bucket before uploading any Lambda ZIP. Keep existing bucket
-   identities and protections; never copy notes into deployment storage.
-3. Review the runtime/CI PR. Plan builds the ZIP and records its digest. Production
-   approval precedes the conditional immutable upload and execution of exact
-   reviewed change sets. Existing workflow names, OIDC subjects and the single
-   business-resource approval remain unchanged. The owner creates the Cognito
-   account in Console and configures its allowlist before enabling note access.
+`config/mcp-deployment.json` selects the stage in reviewed source. A merge is not
+a deployment. Each stage uses the same `validate` and `plan and apply` workflows,
+one synthesis, one combined native Plan and one production approval. The stage
+is retained in the template and manifest; Apply rejects a mismatch.
 
-The expected three implementation PRs can be reviewed in dependency order.
+1. Set `stage` to `identity`. CI updates only the existing pool/domain template
+   to publish its pool ARN export and binding metadata. Review and approve that
+   CI Apply first. No runtime ZIP, code bucket or OAuth client is created.
+2. Follow the [foundation procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
+   to prepare the IAM UPDATE via local SSO, review its actual change set and
+   obtain approval before execution. CI cannot apply this foundation or expand
+   its own permissions. The native pool export must already exist.
+3. Open a Bot PR setting `stage` to `code-storage`. After review/merge, approve
+   the CI plan creating the separate private code bucket and its HTTPS-only
+   policy. No ZIP is built or uploaded. Wait for Apply to complete.
+4. Open a Bot PR setting `stage` to `runtime`. Plan builds the ZIP and records
+   its digest; it still refuses delivery until modeled code storage is deployed.
+   Production approval precedes conditional immutable upload and execution of
+   exact reviewed change sets. Configure the owner and callback as below.
+
+The stage has no environment-variable or GitHub-variable override. Invalid
+configuration fails synthesis. Stage rollback cannot omit live resources: the
+native identity/binding guards and no-removal/no-replacement guards still apply.
+Do not advance the stage while an earlier Apply is awaiting approval. New merges
+make older plans stale; rerunning an old revision cannot deploy it. If only the
+latest revision's CI needs retrying, rerun its `validate` workflow to generate a
+new Plan rather than approving an older source-bound plan.
+
 If the owner identifier or exact ChatGPT callback is unavailable before the
 runtime PR, keep access denied and make the final configuration change in a
 reviewed follow-up. Never use a placeholder owner or an overly broad callback.
@@ -95,16 +109,14 @@ bucket-enforced, default encryption is AES256 with SSE-C blocked, and versioning
 is enabled. Both resources are retained on deletion/replacement. There is no
 auto-empty behavior, lifecycle expiry, object deletion or note replication.
 
-The code-storage prerequisite adds only `CodeArtifacts` and
+The `code-storage` stage adds only `CodeArtifacts` and
 `CodeArtifactsPolicy`, preserving the original identity and storage resources.
 It uploads no ZIP. The runtime extends this stack afterward; the current
 [Plan](github-actions.md#one-infrastructure-plan) and
 [Apply guards](github-actions.md#one-approval-and-infrastructure-apply) require
 already-deployed code storage and bind the runtime to the exact reviewed native
-template. Follow the
-[foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
-for prerequisite ordering, then review the code-storage CI plan and approve
-production to create that bucket before runtime delivery.
+template. Follow the [deployment order](#review-and-deployment-order)
+before advancing to runtime delivery.
 Offline synthesis and fake-AWS CLI checks do not establish native bucket/policy
 creation, CloudFormation handler permissions or S3 security enforcement. Verify
 those during the separately approved rollout after the IAM prerequisite is

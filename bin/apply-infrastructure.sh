@@ -10,6 +10,10 @@ jq -e --arg sha "$SOURCE_SHA" --arg repo "$GITHUB_REPOSITORY_ID" --arg account "
   all(.stacks[]; (.hasChanges | type == "boolean") and
     (if .name == "ObsidianWorkflowStorage" then (.operation == "import" or .operation == "update") else .operation == "update" end) and
     (.arn | type == "string"))' "$manifest"
+jq -e --slurpfile model "$artifacts/ObsidianMcp.template.json" '
+  .mcpStage == $model[0].Metadata.McpDeploymentStage and
+  (.mcpStage == "identity" or .mcpStage == "code-storage" or .mcpStage == "runtime") and
+  (if .mcpStage == "runtime" then (.code | type == "object") else has("code") | not end)' "$manifest"
 
 # Validate every changed native plan before executing any stack in the group.
 while IFS= read -r entry; do
@@ -42,7 +46,7 @@ done < <(jq -c '.stacks[] | select(.hasChanges)' "$manifest")
 
 # Every native plan has now been checked. Upload code only after production approval,
 # and recheck main before the first S3 write as well as each stack execution.
-if jq -e 'any(.stacks[]; .name == "ObsidianMcp" and .hasChanges)' "$manifest" > /dev/null; then
+if jq -e '.mcpStage == "runtime" and any(.stacks[]; .name == "ObsidianMcp" and .hasChanges)' "$manifest" > /dev/null; then
   [[ "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')" == "$SOURCE_SHA" ]]
   jq -e --slurpfile code "$artifacts/CodeBundle.json" '.code == $code[0]' "$manifest"
   npm exec -- tsx bin/publish-code.ts "$artifacts"
@@ -74,7 +78,7 @@ for _ in {1..30}; do
 done
 [[ "$complete" == true ]] || { echo 'Storage drift check timed out. Inspect AWS before retrying.' >&2; exit 1; }
 aws cloudformation describe-stacks --stack-name ObsidianMcp > infrastructure-apply/ObsidianMcp.stack.json
-if jq -e 'any(.stacks[]; .name == "ObsidianMcp" and .hasChanges)' "$manifest" > /dev/null; then
+if jq -e '.mcpStage == "runtime" and any(.stacks[]; .name == "ObsidianMcp" and .hasChanges)' "$manifest" > /dev/null; then
   function_name=$(jq -er '.Resources.McpFunction.Properties.FunctionName' "$artifacts/ObsidianMcp.template.json")
   aws lambda get-function-configuration --function-name "$function_name" > infrastructure-apply/runtime-code.json
   expected_code=$(jq -r '.code.sha256Base64' "$manifest")

@@ -1,3 +1,7 @@
+import { z } from 'zod';
+
+export const mcpRolloutSchema = z.strictObject({ stage: z.enum(['identity', 'code-storage', 'runtime']) });
+
 /** Shared IaC identities. Application resources and their IAM scopes use this contract. */
 export const MCP_POOL_ARN_EXPORT = 'ObsidianMcp:UserPoolArn';
 

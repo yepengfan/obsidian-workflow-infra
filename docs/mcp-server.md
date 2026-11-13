@@ -56,10 +56,8 @@ permissions and cannot read the ebook or code-artifact bucket.
 ## Deployment
 
 Run the [local validation commands](../README.md#local-validation), then review
-`cdk.out` and the offline CI preview. Follow the prerequisite ordering in
-[the rollout guide](mcp-rollout.md): publish the native pool ARN export, review
-and approve its IAM foundation update through local SSO, then create the private
-code bucket through approved CI before the runtime's first upload.
+`cdk.out` and the offline CI preview. Follow the deployment prerequisites and
+stage advancement in [the rollout guide](mcp-rollout.md#review-and-deployment-order).
 
 The [deployment workflow](github-actions.md#automatic-deployment-run) owns the
 Plan artifacts, production approval, exact native-template checks, conditional

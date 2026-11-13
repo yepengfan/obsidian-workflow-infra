@@ -2,14 +2,18 @@
 set -euo pipefail
 
 mkdir -p infrastructure-plan
+stage=$(jq -er '.Metadata.McpDeploymentStage | select(. == "identity" or . == "code-storage" or . == "runtime")' cdk.out/ObsidianMcp.template.json)
 jq -n --arg sha "$SOURCE_SHA" --arg repo "$GITHUB_REPOSITORY_ID" --arg account "$ACCOUNT" --arg region "$REGION" \
-  '{schemaVersion:1, sourceSha:$sha, repositoryId:$repo, account:$account, region:$region, stacks:[]}' > infrastructure-plan.json
-jq --slurpfile code cdk.out/CodeBundle.json '.code=$code[0]' infrastructure-plan.json > infrastructure-plan/with-code.json
-mv infrastructure-plan/with-code.json infrastructure-plan.json
+  --arg stage "$stage" '{schemaVersion:1, sourceSha:$sha, repositoryId:$repo, account:$account, region:$region, mcpStage:$stage, stacks:[]}' > infrastructure-plan.json
+if [[ "$stage" == runtime ]]; then
+  jq --slurpfile code cdk.out/CodeBundle.json '.code=$code[0]' infrastructure-plan.json > infrastructure-plan/with-code.json
+  mv infrastructure-plan/with-code.json infrastructure-plan.json
+fi
 {
   echo '## Infrastructure plan'
   echo
   echo "Account: ${ACCOUNT} | Region: ${REGION} | Verified commit: ${SOURCE_SHA}"
+  echo "MCP rollout stage: ${stage}. IAM is never applied by this workflow."
   echo
   echo '| Stack | Operation | Action | Logical resource | Type | Replacement |'
   echo '| --- | --- | --- | --- | --- | --- |'
@@ -53,7 +57,9 @@ for stack in ObsidianWorkflowStorage ObsidianMcp; do
       fi ;;
     ObsidianMcp)
       prefix=obsidian-mcp; execution_role=$MCP_EXECUTION_ROLE
-      types=(AWS::Cognito::UserPool AWS::Cognito::UserPoolDomain AWS::Cognito::UserPoolClient AWS::Cognito::UserPoolResourceServer AWS::Cognito::ManagedLoginBranding AWS::S3::Bucket AWS::S3::BucketPolicy AWS::Lambda::Function AWS::Lambda::Permission AWS::Logs::LogGroup AWS::ApiGatewayV2::Api AWS::ApiGatewayV2::Integration AWS::ApiGatewayV2::Route AWS::ApiGatewayV2::Stage)
+      # Use only this stage's modeled resource types. The identity-export stage
+      # must work before the separately approved permission expansion exists.
+      mapfile -t types < <(jq -r '[.Resources[].Type] | unique[]' cdk.out/ObsidianMcp.template.json)
       if [[ "$operation" == initial ]]; then
         echo 'Managed identity stack is absent. Inspect retained resources before retrying.' >&2; exit 1
       fi
@@ -63,8 +69,9 @@ for stack in ObsidianWorkflowStorage ObsidianMcp; do
         all($live[]; . as $r | $expected[$r.LogicalResourceId].Type == $r.ResourceType and
           (if $r.LogicalResourceId == "CodeArtifacts" or $r.LogicalResourceId == "CodeArtifactsPolicy" then $r.PhysicalResourceId == $expected.CodeArtifacts.Properties.BucketName
            elif $r.LogicalResourceId == "McpFunction" then $r.PhysicalResourceId == $expected.McpFunction.Properties.FunctionName else true end)) and
-        any($live[]; .LogicalResourceId == "CodeArtifacts") and any($live[]; .LogicalResourceId == "CodeArtifactsPolicy")' "$resources" || {
-          echo 'Runtime delivery requires the separately deployed, modeled code bucket and existing identity bindings.' >&2; exit 1;
+        (if $model[0].Metadata.McpDeploymentStage == "runtime" then
+          any($live[]; .LogicalResourceId == "CodeArtifacts") and any($live[]; .LogicalResourceId == "CodeArtifactsPolicy") else true end)' "$resources" || {
+          echo 'Rollout stage does not match deployed identity/resource bindings. Runtime requires separately deployed code storage; stage rollback cannot remove deployed resources.' >&2; exit 1;
         } ;;
 
   esac
@@ -110,10 +117,14 @@ done
   jq -r '.[] | "| \(.LogicalResourceId) | \(.ResourceIdentifier.BucketName) |"' config/import-resources.json
   echo
   echo 'Review the entire infrastructure plan and template artifact. One production approval authorizes Apply of these exact changed ARNs. AWS executes each stack independently; partial completion is possible and must be inspected before retrying.'
-  echo 'The IAM foundation is previewed but never deployed by ordinary CI. Permission changes require the reviewed local SSO procedure. Production approval precedes any code upload; the exact downloaded ZIP and native change sets are applied without resynthesis.'
-  echo
-  echo '### Runtime code artifact'
-  jq -r '.code | "ZIP SHA-256: `\(.sha256)` | Bytes: \(.bytes) | Immutable key: `\(.key)`"' infrastructure-plan.json
+  echo 'The IAM foundation is previewed but never deployed by ordinary CI. Permission changes require the reviewed local SSO procedure. Production approval precedes any runtime code upload; the exact downloaded artifacts and native change sets are applied without resynthesis.'
+  if [[ "$stage" == runtime ]]; then
+    echo
+    echo '### Runtime code artifact'
+    jq -r '.code | "ZIP SHA-256: `\(.sha256)` | Bytes: \(.bytes) | Immutable key: `\(.key)`"' infrastructure-plan.json
+  else
+    echo 'This prerequisite stage builds and uploads no Lambda ZIP. After identity export Apply, review/apply the IAM foundation via local SSO before advancing to code-storage; advance to runtime only after code-storage Apply completes.'
+  fi
 } >> "$GITHUB_STEP_SUMMARY"
 echo "plan=$(jq -c . infrastructure-plan.json)" >> "$GITHUB_OUTPUT"
 echo "has_changes=$(jq 'any(.stacks[]; .hasChanges)' infrastructure-plan.json)" >> "$GITHUB_OUTPUT"
