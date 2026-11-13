@@ -40,10 +40,11 @@ Resource identities and IAM are defined by the CDK modules; GitHub role settings
 are in `config/github.json`. No AWS credentials, OAuth secret or token belongs
 in these files.
 
-Defaults: 20 metadata entries per page; 20 selected notes per body search;
-4 concurrent S3 reads; 256 KiB per selected body; 16 KiB per read chunk;
-64 KiB request and 256 KiB response limits; 5-second tool deadline and 10-second
-Lambda timeout. A selected body batch can read at most 5 MiB at these limits.
+The committed defaults are in [`config/mcp-runtime.json`](../config/mcp-runtime.json);
+[`src/config.ts`](../src/config.ts) defines the allowed bounds. Page size, selected
+note count, parallel reads, per-note body bytes, chunk bytes, request/response
+bytes and tool deadline are bounded independently. The
+[Lambda definition](../infra/mcp-runtime.ts) owns the invocation timeout.
 Reduce the requested page/selection when a result exceeds the response cap.
 No discarded result is represented as a successful complete page.
 
@@ -54,38 +55,26 @@ permissions and cannot read the ebook or code-artifact bucket.
 
 ## Deployment
 
-Use Node 22.18 within Node 22:
-
-```sh
-npm ci
-npm run check
-npm run synth
-```
-
-Review `cdk.out` and the offline CI preview. Follow the prerequisite ordering in
+Run the [local validation commands](../README.md#local-validation), then review
+`cdk.out` and the offline CI preview. Follow the prerequisite ordering in
 [the rollout guide](mcp-rollout.md): publish the native pool ARN export, review
 and approve its IAM foundation update through local SSO, then create the private
 code bucket through approved CI before the runtime's first upload.
 
-After merging the runtime PR, successful main validation starts **plan and
-apply**. Plan synthesizes once and packages the runtime with deterministic ZIP
-metadata, recording its SHA-256 in the plan artifact and summary. It uploads no
-code to AWS. Review the CDK preview, templates, exact native change-set ARNs and
-digest before approving the `production` environment.
-
-Apply downloads that same run's artifact, verifies the source and every native
-plan, then conditionally writes `releases/<sha256>.zip` using AES256 and
-`If-None-Match: *`. A preexisting key is accepted only after its size and SHA-256
-match. No overwrite or delete is attempted. Apply executes the exact change sets
-without resynthesis, then verifies Lambda's `CodeSha256`, storage drift and
-public discovery. AWS stack execution is not atomic. Inspect any partially
-completed run before retrying; checksum failure does not undo an executed stack.
+The [deployment workflow](github-actions.md#automatic-deployment-run) owns the
+Plan artifacts, production approval, exact native-template checks, conditional
+immutable ZIP upload and post-Apply verification. Review the templates, native
+change-set ARNs and digest before approving production. Stack execution is not
+atomic; inspect partially completed runs before retrying.
 
 This implementation has not been deployed as part of code validation. Native
 handler permissions, live Cognito OAuth and real ChatGPT compatibility remain
 rollout checks requiring the separate concrete deployment approval.
 
 ## Owner setup and ChatGPT connection
+
+This private integration uses a predefined confidential OAuth client; it does
+not expose dynamic client registration.
 
 1. In Cognito Console, open the pool identified by `ObsidianMcp` outputs and
    create your own user. Complete password and required TOTP enrollment through

@@ -15,7 +15,7 @@ export const cognitoSchema = z.strictObject({
     .refine(value => !['aws', 'amazon', 'cognito'].some(reserved => value.includes(reserved)), 'Reserved Cognito domain prefix'),
 });
 
-/** A retained issuer probe, with no client, user, registration or MCP endpoint. */
+/** Retains the native issuer identity while optionally adding code storage and the MCP application. */
 export class CognitoStack extends Stack {
   constructor(scope: Construct, id: string, aws: Pick<StorageConfig, 'account' | 'region'>, settings: z.infer<typeof cognitoSchema>, deployment?: McpDeploymentConfig, application?: McpApplication) {
     super(scope, id, {
