@@ -116,7 +116,8 @@ the configured names and that execution permissions have not broadened.
 A main deployment that starts between the merge and the foundation update can
 fail OIDC login because the new names do not exist yet. It must not fall back to
 the old roles or a broader identity. Once the approved foundation update succeeds,
-rerun the current main CI once; its completion automatically starts storage Plan.
+rerun `Validate infrastructure` for current main once; its completion automatically
+starts storage Plan.
 Review the import plan before production approval. No ARN copy, Repository
 variable update, or extra configuration service is part of this migration.
 Subsequent normal deployments remain automatic Plan, approval, automatic Apply.
@@ -235,9 +236,10 @@ checks modeled resource drift with a bounded poll.
 The workflow concurrency group does not interrupt an in-flight deployment.
 A newer main can queue while an old run awaits approval: reject or cancel the
 superseded waiting run so the current one can plan. Approving an old run cannot
-bypass the live-main check. If a deployment needs replanning, rerun CI for the
-current main commit; successful CI completion automatically triggers deployment.
-An old CI rerun is rejected if main advanced.
+bypass the live-main check. If a deployment needs replanning, rerun
+`Validate infrastructure` for the current main commit; successful completion
+automatically triggers deployment. An old validation rerun is rejected if main
+advanced.
 
 ## Recovery and successful adoption
 
