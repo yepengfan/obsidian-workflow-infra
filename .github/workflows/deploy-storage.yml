@@ -61,24 +61,18 @@ jobs:
       - run: npm run synth
       - name: Read versioned AWS settings
         id: config
-        env:
-          PLAN_ROLE: ${{ vars.AWS_PLAN_ROLE_ARN }}
-          DEPLOY_ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
         run: |
-          if [[ -z "$PLAN_ROLE" || -z "$DEPLOY_ROLE" ]]; then
-            echo 'Configure the reviewed AWS OIDC foundation and both role ARN variables before deployment.' >&2
-            exit 1
-          fi
           node --input-type=commonjs <<'NODE' >> "$GITHUB_OUTPUT"
           const s = require('./config/storage.json');
           const g = require('./config/github.json');
           console.log('account=' + s.account);
           console.log('region=' + s.region);
           console.log('executionRole=arn:aws:iam::' + s.account + ':role/' + g.executionRoleName);
+          console.log('roleArn=arn:aws:iam::' + s.account + ':role/' + g.planRoleName);
           NODE
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          role-to-assume: ${{ steps.config.outputs.roleArn }}
           aws-region: ${{ steps.config.outputs.region }}
           allowed-account-ids: ${{ steps.config.outputs.account }}
       - name: Select import or update from actual stack state
@@ -205,12 +199,14 @@ jobs:
         run: |
           node --input-type=commonjs <<'NODE' >> "$GITHUB_OUTPUT"
           const s = require('./config/storage.json');
+          const g = require('./config/github.json');
           console.log('account=' + s.account);
           console.log('region=' + s.region);
+          console.log('roleArn=arn:aws:iam::' + s.account + ':role/' + g.deployRoleName);
           NODE
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ steps.config.outputs.roleArn }}
           aws-region: ${{ steps.config.outputs.region }}
           allowed-account-ids: ${{ steps.config.outputs.account }}
       - name: Inspect the exact reviewed plan and reject stale or destructive actions

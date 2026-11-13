@@ -4,10 +4,15 @@ import type { Construct } from 'constructs';
 import { z } from 'zod';
 import { STORAGE_STACK_NAME, type StorageConfig } from './storage-config.js';
 
+const roleName = z.string().regex(/^obsidian-[A-Za-z0-9+=,.@_-]+$/u).max(64);
+
 export const githubSchema = z.object({
   repositorySubject: z.string().regex(/^repo:[A-Za-z0-9_.-]+@\d+\/[A-Za-z0-9_.-]+@\d+$/u),
-  executionRoleName: z.string().regex(/^obsidian-[A-Za-z0-9+=,.@_-]+$/u).max(64),
-}).strict();
+  planRoleName: roleName,
+  deployRoleName: roleName,
+  executionRoleName: roleName,
+}).strict().refine(config => new Set([config.planRoleName, config.deployRoleName, config.executionRoleName]
+  .map(name => name.toLowerCase())).size === 3, 'Role names must be distinct');
 
 /** Reviewed permission foundation; local SSO update procedure: docs/github-actions.md. */
 export class GitHubTrustStack extends Stack {
@@ -24,8 +29,8 @@ export class GitHubTrustStack extends Stack {
         'token.actions.githubusercontent.com:sub': `${github.repositorySubject}:environment:${environment}`,
       },
     }, 'sts:AssumeRoleWithWebIdentity');
-    const plan = new iam.Role(this, 'PlanRole', { assumedBy: principal('production-plan'), maxSessionDuration: Duration.hours(1) });
-    const apply = new iam.Role(this, 'DeployRole', { assumedBy: principal('production'), maxSessionDuration: Duration.hours(1) });
+    const plan = new iam.Role(this, 'PlanRole', { roleName: github.planRoleName, assumedBy: principal('production-plan'), maxSessionDuration: Duration.hours(1) });
+    const apply = new iam.Role(this, 'DeployRole', { roleName: github.deployRoleName, assumedBy: principal('production'), maxSessionDuration: Duration.hours(1) });
     const stackArn = `arn:${this.partition}:cloudformation:${this.region}:${this.account}:stack/${STORAGE_STACK_NAME}/*`;
     const bucketArns = [storage.buckets.vault.name, storage.buckets.library.name]
       .map((name) => `arn:${this.partition}:s3:::${name}`);

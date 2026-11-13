@@ -7,9 +7,9 @@ GitHub environment approval, then applies that same CloudFormation change set.
 There is no routine Run workflow action, operation input, ARN copy, or second
 manual Apply trigger. First import is planned automatically too.
 
-No AWS foundation, import, deployment, object copy or lifecycle cleanup has been
-executed as part of preparing these workflows. The user reviews and merges
-App-authored PRs, and separately approves concrete AWS changes.
+The user reviews and merges App-authored PRs and separately approves concrete
+AWS changes. Repository changes alone do not execute the permission foundation,
+import existing buckets, copy objects or activate lifecycle cleanup.
 
 ## What to review in CI
 
@@ -29,8 +29,10 @@ moderate CDK-bundled dependency findings.
 
 The permission foundation is `ObsidianGitHubTrust`, defined in
 `infra/github-stack.ts`. It contains the native GitHub OIDC provider, PlanRole,
-DeployRole, and a dedicated CloudFormation storage execution role. The role name
-is versioned in `config/github.json`. No role has a managed policy attached.
+DeployRole, and a dedicated CloudFormation storage execution role. All three
+role names are versioned in `config/github.json`; account and Region are in
+`config/storage.json`. CDK and CI use the same role names. No role has a managed
+policy attached.
 
 Both stacks are asset-free. CDK generates the templates, and the AWS CLI sends
 those templates directly to CloudFormation. They have no bootstrap-version SSM
@@ -82,11 +84,39 @@ aws cloudformation describe-stacks --stack-name ObsidianGitHubTrust \
   --query 'Stacks[0].Outputs' --profile obsidian-admin --region ap-southeast-2
 ```
 
-Set `AWS_PLAN_ROLE_ARN` and `AWS_DEPLOY_ROLE_ARN` from those actual stack outputs.
-`CloudFormationExecutionRoleArn` must match the configured role used by Plan.
-No static AWS key or GitHub App private key is used in AWS jobs. If the previous
-standard-bootstrap preview still exists, delete its unexecuted change set after
-verifying it was not executed; do not execute that administrator-role proposal.
+No AWS Repository variables or AWS static-key Secrets are required. Plan and
+Apply calculate their own role ARN from the versioned account and the respective
+`planRoleName` / `deployRoleName`. CloudFormation outputs are diagnostic values,
+not values to copy into GitHub settings. The storage execution role uses the
+same `executionRoleName` declared by CDK. Do not introduce a discovery role,
+SSM parameter mirror, or credentials just to look up these predictable ARNs.
+
+If the previous standard-bootstrap preview still exists, delete its unexecuted
+change set after verifying it was not executed; do not execute that
+administrator-role proposal.
+
+### Migrate the existing automatically named CI roles
+
+The first foundation deployment created PlanRole and DeployRole with generated
+names. Adopting the configured stable names replaces **those two IAM roles**.
+Their policy attachments follow the replacements. The storage execution role,
+OIDC provider, permission documents and existing S3 resources do not need changes.
+Review the actual foundation diff before applying this migration. Avoid an
+active Plan or Apply run during role replacement.
+
+After this PR is reviewed and merged, synthesize the exact merged revision and
+follow the local SSO foundation procedure above with `--change-set-type UPDATE`,
+then inspect the native change set. Execute only after the user confirms it and
+wait with `stack-update-complete`. Verify that PlanRoleArn / DeployRoleArn use
+the configured names and that execution permissions have not broadened.
+
+A main deployment that starts between the merge and the foundation update can
+fail OIDC login because the new names do not exist yet. It must not fall back to
+the old roles or a broader identity. Once the approved foundation update succeeds,
+rerun the current main CI once; its completion automatically starts storage Plan.
+Review the import plan before production approval. No ARN copy, Repository
+variable update, or extra configuration service is part of this migration.
+Subsequent normal deployments remain automatic Plan, approval, automatic Apply.
 
 ### Permission scope and future changes
 
@@ -110,7 +140,8 @@ Permission changes follow a separate, infrequent path:
 2. From that reviewed revision, use the local SSO session to synthesize the
    foundation and create an **UPDATE** change set instead of CREATE. Review
    and approve it, execute it, then wait with `stack-update-complete`.
-   Keep role names stable so existing CI role variables remain valid.
+   Keep role names stable during ordinary permission updates; CI calculates
+   the ARN from the same reviewed configuration.
 3. Open the resource-change PR after that permission update has succeeded.
    CI can then Plan and, after production approval, Apply those resource changes.
 
@@ -135,8 +166,7 @@ Configure repository Settings > Environments:
 - Disable administrator bypass if all deployments must use the reviewer gate.
 
 The owner configured the production Required reviewer after the initial audit.
-The AWS role variables still require the actual foundation outputs; workflow YAML
-alone does not create environment protection. Both Plan and Apply check for the
+Workflow YAML alone does not create environment protection. Both Plan and Apply check for the
 owner's reviewer rule before AWS authentication and stop if it is absent or
 cannot be read. This addresses the observed missing-rule configuration; it is
 not a substitute for the native environment approval itself.
@@ -215,7 +245,8 @@ reviewed PRs and the same automatic Plan / approved Apply flow. See
 [the post-import plan](post-import-plan.md) for the selected, not-yet-enabled
 historical retention policy and its separate impact review.
 
-References: [CloudFormation service roles](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-iam-servicerole.html),
+References: [IAM role names and replacement](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-role.html#cfn-iam-role-rolename),
+[CloudFormation service roles](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-iam-servicerole.html),
 [CDK synthesizer bootstrap checks](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.DefaultStackSynthesizerProps.html#generatebootstrapversionrule),
 [GitHub workflow_run](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run),
 [environment approval](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments),

@@ -5,8 +5,9 @@ Native CloudFormation resource import binds these definitions to the existing
 buckets. Existing objects, version history, bucket names and Obsidian sync paths
 stay in place. Notes and credentials never belong in this repository.
 
-This repository defines the import baseline and automatic GitHub Actions Plan/Apply workflow.
-No AWS import, deployment, data copy or lifecycle cleanup has been executed.
+This repository defines the import baseline, scoped permission foundation and
+automatic GitHub Actions Plan/Apply workflow. Applying cloud changes requires
+separate review and approval; no object copy or cleanup is part of the baseline.
 
 ## Resource definitions
 
@@ -60,8 +61,10 @@ selects first import or later update, publishes the actual native change set,
 and Apply waits for the owner's production environment approval before
 automatically executing that exact ARN. See [setup and review steps](docs/github-actions.md).
 
-The permission foundation uses a dedicated execution role scoped to the two
-configured buckets. See [foundation setup and permission updates](docs/github-actions.md)
+All three IAM role names are defined in `config/github.json`. CI calculates
+role ARNs from that configuration and the account in `config/storage.json`,
+so no AWS Repository variables or static AWS keys are required. The permission
+foundation uses a dedicated execution role scoped to the two configured buckets. See [foundation setup and permission updates](docs/github-actions.md)
 for its permission boundaries and the required local SSO update procedure.
 
 ## Changes after import

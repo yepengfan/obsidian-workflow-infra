@@ -114,6 +114,29 @@ describe('GitHub OIDC foundation', () => {
     );
   });
 
+  it('assigns the configured stable names to the correct OIDC environments', () => {
+    const roles = Object.values(Template.fromStack(new GitHubTrustStack(new App(), 'Trust', storage, github))
+      .findResources('AWS::IAM::Role'));
+    expect(roles.map(role => role.Properties.RoleName).sort()).toEqual(
+      [github.planRoleName, github.deployRoleName, github.executionRoleName].sort(),
+    );
+    for (const [name, environment] of [[github.planRoleName, 'production-plan'], [github.deployRoleName, 'production']]) {
+      const role = roles.find(role => role.Properties.RoleName === name)!;
+      expect(role.Properties.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals[
+        'token.actions.githubusercontent.com:sub'
+      ]).toBe(`${github.repositorySubject}:environment:${environment}`);
+    }
+  });
+
+  it.each([
+    { planRoleName: '../other-role' },
+    { deployRoleName: 'obsidian-' + 'x'.repeat(64) },
+    { deployRoleName: github.planRoleName.toUpperCase().replace('OBSIDIAN-', 'obsidian-') },
+    { planRoleName: github.executionRoleName },
+  ])('rejects invalid or colliding role names: %j', change => {
+    expect(() => githubSchema.parse({ ...github, ...change })).toThrow();
+  });
+
   it('rejects mutable repository subjects', () => {
     expect(() => githubSchema.parse({ ...github, repositorySubject: 'repo:yepengfan/obsidian-workflow-infra' })).toThrow();
   });
