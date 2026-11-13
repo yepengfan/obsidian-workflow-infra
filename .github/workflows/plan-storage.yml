@@ -1,0 +1,95 @@
+name: Plan storage change set
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Import the existing buckets, or update an already imported stack
+        required: true
+        type: choice
+        options: [import, update]
+        default: import
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: obsidian-storage-production
+  cancel-in-progress: false
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production-plan
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run synth
+      - name: Read versioned AWS settings
+        id: config
+        run: |
+          node --input-type=commonjs <<'NODE' >> "$GITHUB_OUTPUT"
+          const s = require('./config/storage.json');
+          const g = require('./config/github.json');
+          console.log('account=' + s.account);
+          console.log('region=' + s.region);
+          console.log('executionRole=arn:aws:iam::' + s.account + ':role/cdk-' + g.bootstrapQualifier + '-cfn-exec-role-' + s.account + '-' + s.region);
+          NODE
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ steps.config.outputs.region }}
+          allowed-account-ids: ${{ steps.config.outputs.account }}
+      - name: Create an unexecuted native CloudFormation plan
+        id: plan
+        env:
+          OPERATION: ${{ inputs.operation }}
+          EXECUTION_ROLE: ${{ steps.config.outputs.executionRole }}
+        run: |
+          args=()
+          case "$OPERATION" in
+            import) type=IMPORT; args+=(--resources-to-import file://config/import-resources.json) ;;
+            update) type=UPDATE ;;
+            *) exit 1 ;;
+          esac
+          name="obsidian-storage-${OPERATION}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          description="repo=${GITHUB_REPOSITORY_ID} sha=${GITHUB_SHA} operation=${OPERATION}"
+          arn=$(aws cloudformation create-change-set \
+            --stack-name ObsidianWorkflowStorage --change-set-name "$name" \
+            --change-set-type "$type" --description "$description" \
+            --template-body file://cdk.out/ObsidianWorkflowStorage.template.json \
+            --role-arn "$EXECUTION_ROLE" --resource-types AWS::S3::Bucket AWS::S3::BucketPolicy \
+            "${args[@]}" --query Id --output text)
+          echo "arn=$arn" >> "$GITHUB_OUTPUT"
+          aws cloudformation wait change-set-create-complete --change-set-name "$arn"
+          aws cloudformation describe-change-set --change-set-name "$arn" > change-set.json
+          {
+            echo "## Unexecuted ${OPERATION} plan"
+            echo
+            echo "Commit: ${GITHUB_SHA}"
+            echo
+            echo "Change set: ${arn}"
+            echo
+            echo 'Review the native resource actions and artifact before manually running Apply storage change set.'
+            echo 'This job creates CloudFormation plan metadata; it does not execute the plan or change bucket configuration.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          jq '{Status, ExecutionStatus, Description, Changes}' change-set.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: storage-change-set
+          retention-days: 3
+          path: |
+            change-set.json
+            cdk.out/ObsidianWorkflowStorage.template.json
+            config/import-resources.json

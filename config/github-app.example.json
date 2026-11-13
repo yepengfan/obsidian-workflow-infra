@@ -1,0 +1,10 @@
+{
+  "clientId": "IvEXAMPLE",
+  "appId": 123,
+  "installationId": 456,
+  "owner": "YOUR_GITHUB_LOGIN",
+  "repository": "YOUR_REPOSITORY",
+  "repositoryId": 789,
+  "botLogin": "your-app[bot]",
+  "botUserId": 12345
+}

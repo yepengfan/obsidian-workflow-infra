@@ -1,0 +1,4 @@
+{
+  "app": "npx --no-install tsx bin/storage.ts",
+  "versionReporting": false
+}

@@ -1,0 +1,108 @@
+name: Apply storage change set
+on:
+  workflow_dispatch:
+    inputs:
+      change_set_arn:
+        description: Exact native ChangeSet ARN from the plan you reviewed
+        required: true
+        type: string
+      operation:
+        description: Must match the reviewed plan
+        required: true
+        type: choice
+        options: [import, update]
+      confirm:
+        description: Type execute after reviewing the concrete AWS plan
+        required: true
+        type: string
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: obsidian-storage-production
+  cancel-in-progress: false
+jobs:
+  apply:
+    if: vars.ENABLE_AWS_APPLY == 'true' && github.ref == 'refs/heads/main' && inputs.confirm == 'execute'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read versioned AWS settings
+        id: config
+        run: |
+          node --input-type=commonjs <<'NODE' >> "$GITHUB_OUTPUT"
+          const s = require('./config/storage.json');
+          console.log('account=' + s.account);
+          console.log('region=' + s.region);
+          NODE
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ steps.config.outputs.region }}
+          allowed-account-ids: ${{ steps.config.outputs.account }}
+      - name: Inspect the exact reviewed plan and reject stale or destructive actions
+        env:
+          CHANGE_SET_ARN: ${{ inputs.change_set_arn }}
+          OPERATION: ${{ inputs.operation }}
+          EXPECTED_ACCOUNT: ${{ steps.config.outputs.account }}
+          EXPECTED_REGION: ${{ steps.config.outputs.region }}
+        run: |
+          [[ "$CHANGE_SET_ARN" == "arn:aws:cloudformation:${EXPECTED_REGION}:${EXPECTED_ACCOUNT}:changeSet/obsidian-storage-${OPERATION}-"* ]]
+          aws cloudformation describe-change-set --change-set-name "$CHANGE_SET_ARN" > reviewed-plan.json
+          expected="repo=${GITHUB_REPOSITORY_ID} sha=${GITHUB_SHA} operation=${OPERATION}"
+          jq -e --arg description "$expected" \
+            --arg stack "arn:aws:cloudformation:${EXPECTED_REGION}:${EXPECTED_ACCOUNT}:stack/ObsidianWorkflowStorage/" \
+            '.Status == "CREATE_COMPLETE" and .ExecutionStatus == "AVAILABLE" and .Description == $description and (.StackId | startswith($stack))' reviewed-plan.json
+          if [[ "$OPERATION" == import ]]; then
+            jq -e '[.Changes[].ResourceChange] | length == 2 and all(.Action == "Import" and .ResourceType == "AWS::S3::Bucket") and ([.[].LogicalResourceId] | sort == ["Library","Vault"])' reviewed-plan.json
+          elif [[ "$OPERATION" == update ]]; then
+            jq -e '[.Changes[].ResourceChange] | length > 0 and all((.ResourceType == "AWS::S3::Bucket" or .ResourceType == "AWS::S3::BucketPolicy") and (.Action == "Modify" or (.Action == "Add" and .ResourceType == "AWS::S3::BucketPolicy")) and (.Replacement == null or .Replacement == "False"))' reviewed-plan.json
+          else
+            exit 1
+          fi
+          jq '{Description, Changes}' reviewed-plan.json
+      - name: Execute that existing change set without resynthesizing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGE_SET_ARN: ${{ inputs.change_set_arn }}
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          live_main_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$live_main_sha" != "$GITHUB_SHA" ]]; then
+            echo 'Main advanced since this workflow revision. Review a fresh plan on current main.' >&2
+            exit 1
+          fi
+          aws cloudformation execute-change-set --change-set-name "$CHANGE_SET_ARN"
+          if [[ "$OPERATION" == import ]]; then
+            aws cloudformation wait stack-import-complete --stack-name ObsidianWorkflowStorage
+          else
+            aws cloudformation wait stack-update-complete --stack-name ObsidianWorkflowStorage
+          fi
+          aws cloudformation update-termination-protection --enable-termination-protection --stack-name ObsidianWorkflowStorage
+          aws cloudformation describe-stack-resources --stack-name ObsidianWorkflowStorage
+      - name: Verify modeled resource drift without writing objects
+        run: |
+          detection=$(aws cloudformation detect-stack-drift --stack-name ObsidianWorkflowStorage --query StackDriftDetectionId --output text)
+          for _ in {1..30}; do
+            aws cloudformation describe-stack-drift-detection-status --stack-drift-detection-id "$detection" > drift.json
+            status=$(jq -r '.DetectionStatus' drift.json)
+            case "$status" in
+              DETECTION_COMPLETE)
+                jq -e '.StackDriftStatus == "IN_SYNC"' drift.json
+                echo 'Reviewed change set executed; modeled resources are IN_SYNC. Confirm read-only client access / sync preview before declaring adoption complete.' >> "$GITHUB_STEP_SUMMARY"
+                exit 0 ;;
+              DETECTION_FAILED) cat drift.json; exit 1 ;;
+            esac
+            sleep 5
+          done
+          echo 'Drift detection did not finish in this bounded check. Inspect AWS status; do not re-import blindly.' >&2
+          exit 1
