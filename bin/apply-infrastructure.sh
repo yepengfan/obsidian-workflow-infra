@@ -3,11 +3,12 @@ set -euo pipefail
 
 manifest=${1:-infrastructure-plan.json}
 mkdir -p infrastructure-apply
+artifacts=${CODE_ARTIFACT_DIR:-cdk.out}
 jq -e --arg sha "$SOURCE_SHA" --arg repo "$GITHUB_REPOSITORY_ID" --arg account "$ACCOUNT" --arg region "$REGION" '
   .schemaVersion == 1 and .sourceSha == $sha and .repositoryId == $repo and .account == $account and .region == $region and (.stacks | type == "array") and
   ([.stacks[].name] | sort == ["ObsidianMcp","ObsidianWorkflowStorage"]) and
   all(.stacks[]; (.hasChanges | type == "boolean") and
-    (if .name == "ObsidianWorkflowStorage" then (.operation == "import" or .operation == "update") else (.operation == "create" or .operation == "update") end) and
+    (if .name == "ObsidianWorkflowStorage" then (.operation == "import" or .operation == "update") else .operation == "update" end) and
     (.arn | type == "string"))' "$manifest"
 
 # Validate every changed native plan before executing any stack in the group.
@@ -19,24 +20,28 @@ while IFS= read -r entry; do
   aws cloudformation describe-change-set --change-set-name "$arn" > "$file"
   expected="repo=${GITHUB_REPOSITORY_ID} sha=${SOURCE_SHA} operation=${operation}"
   jq -e --arg description "$expected" --arg stack "arn:aws:cloudformation:${REGION}:${ACCOUNT}:stack/${stack}/" \
-    '.Status == "CREATE_COMPLETE" and .ExecutionStatus == "AVAILABLE" and .Description == $description and (.StackId | startswith($stack)) and ([.Changes[].ResourceChange] | length > 0 and all(.Replacement == null or .Replacement == "False"))' "$file"
+    '.Status == "CREATE_COMPLETE" and .ExecutionStatus == "AVAILABLE" and .Description == $description and (.StackId | startswith($stack)) and ([.Changes[].ResourceChange] | all(.Replacement == null or .Replacement == "False"))' "$file"
   case "$stack:$operation" in
     ObsidianWorkflowStorage:import)
       jq -e '[.Changes[].ResourceChange] | length == 2 and all(.Action == "Import" and .ResourceType == "AWS::S3::Bucket") and ([.[].LogicalResourceId] | sort == ["Library","Vault"])' "$file" ;;
     ObsidianWorkflowStorage:update)
       jq -e '[.Changes[].ResourceChange] | all((.ResourceType == "AWS::S3::Bucket" and (.LogicalResourceId == "Vault" or .LogicalResourceId == "Library") and .Action == "Modify") or (.ResourceType == "AWS::S3::BucketPolicy" and (.Action == "Add" or .Action == "Modify")))' "$file" ;;
-    ObsidianMcp:*)
-      jq -e '[.Changes[].ResourceChange] | all((.LogicalResourceId == "UserPool" and .ResourceType == "AWS::Cognito::UserPool") or (.LogicalResourceId == "UserPoolDomain" and .ResourceType == "AWS::Cognito::UserPoolDomain") or (.LogicalResourceId == "CodeArtifacts" and .ResourceType == "AWS::S3::Bucket") or (.LogicalResourceId == "CodeArtifactsPolicy" and .ResourceType == "AWS::S3::BucketPolicy"))' "$file"
-      if [[ "$operation" == create ]]; then
-        jq -e '[.Changes[].ResourceChange] | length == 2 and all(.Action == "Add") and ([.[].LogicalResourceId] | sort == ["UserPool","UserPoolDomain"])' "$file"
-      else
-        jq -e '[.Changes[].ResourceChange] | all((.Action == "Modify") or (.Action == "Add" and (.LogicalResourceId == "CodeArtifacts" or .LogicalResourceId == "CodeArtifactsPolicy")))' "$file"
-        if jq -e 'any(.Changes[].ResourceChange; .LogicalResourceId == "CodeArtifacts" or .LogicalResourceId == "CodeArtifactsPolicy")' "$file" > /dev/null; then
-          node --input-type=commonjs -e 'if (!require("./config/github.json").mcpRuntime?.codeBucketName) process.exit(1)'
-        fi
-      fi ;;
+    ObsidianMcp:update)
+      jq -e --slurpfile model "$artifacts/ObsidianMcp.template.json" '
+        $model[0].Resources as $expected | [.Changes[].ResourceChange] |
+        all(. as $r | ($r.Action == "Add" or $r.Action == "Modify") and $expected[$r.LogicalResourceId].Type == $r.ResourceType and
+          ($r.ResourceType != "AWS::IAM::Role" and $r.ResourceType != "AWS::IAM::Policy"))' "$file" ;;
+
   esac
 done < <(jq -c '.stacks[] | select(.hasChanges)' "$manifest")
+
+# Every native plan has now been checked. Upload code only after production approval,
+# and recheck main before the first S3 write as well as each stack execution.
+if jq -e 'any(.stacks[]; .name == "ObsidianMcp" and .hasChanges)' "$manifest" > /dev/null; then
+  [[ "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')" == "$SOURCE_SHA" ]]
+  jq -e --slurpfile code "$artifacts/CodeBundle.json" '.code == $code[0]' "$manifest"
+  npm exec -- tsx bin/publish-code.ts "$artifacts"
+fi
 
 while IFS= read -r entry; do
   stack=$(jq -r .name <<< "$entry"); operation=$(jq -r .operation <<< "$entry"); arn=$(jq -r .arn <<< "$entry")
@@ -64,4 +69,11 @@ for _ in {1..30}; do
 done
 [[ "$complete" == true ]] || { echo 'Storage drift check timed out. Inspect AWS before retrying.' >&2; exit 1; }
 aws cloudformation describe-stacks --stack-name ObsidianMcp > infrastructure-apply/ObsidianMcp.stack.json
-echo 'Infrastructure change sets completed; modeled storage is IN_SYNC. Live Cognito discovery is checked next. OAuth and note access remain disabled.' >> "$GITHUB_STEP_SUMMARY"
+if jq -e 'any(.stacks[]; .name == "ObsidianMcp" and .hasChanges)' "$manifest" > /dev/null; then
+  function_name=$(jq -er '.Resources.McpFunction.Properties.FunctionName' "$artifacts/ObsidianMcp.template.json")
+  aws lambda get-function-configuration --function-name "$function_name" > infrastructure-apply/runtime-code.json
+  expected_code=$(jq -r '.code.sha256Base64' "$manifest")
+  jq -e --arg sha "$expected_code" '.CodeSha256 == $sha and .State == "Active" and .LastUpdateStatus == "Successful"' infrastructure-apply/runtime-code.json
+  echo "Runtime code matches approved ZIP SHA-256: $(jq -r .code.sha256 "$manifest")" >> "$GITHUB_STEP_SUMMARY"
+fi
+echo 'Exact infrastructure change sets completed; modeled storage is IN_SYNC. Native Lambda code checksum is verified when changed. Live OAuth and ChatGPT verification remain separate.'  >> "$GITHUB_STEP_SUMMARY"

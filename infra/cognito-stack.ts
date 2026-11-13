@@ -1,3 +1,4 @@
+import { addMcpRuntime, type McpApplication } from './mcp-runtime.js';
 import { CfnOutput, DefaultStackSynthesizer, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import { CfnUserPool, CfnUserPoolDomain } from 'aws-cdk-lib/aws-cognito';
 import type { Construct } from 'constructs';
@@ -15,7 +16,7 @@ export const cognitoSchema = z.strictObject({
 
 /** A retained issuer probe, with no client, user, registration or MCP endpoint. */
 export class CognitoStack extends Stack {
-  constructor(scope: Construct, id: string, aws: Pick<StorageConfig, 'account' | 'region'>, settings: z.infer<typeof cognitoSchema>, deployment?: McpDeploymentConfig) {
+  constructor(scope: Construct, id: string, aws: Pick<StorageConfig, 'account' | 'region'>, settings: z.infer<typeof cognitoSchema>, deployment?: McpDeploymentConfig, application?: McpApplication) {
     super(scope, id, {
       env: { account: aws.account, region: aws.region },
       synthesizer: new DefaultStackSynthesizer({ generateBootstrapVersionRule: false }),
@@ -53,6 +54,9 @@ export class CognitoStack extends Stack {
     // the exact issuer instead of assuming PKCE/discovery compatibility.
     new CfnOutput(this, 'OAuthIssuer', { value: `https://cognito-idp.${aws.region}.amazonaws.com/${pool.ref}` });
     new CfnOutput(this, 'ManagedLoginDomain', { value: `https://${settings.domainPrefix}.auth.${aws.region}.amazoncognito.com` });
-    if (deployment) addCodeArtifacts(this, deployment);
+    if (deployment) {
+      const codeBucket = addCodeArtifacts(this, deployment);
+      if (application) addMcpRuntime(this, deployment, application, pool, domain, codeBucket);
+    } else if (application) throw Error('Runtime requires reviewed deployment identities');
   }
 }

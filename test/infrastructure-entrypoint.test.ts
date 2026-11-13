@@ -18,7 +18,9 @@ it('synthesizes the entire infrastructure through the default public command', (
     expect(stacks).toEqual(['ObsidianGitHubTrust', 'ObsidianMcp', 'ObsidianWorkflowStorage']);
     const template = (stack: string) => JSON.parse(fs.readFileSync(path.join(assembly, `${stack}.template.json`), 'utf8'));
     expect(Object.keys(template('ObsidianWorkflowStorage').Resources).sort()).toEqual(['Library', 'Vault']);
-    expect(Object.keys(template('ObsidianMcp').Resources).sort()).toEqual(['CodeArtifacts', 'CodeArtifactsPolicy', 'UserPool', 'UserPoolDomain']);
+    expect(Object.keys(template('ObsidianMcp').Resources)).toHaveLength(16);
+    expect(template('ObsidianMcp').Resources.McpFunction.Properties.Code.S3Key).toMatch(/^releases\/[a-f0-9]{64}\.zip$/u);
+    expect(fs.statSync(path.join(assembly, 'CodeBundle.zip')).size).toBeGreaterThan(0);
     fs.mkdirSync(path.join(directory, 'config'));
     fs.copyFileSync('config/empty-template.json', path.join(directory, 'config/empty-template.json'));
     const ci = parse(fs.readFileSync('.github/workflows/ci.yml', 'utf8')) as { jobs: { verify: { steps: { name?: string; run?: string }[] } } };

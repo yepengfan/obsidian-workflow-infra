@@ -1,0 +1,16 @@
+{
+  "notePrefix": "",
+  "ownerSubjects": [],
+  "callbackUrls": [],
+  "allowedOrigins": ["https://chatgpt.com"],
+  "limits": {
+    "pageSize": 20,
+    "selectedNotes": 20,
+    "parallelReads": 4,
+    "searchBytesPerNote": 262144,
+    "readChunkBytes": 16384,
+    "requestBytes": 65536,
+    "responseBytes": 262144,
+    "deadlineMs": 5000
+  }
+}
