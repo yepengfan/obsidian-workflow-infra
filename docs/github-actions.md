@@ -14,9 +14,9 @@ import existing buckets, copy objects or activate lifecycle cleanup.
 
 ## What to review in CI
 
-Open a `validate` run's Summary. It includes the synthesized storage definitions and
-GitHub OIDC / IAM diff against `config/empty-template.json`, including the
-dedicated storage execution role and its bucket-scoped policy. Download `cloudformation-review` for the full templates and diff files.
+Open a `validate` run's Summary. It includes the synthesized storage and Cognito
+definitions and GitHub OIDC / IAM diff against `config/empty-template.json`.
+Download `cloudformation-review` for the full templates and diff files.
 Artifacts are retained for seven days.
 
 This is an **offline first-adoption preview**, not a live AWS plan or a diff
@@ -205,7 +205,7 @@ upstream run's exact `head_sha`, rejects a superseded main revision before AWS
 authentication, and binds that SHA into the native change-set description.
 It does not download or execute artifacts from untrusted PR runs.
 
-### Plan
+### Storage Plan
 
 The Plan job uses the unapproved `production-plan` environment and PlanRole:
 
@@ -227,7 +227,7 @@ create an empty stack placeholder; it does not execute changes to bucket
 configuration. An IMPORT plan must contain only the two original buckets.
 Library versioning, policies and lifecycle changes remain separate updates.
 
-### Approval and Apply
+### Storage approval and Apply
 
 For a plan with changes, Apply depends on Plan and references `production`.
 GitHub waits for Required reviewers before starting that job. In the deployment

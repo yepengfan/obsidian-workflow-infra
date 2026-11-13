@@ -7,11 +7,17 @@ enabled MCP application. Reviewing or merging the resource PR does not approve
 its AWS change set. No users, app clients, registration endpoint, Lambda, API,
 note access or credentials are part of this stage.
 
+`infra/cognito-stack.ts` defines the resources. Account and Region come from
+`config/storage.json`; pool name and AWS domain prefix are configured in
+`config/cognito.json`.
+
 ## Deployment order
 
-1. Review and merge this IAM-only PR. From the merged revision, use the existing
+1. Confirm the separate Cognito IAM prerequisite has been reviewed, merged and
+   applied using the
    [local SSO foundation UPDATE procedure](github-actions.md#permission-scope-and-future-changes).
-   Inspect the exact change set and obtain user confirmation before executing it.
+   That procedure requires inspection and user confirmation of the exact change
+   set before execution. This resource PR does not change the IAM foundation.
 2. Review the resource PR extending the existing `plan and apply`
    workflow to the `ObsidianMcp` stack. It initially defines only a Cognito user pool
    and AWS prefix domain, with public signup disabled, required TOTP MFA,
@@ -79,12 +85,13 @@ separately approved resource deployment.
 After successful Apply, the workflow reads the stack's non-secret outputs and
 runs `npm run check:cognito -- cognito-stack.json`. It uses at most six attempts
 with ten-second gaps for propagation. Each attempt tries standard OAuth
-authorization-server metadata and OIDC discovery, with five-second request
-timeouts, no redirects and a 64 KiB response limit. It requires the expected
+authorization-server metadata, falling back to OIDC discovery if needed, with
+five-second request timeouts, no redirects and a 64 KiB response limit. It requires the expected
 issuer/JWKS, exact AWS-domain authorize/token endpoints, authorization-code
 support, `S256` and supported confidential-client authentication. It never
 registers a client or requests tokens, and errors omit remote bodies.
-Unchanged stack plans run this read-only discovery check too.
+Unchanged stack plans run this read-only discovery check once, without the
+post-Apply propagation retries.
 
 To repeat the check locally after an approved deployment:
 

@@ -60,7 +60,7 @@ Do not hand-edit synthesized files. Edit TypeScript/configuration and synthesize
 again. Review [the import procedure](docs/github-actions.md) before any AWS write.
 `validate` runs without AWS credentials and publishes an offline infrastructure
 preview, including OIDC and the scoped role definitions, in its Summary and
-artifact. Successful main validation automatically starts `plan and apply`: Plan
+artifact. Successful main validation automatically starts `plan and apply`: storage Plan
 selects first import or later update, publishes the actual native change set,
 and Apply waits for the owner's production environment approval before
 automatically executing that exact ARN. See [setup and review steps](docs/github-actions.md).
@@ -83,24 +83,17 @@ or replication is introduced.
 
 ## Cognito compatibility probe
 
-`infra/cognito-stack.ts` defines the separate `ObsidianMcp` stack: a retained,
-deletion-protected Cognito pool with public signup disabled and required TOTP
-MFA, plus an AWS prefix domain using managed login v2. Account and Region come
-from `config/storage.json`; pool name and domain prefix are in
-`config/cognito.json`. This probe creates no users, clients or MCP endpoint and
-has no access to notes. The owner will create their account in Console later.
+The separate `ObsidianMcp` stack probes Cognito issuer compatibility before
+building the authenticated MCP application. It provides no MCP endpoint or
+note access. To preview its template locally:
 
 ```sh
 npm run synth:cognito
 ```
 
-`validate` includes this template in its offline preview. The existing
-`plan and apply` workflow adds Cognito Plan/Create-or-Update and a separately
-approved Apply using the dedicated execution role. It checks actual discovery
-after deployment and on unchanged plans. Missing `S256` is a failure, even if
-CloudFormation succeeded. Read the [deployment and compatibility procedure](docs/cognito-preflight.md)
-before approving the resource change. Pool-ID pinning and actual OAuth/ChatGPT
-tests are required before private-note access can be enabled.
+Read the [Cognito deployment and compatibility procedure](docs/cognito-preflight.md)
+for configuration, resource safeguards, CI approval, discovery checks and the
+required steps before OAuth or private-note access.
 
 ## GitHub identity
 
