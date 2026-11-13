@@ -30,10 +30,15 @@ moderate CDK-bundled dependency findings.
 
 The permission foundation is `ObsidianGitHubTrust`, defined in
 `infra/github-stack.ts`. It contains the native GitHub OIDC provider, PlanRole,
-DeployRole, and a dedicated CloudFormation storage execution role. All three
-role names are versioned in `config/github.json`; account and Region are in
+DeployRole, a dedicated CloudFormation storage execution role, and a separate
+Cognito-only MCP execution role. All role names are versioned in
+`config/github.json`; account and Region are in
 `config/storage.json`. CDK and CI use the same role names. No role has a managed
 policy attached.
+
+The current deployment workflow operates on storage. The additional app-stack
+permissions are a prerequisite only; see [Cognito preflight](cognito-preflight.md)
+for their scope, bootstrap tagging limitation, pool-ID pinning and deployment order.
 
 Both stacks are asset-free. CDK generates the templates, and the AWS CLI sends
 those templates directly to CloudFormation. They have no bootstrap-version SSM
@@ -124,7 +129,7 @@ Subsequent normal deployments remain automatic Plan, approval, automatic Apply.
 
 ### Permission scope and future changes
 
-The execution role grants bucket metadata reads required by the native
+The storage execution role grants bucket metadata reads required by the native
 `AWS::S3::Bucket` read handler and five writes on **only the two configured
 bucket ARNs**: encryption, public-access blocks, ownership controls,
 versioning, and lifecycle configuration. `ListBucket` supports HeadBucket and
@@ -161,8 +166,8 @@ updater or long-lived AWS key is introduced. A future stack or resource type
 also needs corresponding reviewed workflow/IAM scope changes: the current
 storage workflow intentionally accepts only the original two buckets and a
 reviewed later BucketPolicy, whose write permission must first be added here.
-Future Lambda/MCP deployment should have its own scoped execution role rather
-than giving this storage role unrelated service access.
+For the separate MCP execution role and its staged permission expansion, see
+[Cognito preflight](cognito-preflight.md).
 
 Configure repository Settings > Environments:
 
@@ -182,7 +187,9 @@ not a substitute for the native environment approval itself.
 
 `infra/github-stack.ts` defines native OIDC trust for the exact immutable
 repository/environment subjects and `sts.amazonaws.com` audience. PlanRole can
-create an unexecuted change set and pass only the dedicated storage execution role.
+create an unexecuted storage change set and pass its dedicated execution role.
+Separate statements permit an `ObsidianMcp` Cognito-only change set with the
+dedicated MCP role; the storage workflow does not use that grant yet.
 DeployRole can execute reviewed change sets but cannot create substitute plans
 or pass roles. Neither GitHub role has direct GetObject, PutObject or DeleteObject
 permissions on the note buckets.

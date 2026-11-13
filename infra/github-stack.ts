@@ -11,8 +11,10 @@ export const githubSchema = z.object({
   planRoleName: roleName,
   deployRoleName: roleName,
   executionRoleName: roleName,
-}).strict().refine(config => new Set([config.planRoleName, config.deployRoleName, config.executionRoleName]
-  .map(name => name.toLowerCase())).size === 3, 'Role names must be distinct');
+  mcpExecutionRoleName: roleName,
+  mcpUserPoolId: z.string().regex(/^[a-z]{2}-[a-z]+-\d_[A-Za-z0-9]+$/u).max(64).optional(),
+}).strict().refine(config => new Set([config.planRoleName, config.deployRoleName, config.executionRoleName, config.mcpExecutionRoleName]
+  .map(name => name.toLowerCase())).size === 4, 'Role names must be distinct');
 
 /** Reviewed permission foundation; local SSO update procedure: docs/github-actions.md. */
 export class GitHubTrustStack extends Stack {
@@ -71,6 +73,52 @@ export class GitHubTrustStack extends Stack {
       resources: bucketArns,
     }));
     const executionRole = execution.roleArn;
+    // First application phase: a fail-closed Cognito issuer compatibility probe.
+    // No app clients, users, notes, Lambda, API Gateway or asset access yet.
+    const mcpExecution = new iam.Role(this, 'McpExecutionRole', {
+      roleName: github.mcpExecutionRoleName,
+      assumedBy: new iam.ServicePrincipal('cloudformation.amazonaws.com'),
+      description: 'Provision the tagged MCP Cognito pool and prefix domain only',
+    });
+    const poolArn = `arn:${this.partition}:cognito-idp:${this.region}:${this.account}:userpool/${github.mcpUserPoolId ?? '*'}`;
+    const project = 'obsidian-mcp';
+    if (!github.mcpUserPoolId) {
+      mcpExecution.addToPolicy(new iam.PolicyStatement({
+        actions: ['cognito-idp:CreateUserPool'], resources: ['*'],
+        conditions: { StringEquals: { 'aws:RequestedRegion': this.region, 'aws:RequestTag/Project': project } },
+      }));
+      // Tagged creation needs TagResource before the generated pool ID is known.
+      // This bootstrap grant can also tag an unowned pool in this account/Region.
+      // Narrow poolArn to the reviewed physical ID after the initial deployment.
+      mcpExecution.addToPolicy(new iam.PolicyStatement({
+        actions: ['cognito-idp:TagResource'], resources: [poolArn],
+        conditions: { StringEquals: { 'aws:RequestTag/Project': project } },
+      }));
+    }
+    mcpExecution.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'cognito-idp:DescribeUserPool', 'cognito-idp:GetUserPoolMfaConfig',
+        'cognito-idp:UpdateUserPool', 'cognito-idp:SetUserPoolMfaConfig',
+        'cognito-idp:CreateUserPoolDomain', 'cognito-idp:UpdateUserPoolDomain',
+        'cognito-idp:ListTagsForResource',
+        'cognito-idp:TagResource',
+      ], resources: [poolArn],
+      conditions: { StringEquals: { 'aws:ResourceTag/Project': project } },
+    }));
+    mcpExecution.addToPolicy(new iam.PolicyStatement({
+      // DescribeUserPoolDomain has no resource-level authorization support.
+      actions: ['cognito-idp:DescribeUserPoolDomain'], resources: ['*'],
+      conditions: { StringEquals: { 'aws:RequestedRegion': this.region } },
+    }));
+    // Preserve the ownership tag, including when tagging an already-owned pool.
+    mcpExecution.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.DENY, actions: ['cognito-idp:TagResource'], resources: [poolArn],
+      conditions: { StringNotEquals: { 'aws:RequestTag/Project': project }, Null: { 'aws:RequestTag/Project': 'false' } },
+    }));
+    mcpExecution.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.DENY, actions: ['cognito-idp:TagResource'], resources: [poolArn],
+      conditions: { StringNotEquals: { 'aws:ResourceTag/Project': project }, Null: { 'aws:ResourceTag/Project': 'false' } },
+    }));
     const changeSetNames = ['obsidian-storage-*', `arn:${this.partition}:cloudformation:${this.region}:${this.account}:changeSet/obsidian-storage-*/*`];
     for (const role of [plan, apply]) {
       role.addToPolicy(new iam.PolicyStatement({
@@ -102,8 +150,38 @@ export class GitHubTrustStack extends Stack {
     }));
     apply.addToPolicy(new iam.PolicyStatement({ actions: ['cloudformation:UpdateTerminationProtection', 'cloudformation:DetectStackDrift', 'cloudformation:DetectStackResourceDrift', 'cloudformation:DescribeStackResourceDrifts'], resources: [stackArn] }));
     apply.addToPolicy(new iam.PolicyStatement({ actions: ['cloudformation:DescribeStackDriftDetectionStatus', 'cloudformation:BatchDescribeTypeConfigurations'], resources: ['*'] }));
+    const mcpStackArn = `arn:${this.partition}:cloudformation:${this.region}:${this.account}:stack/ObsidianMcp/*`;
+    const mcpChangeSets = ['obsidian-mcp-*', `arn:${this.partition}:cloudformation:${this.region}:${this.account}:changeSet/obsidian-mcp-*/*`];
+    for (const role of [plan, apply]) {
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ['cloudformation:DescribeStacks', 'cloudformation:DescribeStackEvents', 'cloudformation:DescribeStackResources', 'cloudformation:DescribeChangeSet', 'cloudformation:GetTemplate'],
+        resources: [mcpStackArn],
+      }));
+    }
+    plan.addToPolicy(new iam.PolicyStatement({
+      actions: ['cloudformation:CreateChangeSet'], resources: [mcpStackArn],
+      conditions: {
+        ArnEquals: { 'cloudformation:RoleArn': mcpExecution.roleArn },
+        StringLike: { 'cloudformation:ChangeSetName': mcpChangeSets },
+        'ForAllValues:StringEquals': { 'cloudformation:ResourceTypes': ['AWS::Cognito::UserPool', 'AWS::Cognito::UserPoolDomain'] },
+        Null: { 'cloudformation:ResourceTypes': 'false' },
+      },
+    }));
+    plan.addToPolicy(new iam.PolicyStatement({
+      actions: ['iam:PassRole'], resources: [mcpExecution.roleArn],
+      conditions: { StringEquals: { 'iam:PassedToService': 'cloudformation.amazonaws.com' } },
+    }));
+    apply.addToPolicy(new iam.PolicyStatement({
+      actions: ['cloudformation:ExecuteChangeSet'], resources: [mcpStackArn],
+      conditions: { StringLike: { 'cloudformation:ChangeSetName': mcpChangeSets } },
+    }));
+    apply.addToPolicy(new iam.PolicyStatement({
+      actions: ['cloudformation:UpdateTerminationProtection', 'cloudformation:DetectStackDrift', 'cloudformation:DetectStackResourceDrift', 'cloudformation:DescribeStackResourceDrifts'],
+      resources: [mcpStackArn],
+    }));
     new CfnOutput(this, 'PlanRoleArn', { value: plan.roleArn });
     new CfnOutput(this, 'DeployRoleArn', { value: apply.roleArn });
     new CfnOutput(this, 'CloudFormationExecutionRoleArn', { value: executionRole });
+    new CfnOutput(this, 'McpCloudFormationExecutionRoleArn', { value: mcpExecution.roleArn });
   }
 }

@@ -1,6 +1,7 @@
 {
   "repositorySubject": "repo:yepengfan@7143356/obsidian-workflow-infra@1455021757",
   "executionRoleName": "obsidian-workflow-storage-execution",
+  "mcpExecutionRoleName": "obsidian-mcp-execution",
   "planRoleName": "obsidian-workflow-ap-southeast-2-plan",
   "deployRoleName": "obsidian-workflow-ap-southeast-2-deploy"
 }

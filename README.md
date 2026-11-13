@@ -59,7 +59,7 @@ versioning, and preserving the original logical/physical resource definitions.
 Do not hand-edit synthesized files. Edit TypeScript/configuration and synthesize
 again. Review [the import procedure](docs/github-actions.md) before any AWS write.
 `validate` runs without AWS credentials and publishes an offline infrastructure
-preview, including OIDC and all three scoped role definitions, in its Summary and
+preview, including OIDC and the scoped role definitions, in its Summary and
 artifact. Successful main validation automatically starts `plan and apply`: Plan
 selects first import or later update, publishes the actual native change set,
 and Apply waits for the owner's production environment approval before
@@ -81,15 +81,16 @@ Bucket names and Region cannot change in place. Keep logical IDs stable.
 Import was a separate operation from these improvements. No HTTPS bucket policy
 or replication is introduced.
 
+## MCP application prerequisite
+
+The next MCP phase starts with a separate Cognito-only permission prerequisite.
+See [Cognito compatibility and deployment order](docs/cognito-preflight.md).
+
 ## GitHub identity
 
-All AI commits, pushes and new PRs use `yepeng-ai-developer[bot]` and the scoped
-GitHub App installation token. The user reviews and merges PRs. Follow
-[the identity guide](docs/github-app-identity.md); never fall back to personal
-credentials. No App key or AWS credential belongs in Git or CI logs.
-
-MCP and Cognito work remains on its existing branch and follows after storage
-adoption. This storage baseline deploys no Lambda or public endpoint.
+Follow [the identity guide](docs/github-app-identity.md) for the required GitHub
+App identity, scoped credentials and PR review rules. No App key or AWS credential
+belongs in Git or CI logs.
 
 ## Dependency audit
 
