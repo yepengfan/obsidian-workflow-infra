@@ -130,9 +130,10 @@ can also enumerate keys; it does not grant object-body access. The role cannot
 directly read/write/delete object bodies or versions, create/delete buckets,
 manage IAM, or change bucket policies. Lifecycle permission is limited to the
 same two bucket ARNs, but can indirectly cause permanent historical-version
-deletion by S3. The selected 90-day window is enforced by the reviewed bucket
-template, not by an IAM condition. No lifecycle rule is enabled by the IAM-only
-permission update. Read actions follow the Sydney CloudFormation
+deletion by S3. IAM does not constrain lifecycle rules to the
+[selected retention policy](post-import-plan.md); the separate resource update
+must encode that policy in the bucket template. No lifecycle rule is enabled by
+the IAM-only permission update. Read actions follow the Sydney CloudFormation
 registry schema checked on 2026-11-13, excluding its unrecognized
 `GetBucketDefaultStorageClass` action (AWS Access Analyzer reports INVALID_ACTION;
 that property is not modeled here). Granting every advertised create/update

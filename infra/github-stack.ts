@@ -59,7 +59,7 @@ export class GitHubTrustStack extends Stack {
       resources: bucketArns,
     }));
     execution.addToPolicy(new iam.PolicyStatement({
-      // Only properties modeled today. Future capabilities require a reviewed
+      // Reviewed configuration writes. Future capabilities require a reviewed
       // foundation update via local SSO before the resource deployment.
       actions: [
         's3:PutEncryptionConfiguration', 's3:PutBucketPublicAccessBlock',

@@ -23,18 +23,10 @@ rule is enabled. Retain policies do not protect versions from lifecycle expiry.
 The user must review the concrete post-import diff and impact and explicitly
 confirm before activation. The import template deliberately contains no lifecycle
 rules, and selecting this plan does not authorize running deletion now.
-The permission foundation now declares `s3:PutLifecycleConfiguration` on exactly
-the two existing bucket ARNs. This grant does not enable any lifecycle rule.
-After this permission PR is reviewed and merged, apply its IAM-only change set
-through the [local SSO permission-update procedure](github-actions.md#permission-scope-and-future-changes).
-Confirm the deployed execution-role policy contains the grant before opening
-the separate versioning/retention PR. Ordinary CI cannot update this IAM policy.
 
-Although this role still has no direct object-delete permission, lifecycle
-configuration can cause S3 to permanently delete historical versions. Review
-the resource PR and impact report before approving its production Apply. This
-grant is not a policy-level restriction to 90 days; that limit is defined in
-the separately reviewed bucket template. No resource retention changes are
-activated by the permission update itself.
+Before opening the separate versioning/retention PR, complete the
+[local SSO permission-update procedure](github-actions.md#permission-scope-and-future-changes),
+which describes the execution-role scope and its indirect deletion capability.
+Confirm the deployed execution-role policy contains the reviewed lifecycle grant.
 
 Reference: [S3 lifecycle elements](https://docs.aws.amazon.com/AmazonS3/latest/userguide/intro-lifecycle-rules.html).
