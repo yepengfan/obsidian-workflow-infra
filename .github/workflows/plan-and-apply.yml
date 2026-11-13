@@ -1,0 +1,178 @@
+name: plan and apply
+on:
+  workflow_run:
+    workflows: [validate]
+    branches: [main]
+    types: [completed]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+env:
+  SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+concurrency:
+  group: obsidian-infrastructure-production
+  cancel-in-progress: false
+jobs:
+  plan:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.id == github.repository_id
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: production-plan
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    outputs:
+      plan: ${{ steps.plan.outputs.plan }}
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Reject an outdated or mismatched verified revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          [[ "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')" == "$SOURCE_SHA" ]]
+      - name: Require native approval protection before AWS authentication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/environments/production" > production-environment.json
+          if ! jq -e --arg owner "$GITHUB_REPOSITORY_OWNER" \
+            'any(.protection_rules[]?; .type == "required_reviewers" and any(.reviewers[]?; .type == "User" and .reviewer.login == $owner))' production-environment.json; then
+            echo 'Configure the repository owner as a production Required reviewer before AWS authentication.' >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Synthesize the entire infrastructure
+        run: npm run synth
+      - name: Read versioned AWS settings
+        id: config
+        run: |
+          node --input-type=commonjs <<'NODE' >> "$GITHUB_OUTPUT"
+          const s = require('./config/storage.json');
+          const g = require('./config/github.json');
+          console.log('account=' + s.account);
+          console.log('region=' + s.region);
+          console.log('storageRole=arn:aws:iam::' + s.account + ':role/' + g.executionRoleName);
+          console.log('mcpRole=arn:aws:iam::' + s.account + ':role/' + g.mcpExecutionRoleName);
+          console.log('roleArn=arn:aws:iam::' + s.account + ':role/' + g.planRoleName);
+          NODE
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ steps.config.outputs.roleArn }}
+          aws-region: ${{ steps.config.outputs.region }}
+          allowed-account-ids: ${{ steps.config.outputs.account }}
+      - name: Plan the entire infrastructure
+        id: plan
+        env:
+          ACCOUNT: ${{ steps.config.outputs.account }}
+          REGION: ${{ steps.config.outputs.region }}
+          STORAGE_EXECUTION_ROLE: ${{ steps.config.outputs.storageRole }}
+          MCP_EXECUTION_ROLE: ${{ steps.config.outputs.mcpRole }}
+        run: bash bin/plan-infrastructure.sh
+      - name: Check discovery when the infrastructure is unchanged
+        if: steps.plan.outputs.has_changes == 'false'
+        run: npm run check:cognito -- infrastructure-plan/ObsidianMcp.stack.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: infrastructure-plan-${{ github.event.workflow_run.head_sha }}
+          retention-days: 7
+          path: |
+            infrastructure-plan.json
+            infrastructure-plan/
+            cdk.out/*.template.json
+            config/import-resources.json
+  apply:
+    needs: plan
+    if: needs.plan.outputs.has_changes == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: production
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Reject an outdated or mismatched verified revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          [[ "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')" == "$SOURCE_SHA" ]]
+      - name: Require native approval protection before AWS authentication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/environments/production" > production-environment.json
+          if ! jq -e --arg owner "$GITHUB_REPOSITORY_OWNER" \
+            'any(.protection_rules[]?; .type == "required_reviewers" and any(.reviewers[]?; .type == "User" and .reviewer.login == $owner))' production-environment.json; then
+            echo 'Configure the repository owner as a production Required reviewer before AWS authentication.' >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Read versioned AWS settings
+        id: config
+        run: |
+          node --input-type=commonjs <<'NODE' >> "$GITHUB_OUTPUT"
+          const s = require('./config/storage.json');
+          const g = require('./config/github.json');
+          console.log('account=' + s.account);
+          console.log('region=' + s.region);
+          console.log('roleArn=arn:aws:iam::' + s.account + ':role/' + g.deployRoleName);
+          NODE
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ steps.config.outputs.roleArn }}
+          aws-region: ${{ steps.config.outputs.region }}
+          allowed-account-ids: ${{ steps.config.outputs.account }}
+      - name: Apply the reviewed infrastructure plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACCOUNT: ${{ steps.config.outputs.account }}
+          REGION: ${{ steps.config.outputs.region }}
+          INFRASTRUCTURE_PLAN: ${{ needs.plan.outputs.plan }}
+        run: |
+          printf '%s\n' "$INFRASTRUCTURE_PLAN" > infrastructure-plan.json
+          bash bin/apply-infrastructure.sh infrastructure-plan.json
+      - name: Check actual OAuth discovery after infrastructure Apply
+        run: |
+          attempts=1
+          if jq -e 'any(.stacks[]; .name == "ObsidianMcp" and .hasChanges)' infrastructure-plan.json; then attempts=6; fi
+          for ((attempt=1; attempt<=attempts; attempt++)); do
+            if npm run check:cognito -- infrastructure-apply/ObsidianMcp.stack.json; then
+              echo 'Live discovery passed, including S256. Pool-ID pinning and real PKCE, audience, refresh and ChatGPT tests remain required before enabling OAuth or note access.' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            if [[ "$attempt" -lt "$attempts" ]]; then sleep 10; fi
+          done
+          echo 'Infrastructure change sets were executed, but Cognito compatibility was NOT established. Inspect AWS before retrying; keep OAuth and private-note access disabled.' >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: infrastructure-apply-${{ github.event.workflow_run.head_sha }}
+          retention-days: 7
+          path: infrastructure-apply/

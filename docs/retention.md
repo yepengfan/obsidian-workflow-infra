@@ -3,8 +3,9 @@
 The desired configuration keeps the original `Vault` and `Library` bucket names
 and logical IDs. It enables versioning on both and requests one native S3
 lifecycle rule per bucket to expire versions 90 days after they become noncurrent.
-These resource changes await the approved production Apply. Current versions
-have no expiry action. There is no count-based retention floor,
+The approved storage Apply completed with this policy and versioning enabled on
+both original buckets. Current versions have no expiry action. There is no
+count-based retention floor,
 expired-current-delete-marker cleanup, scheduled Lambda, replication or separate
 backup bucket.
 
@@ -15,7 +16,11 @@ to permanently delete versions or change lifecycle configuration.
 In `config/storage.json`, `noncurrentVersionRetentionDays` is optional and accepts
 only `90`; when present, the bucket's `versioning` must be `enabled`.
 
-## Activation order
+## Initial activation order
+
+The following safeguards apply to initial activation. Future policy changes
+still require impact review and an approved infrastructure Plan/Apply; the
+Cognito resource PR does not reactivate or replace these buckets.
 
 1. Review and merge the separate IAM permission PR. Apply its foundation UPDATE
    change set through the local SSO procedure in [github-actions.md](github-actions.md).
@@ -27,8 +32,8 @@ only `90`; when present, the bucket's `versioning` must be `enabled`.
    delete-marker counts separately. Save only aggregates in the review report,
    not note keys, bodies or credentials. A paginated scan is not a point-in-time
    snapshot; refresh it before activation if writers remain active.
-3. Review and merge this resource PR. CI plans the merged revision against the
-   live storage stack. Expect only in-place `Vault`/`Library` modifications:
+3. Review and merge the storage resource PR. CI plans the merged revision against
+   the live storage stack. Expect only in-place `Vault`/`Library` modifications:
    lifecycle configuration on both, plus enabled Library versioning. Reject
    bucket creation, deletion, replacement, renamed physical IDs or unrelated
    configuration changes.
@@ -63,8 +68,10 @@ action is configured.
 ## Read-only verification
 
 Offline template checks and role-authorization checks do not demonstrate deployed
-versioning, lifecycle processing or recovery. Actual lifecycle processing and
-restore tests remain deferred until separately authorized.
+versioning, lifecycle processing or recovery. A bounded historical read-only
+recovery check passed after storage deployment; it does not prove lifecycle
+expiry timing or authorize object writes. Further restore tests require separate
+authorization.
 
 After Apply completes, run these commands using an authorized local profile;
 they do not read note bodies or modify objects:

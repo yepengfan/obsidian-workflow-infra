@@ -1,21 +1,32 @@
 # Cognito compatibility prerequisite
 
-The existing storage foundation is deployed. The MCP application and Cognito
-pool are not deployed. This permission-only change prepares a separate
-`obsidian-mcp-execution` CloudFormation service role for an `ObsidianMcp` stack.
-It creates no Cognito resources and changes no bucket settings or note objects.
+The separate `obsidian-mcp-execution` service role is the IAM prerequisite for
+the `ObsidianMcp` stack. The resource definitions now contain only a Cognito
+user pool and AWS prefix domain. These are a compatibility probe, not an
+enabled MCP application. Reviewing or merging the resource PR does not approve
+its AWS change set. No users, app clients, registration endpoint, Lambda, API,
+note access or credentials are part of this stage.
+
+`infra/cognito-stack.ts` defines the resources. Account and Region come from
+`config/storage.json`; pool name and AWS domain prefix are configured in
+`config/cognito.json`.
 
 ## Deployment order
 
-1. Review and merge this IAM-only PR. From the merged revision, use the existing
+1. Confirm the separate Cognito IAM prerequisite has been reviewed, merged and
+   applied using the
    [local SSO foundation UPDATE procedure](github-actions.md#permission-scope-and-future-changes).
-   Inspect the exact change set and obtain user confirmation before executing it.
-2. Prepare a separate resource PR that extends the existing `plan and apply`
-   workflow to the `ObsidianMcp` stack. Initially deploy only a Cognito user pool
+   That procedure requires inspection and user confirmation of the exact change
+   set before execution. This resource PR does not change the IAM foundation.
+2. Review the resource PR extending the existing `plan and apply`
+   workflow to the `ObsidianMcp` stack. It initially defines only a Cognito user pool
    and AWS prefix domain, with public signup disabled, required TOTP MFA,
    deletion protection and retained identity resources. No app client, user,
    note-reading Lambda, API endpoint or registration endpoint is enabled by
-   this initial compatibility probe. Keep the existing storage checks intact.
+   this initial compatibility probe. The existing storage checks remain intact.
+   After merge, inspect the combined **Plan** in the Actions run and approve
+   the single infrastructure **Apply** through the native `production` environment after
+   reviewing all exact change-set ARNs, source SHA, resource actions and templates.
 3. Read the real issuer's discovery metadata. Require a matching issuer, HTTPS
    endpoints and `code_challenge_methods_supported` containing `S256`.
    Stop if the metadata fails; do not fake discovery, disable authentication or
@@ -29,8 +40,71 @@ It creates no Cognito resources and changes no bucket settings or note objects.
    Console and handles passwords, MFA and ChatGPT's exact callback URI. Never
    put credentials or note content in Git, logs or chat.
 
-The app resource workflow is deliberately a subsequent PR: applying this
-foundation does not make the current storage workflow deploy an app stack.
+Applying only the IAM prerequisite does not deploy the pool. The resource
+workflow starts after a successful `validate` push on main. The shared `plan`
+job selects Cognito CREATE only for an exact
+stack-not-found response or unexecuted `REVIEW_IN_PROGRESS` placeholder. Existing
+stable stacks must contain the expected pool/domain logical IDs and resource
+types, and match the pinned pool ID when one is configured. Other failures and
+in-progress/failed stack states stop the workflow. A pinned pool with an absent
+stack never defaults to creating a replacement.
+
+See the [infrastructure deployment procedure](github-actions.md#automatic-deployment-run)
+for the shared Plan/Apply identity, source and resource-action guards, native
+approval, exact-ARN execution and completion checks.
+
+The shared pipeline coordinates the existing native stacks without moving
+resources or broadening IAM. It is not an atomic transaction across stacks;
+inspect actual AWS state after partial failure. The protected pool requires
+TOTP MFA, uses email sign-in and the Essentials
+tier, and has a 14-character password policy. The prefix domain uses managed
+login v2. Both resources have `DeletionPolicy` and `UpdateReplacePolicy` Retain.
+Failed creation can leave retained resources or a failed stack: inspect native
+AWS status before retrying. The deployment role cannot delete either resource;
+do not delete or recreate retained identity resources as automatic recovery.
+
+## Local checks and post-deployment discovery
+
+```sh
+npm ci
+npm run check
+npm run synth
+actionlint
+```
+
+Tests execute the workflow's shell steps with controlled AWS/GitHub responses,
+including no-change updates, stale source, unavailable plans, access errors,
+missing approval protection, destructive plans and pinned-pool mismatch. They
+also synthesize the actual CDK entry point and exercise discovery validation.
+These checks do not prove hosted OIDC, native reviewer routing, the Cognito
+CloudFormation handler, live metadata or OAuth login. Those require the
+separately approved resource deployment.
+
+After successful Apply, the workflow reads the stack's non-secret outputs and
+runs `npm run check:cognito -- infrastructure-apply/ObsidianMcp.stack.json`. It uses at most six attempts
+with ten-second gaps for propagation when Cognito changed; otherwise it makes
+one attempt. Each attempt tries standard OAuth
+authorization-server metadata, falling back to OIDC discovery if needed, with
+five-second timeouts per HTTP request, no redirects and a 64 KiB limit per response.
+The fallback can make a second request within an attempt. It requires the expected
+issuer/JWKS, exact AWS-domain authorize/token endpoints, authorization-code
+support, `S256` and supported confidential-client authentication. It never
+registers a client or requests tokens, and errors omit remote bodies.
+When the entire infrastructure is unchanged, Plan runs discovery once.
+
+To repeat the check locally after an approved deployment:
+
+```sh
+aws cloudformation describe-stacks --stack-name ObsidianMcp \
+  --profile obsidian-admin --region ap-southeast-2 > /tmp/obsidian-cognito-stack.json
+npm run check:cognito -- /tmp/obsidian-cognito-stack.json
+```
+
+A red discovery check after successful CloudFormation execution means the
+identity resources exist but compatibility is **not established**. It does not
+roll back or remove the pool. Keep OAuth and private-note access disabled,
+inspect the actual metadata, and review the next approach before changing auth.
+Do not invent metadata, add a proxy/broker silently or weaken validation.
 
 ## Permission boundary
 

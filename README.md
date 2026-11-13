@@ -1,6 +1,6 @@
 # Obsidian workflow infrastructure
 
-Manage the existing private S3 buckets with explicit AWS CDK resource definitions.
+Manage the existing private S3 buckets and staged MCP identity infrastructure with AWS CDK.
 Native CloudFormation resource import binds these definitions to the existing
 buckets. Existing objects, version history, bucket names and Obsidian sync paths
 stay in place. Notes and credentials never belong in this repository.
@@ -50,8 +50,9 @@ npm run check
 npm run synth
 ```
 
-These commands validate types, lint, test the synthesized resource semantics,
-and produce `cdk.out/ObsidianWorkflowStorage.template.json`. They do not deploy.
+These commands validate types, lint and behavior, then synthesize the entire
+infrastructure through `bin/infrastructure.ts` into one `cdk.out` assembly. It
+contains the storage, Cognito and IAM foundation templates. They do not deploy.
 The tests cover enabling Library versioning, expiring only noncurrent versions,
 rejecting unsupported retention settings, removing lifecycle without changing
 versioning, and preserving the original logical/physical resource definitions.
@@ -60,10 +61,11 @@ Do not hand-edit synthesized files. Edit TypeScript/configuration and synthesize
 again. Review [the import procedure](docs/github-actions.md) before any AWS write.
 `validate` runs without AWS credentials and publishes an offline infrastructure
 preview, including OIDC and the scoped role definitions, in its Summary and
-artifact. Successful main validation automatically starts `plan and apply`: Plan
-selects first import or later update, publishes the actual native change set,
-and Apply waits for the owner's production environment approval before
-automatically executing that exact ARN. See [setup and review steps](docs/github-actions.md).
+artifact. Successful main validation starts `plan and apply`: one combined
+infrastructure Plan, one native production approval, then Apply of all exact
+changed ARNs. Existing stack IDs and scoped roles remain stable; IAM permission
+updates still require the reviewed local SSO procedure. AWS executes each stack
+independently, so partial completion must be inspected before retrying. See [setup and review steps](docs/github-actions.md).
 
 See [foundation setup and permission updates](docs/github-actions.md) for
 versioned role configuration, the migration of existing CI roles, permission
@@ -71,20 +73,26 @@ boundaries and the required local SSO update procedure.
 
 ## Changes after import
 
-The desired configuration now enables Library versioning and requests 90-day
-noncurrent-version retention on both original buckets. These settings take
-effect only after the separate IAM permission update and approved storage Apply.
-Current files have no expiry action. Read the [activation, impact review and
-verification procedure](docs/retention.md) before approving the change.
+See the [retention procedure](docs/retention.md) for the deployed policy,
+initial activation safeguards, impact review and verification limits.
 Bucket names and Region cannot change in place. Keep logical IDs stable.
 
 Import was a separate operation from these improvements. No HTTPS bucket policy
 or replication is introduced.
 
-## MCP application prerequisite
+## Cognito compatibility probe
 
-The next MCP phase starts with a separate Cognito-only permission prerequisite.
-See [Cognito compatibility and deployment order](docs/cognito-preflight.md).
+The separate `ObsidianMcp` stack probes Cognito issuer compatibility before
+building the authenticated MCP application. It provides no MCP endpoint or
+note access. Its template is included in the shared infrastructure assembly:
+
+```sh
+npm run synth
+```
+
+Read the [Cognito deployment and compatibility procedure](docs/cognito-preflight.md)
+for configuration, resource safeguards, CI approval, discovery checks and the
+required steps before OAuth or private-note access.
 
 ## GitHub identity
 
@@ -98,6 +106,6 @@ The minimatch override fixes the separately installed build-tool copy. The
 pinned CDK library bundles another vulnerable minimatch copy, currently reported
 as two moderate audit findings (minimatch and aws-cdk-lib). npm overrides do not
 replace bundled dependencies. No dependency is deployed as application runtime
-by this storage-only stack. Do not use `npm audit fix --force` to silently
+by these infrastructure-only stacks. Do not use `npm audit fix --force` to silently
 downgrade CDK or claim the bundled finding is resolved. Recheck upstream before
 publishing and report the remaining build-tool limitation.
