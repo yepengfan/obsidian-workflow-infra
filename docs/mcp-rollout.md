@@ -115,11 +115,8 @@ It uploads no ZIP. The runtime extends this stack afterward; the current
 [Plan](github-actions.md#one-infrastructure-plan) and
 [Apply guards](github-actions.md#one-approval-and-infrastructure-apply) require
 already-deployed code storage and bind the runtime to the exact reviewed native
-template. Follow the
-[foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
-for prerequisite ordering, then review the code-storage CI plan and approve
-production to create that bucket before runtime delivery. The current stage is
-explicit even when all runtime implementation code has already merged.
+template. Follow the [deployment order](#review-and-deployment-order)
+before advancing to runtime delivery.
 Offline synthesis and fake-AWS CLI checks do not establish native bucket/policy
 creation, CloudFormation handler permissions or S3 security enforcement. Verify
 those during the separately approved rollout after the IAM prerequisite is

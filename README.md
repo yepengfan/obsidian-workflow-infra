@@ -35,11 +35,10 @@ ChatGPT browses one folder page, chooses note paths, then retrieves or searches
 only those notes. There is no whole-vault scan, recursive traversal or index.
 The ebook library is outside the MCP reader's scope.
 
-The diagram shows the complete architecture. Deployment advances through the
-reviewed stage in [config/mcp-deployment.json](config/mcp-deployment.json):
-`identity` publishes the pool ARN export, `code-storage` creates deployment
-storage, and `runtime` adds the endpoint. Complete each stage's approved Apply
-before advancing, with the separate IAM update after the identity export.
+The diagram shows the complete runtime architecture. The reviewed stage in
+[config/mcp-deployment.json](config/mcp-deployment.json) selects what is synthesized.
+Follow the [staged rollout](docs/mcp-rollout.md#review-and-deployment-order)
+for deployment prerequisites and stage advancement.
 Local SDK, JWT and packaging tests do not establish live ChatGPT compatibility.
 The committed runtime configuration denies all note access until an owner is
 allowlisted; OAuth remains disabled until the exact ChatGPT callback is reviewed.
@@ -97,8 +96,9 @@ npm run check
 npm run synth
 ```
 
-Synthesis writes the complete cloud assembly to `cdk.out`; these commands do not
-deploy. Edit the TypeScript/configuration sources, never generated templates.
+Synthesis writes the cloud assembly for the configured stage to `cdk.out`;
+these commands do not deploy. Edit the TypeScript/configuration sources, never
+generated templates.
 
 ## Operational guides
 

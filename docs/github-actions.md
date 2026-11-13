@@ -48,17 +48,12 @@ The foundation is part of the shared review preview; its permissions remain
 outside CI deployment and require the approved local SSO procedure.
 See [Cognito preflight](cognito-preflight.md) for discovery and authentication checks.
 
-The first-deployment stage is versioned in `config/mcp-deployment.json`, not
-in GitHub variables. Follow the [staged rollout](mcp-rollout.md#review-and-deployment-order):
-CI applies `identity`, local SSO applies the separately approved IAM foundation,
-then reviewed configuration PRs advance CI to `code-storage` and finally
-`runtime`. Merged implementation code does not skip those deployment prerequisites.
+Follow the [staged rollout](mcp-rollout.md#review-and-deployment-order) for
+configuration ownership, deployment prerequisites and stage advancement.
 Prerequisite stages synthesize no code bundle and perform no S3 code upload or
 Lambda checksum check. Plan requests only the resource types in that stage's
 template, so publishing the identity export uses the existing pre-expansion role.
-All stages preserve native approval, exact template/change-set binding, stale
-source rejection and no-removal/no-replacement guards. Stage rollback fails if
-it would omit resources already deployed in the MCP stack.
+All stages preserve the Plan and Apply guards described below.
 
 Before updating the IAM foundation for the MCP runtime permissions, publish the
 existing `ObsidianMcp` application stack's native `ObsidianMcp:UserPoolArn`
