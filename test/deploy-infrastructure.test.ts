@@ -76,6 +76,7 @@ if('${tool}'==='gh') {
 const target = (value('--stack-name') ?? value('--change-set-name') ?? '').includes('ObsidianMcp') || args.join(' ').includes('obsidian-mcp-') ? 'cognito' : 'storage';
 const item=fixture[target];
 switch(args[1]) {
+  case 'get-template': { const model=JSON.parse(fs.readFileSync('cdk.out/ObsidianMcp.template.json','utf8')); if(fixture.wrongNativeTemplate) model.Resources.CodeArtifacts.Properties.BucketName='other-bucket'; console.log(JSON.stringify(fixture.stringTemplate?JSON.stringify(model):model));break;}
   case 'get-function-configuration':respond({CodeSha256:fixture.wrongLambdaHash?'wrong':${JSON.stringify(code.sha256Base64)},State:'Active',LastUpdateStatus:'Successful'});break;
   case 'describe-stacks': {
     const executed=calls.some(c=>c.tool==='aws' && c.args[1]==='execute-change-set' && c.args.join(' ').includes(target==='cognito'?'obsidian-mcp-':'obsidian-storage-'));
@@ -228,6 +229,14 @@ describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
     if (kind === 'IAM stack') plan.stacks[1]!.name = 'ObsidianGitHubTrust';
     if (kind === 'wrong ARN') plan.stacks[1]!.arn = arn(cognito, 'create').replace(account, '111122223333');
     const result = execute(applyScript, {}, plan); expect(result.status).not.toBe(0); expect(executions(result.calls)).toEqual([]);
+  });
+  it.each([false, true])('binds runtime Apply to the exact native reviewed template (string response: %s)', stringTemplate => {
+    const result = execute(applyScript, { stringTemplate });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.calls.some(call => call.args[1] === 'get-template')).toBe(true);
+    const rejected = execute(applyScript, { stringTemplate, wrongNativeTemplate: true });
+    expect(rejected.status).not.toBe(0); expect(executions(rejected.calls)).toHaveLength(0);
+    expect(rejected.calls.some(call => call.tool === 'npm' && call.args.includes('bin/publish-code.ts'))).toBe(false);
   });
   it('checks all plans before publishing code and publishes before any execution', () => {
     const result = execute(applyScript); expect(result.status, result.stderr).toBe(0);

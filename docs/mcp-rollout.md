@@ -12,7 +12,7 @@ Selected notes can be read in chunks without editing S3 objects.
 1. Review the permission-foundation PR and follow the
    [foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
    for resource identities, configuration ownership and prerequisite deployment order.
-   This stage creates no Lambda, API, OAuth client, code bucket or note endpoint.
+   That foundation stage creates no Lambda, API, OAuth client, code bucket or note endpoint.
 2. Review the code-storage PR and its native CI plan. Create the separate private
    code-artifact bucket before uploading any Lambda ZIP. Keep existing bucket
    identities and protections; never copy notes into deployment storage.
@@ -92,18 +92,29 @@ Sources: [API Gateway V2 authorization](https://docs.aws.amazon.com/service-auth
 ## Code-storage stage
 
 `infra/code-artifacts.ts` models the one new code bucket and its HTTPS-only deny
-policy inside the existing `ObsidianMcp` stack. Its name is versioned under
-`mcpRuntime` in `config/github.json`. All public access is blocked; ownership is
+policy inside the existing `ObsidianMcp` stack. Its name comes from the shared
+`mcpResources` contract in `infra/mcp-resources.ts`. All public access is blocked; ownership is
 bucket-enforced, default encryption is AES256 with SSE-C blocked, and versioning
 is enabled. Both resources are retained on deletion/replacement. There is no
 auto-empty behavior, lifecycle expiry, object deletion or note replication.
 
 This stage adds only `CodeArtifacts` and `CodeArtifactsPolicy`; it preserves
 `UserPool`, `UserPoolDomain` and all original storage identities. Plan recognizes
-only these named native resource bindings. Apply permits their Add/Modify while
-continuing to reject note-bucket creation, other S3 resources, removals and
+only these named native resource bindings, with the code bucket and policy
+bound to the shared IaC bucket name. The pool retains its native ARN export and
+permission-binding metadata; follow the
+[foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
+for prerequisite ordering. Plan refuses an absent identity stack, and application
+deployment is UPDATE-only. Apply permits pool/domain modifications and code-resource
+additions or modifications. When code resources change, it requires the native
+change-set template to bind the bucket to the shared name and its policy to that
+bucket. It continues to reject note-bucket creation, other S3 resources, removals and
 replacements. After PR1's separately approved IAM deployment, review PR2's actual
-CI plan and approve production to create code storage. This PR uploads no ZIP.
+CI plan and approve production to create code storage. This stage uploads no ZIP.
+Offline synthesis and fake-AWS CLI checks do not establish native bucket/policy
+creation, CloudFormation handler permissions or S3 security enforcement. Verify
+those during the separately approved rollout after the IAM prerequisite is
+applied; validation must not modify either original note bucket or its files.
 
 If a rollout partially fails, inspect native stack events and retained resources
 before retrying. A retained bucket from a failed rollback may need an explicit

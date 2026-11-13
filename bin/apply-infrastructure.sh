@@ -27,6 +27,11 @@ while IFS= read -r entry; do
     ObsidianWorkflowStorage:update)
       jq -e '[.Changes[].ResourceChange] | all((.ResourceType == "AWS::S3::Bucket" and (.LogicalResourceId == "Vault" or .LogicalResourceId == "Library") and .Action == "Modify") or (.ResourceType == "AWS::S3::BucketPolicy" and (.Action == "Add" or .Action == "Modify")))' "$file" ;;
     ObsidianMcp:update)
+      # Preserve the upstream native-template binding check, strengthened to
+      # compare the whole reviewed artifact before any code upload or execution.
+      aws cloudformation get-template --change-set-name "$arn" --query TemplateBody --output json > "infrastructure-apply/${stack}.template.json"
+      jq -e --slurpfile expected "$artifacts/ObsidianMcp.template.json" '
+        (if type == "string" then fromjson else . end) == $expected[0]' "infrastructure-apply/${stack}.template.json"
       jq -e --slurpfile model "$artifacts/ObsidianMcp.template.json" '
         $model[0].Resources as $expected | [.Changes[].ResourceChange] |
         all(. as $r | ($r.Action == "Add" or $r.Action == "Modify") and $expected[$r.LogicalResourceId].Type == $r.ResourceType and
