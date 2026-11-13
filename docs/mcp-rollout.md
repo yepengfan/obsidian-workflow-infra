@@ -46,7 +46,10 @@ Implementation-plan approval does not authorize an AWS Apply.
 - Cognito configuration is pinned to the deployed, tagged user pool. Bootstrap
   pool creation and the unowned-pool initial tagging grant are removed. Client,
   resource-server and managed-login-branding configuration is allowed only there;
-  user/password administration is not granted.
+  user/password administration is not granted. Pool operations require the
+  matching `Project` resource tag; tag removal is not granted. Explicit denies
+  prevent changing that tag or claiming a pool owned by another project.
+  Tagging the pinned, already-owned pool remains allowed under those guards.
 - HTTP API creation requires the configured API name and `Project=obsidian-mcp`.
   Management is limited to project-tagged API resources in the configured Region.
   API IDs are AWS-generated, so the initial API ARN pattern contains a wildcard;

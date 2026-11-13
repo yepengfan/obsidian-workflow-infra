@@ -31,13 +31,14 @@ note access or credentials are part of this stage.
    endpoints and `code_challenge_methods_supported` containing `S256`.
    Stop if the metadata fails; do not fake discovery, disable authentication or
    relax token audience checks to work around incompatibility.
-4. Add the actual pool ID as `mcpUserPoolId` in `config/github.json` through a
-   reviewed IAM PR and local SSO update. This removes pool creation and initial
-   tagging permission and pins subsequent pool operations to that ARN.
-   Do this before enabling OAuth or private-note access.
-5. Integrate the authenticated MCP application, with reviewed Lambda/API/asset
-   IAM scope added separately. The owner creates their Cognito user in the
-   Console and handles passwords, MFA and ChatGPT's exact callback URI. Never
+4. The deployed pool ID is now pinned as `mcpUserPoolId` in
+   `config/github.json`. Apply the reviewed permission-foundation update through
+   local SSO before enabling OAuth or private-note access; merging the pin alone
+   does not update AWS permissions.
+5. Follow the [staged MCP rollout](mcp-rollout.md#review-and-deployment-order)
+   for code storage and the authenticated application. The owner creates their
+   Cognito user in the Console and handles passwords, MFA and ChatGPT's exact
+   callback URI. Never
    put credentials or note content in Git, logs or chat.
 
 Applying only the IAM prerequisite does not deploy the pool. The resource
@@ -108,36 +109,16 @@ Do not invent metadata, add a proxy/broker silently or weaken validation.
 
 ## Permission boundary
 
-Plan and Deploy retain separate responsibilities. The added app statements are
-limited to the `ObsidianMcp` stack and `obsidian-mcp-*` change sets. Plan can pass
-only the dedicated role to CloudFormation and create unexecuted change sets
-whose resource-type list is present and contains only `AWS::Cognito::UserPool`
-and `AWS::Cognito::UserPoolDomain`. Deploy executes those reviewed change sets
-after the existing native production approval. Ordinary CI cannot update IAM.
-No administrator execution role or standard CDK bootstrap is introduced.
+The authoritative [MCP permission scope](mcp-rollout.md#permission-scope)
+includes the pinned Cognito pool and the reserved runtime/delivery grants.
+The deployed probe's resource definitions and the current Plan/Apply resource
+checks remain limited to the pool and prefix domain. IAM prerequisites do not
+create an application or change those checks.
 
-The new service role configures only pool settings and a prefix domain. It has
-no user creation/password/token operations, app-client operations, S3 access,
-IAM mutation/PassRole, KMS or CloudFront permissions. The AWS registry lists
-optional permissions for SMS, custom sender encryption and custom domains;
-those features are not authorized or part of this probe. Prefix domains must
-not be replaced with custom domains under this grant. Pools and domains must be
-retained; the role cannot delete either resource. Tag removal is not granted.
-
-Cognito assigns pool IDs. Until the first pool ID is known, `CreateUserPool`
-requires a wildcard resource, restricted to the configured Region and the
-request tag `Project=obsidian-mcp`. Initial `TagResource` permission is limited
-to pool ARNs in the configured account/Region and that requested project tag.
-It can also label another unowned pool in that account/Region, so it is a bootstrap
-capability, not proof of exclusive ownership. All pool configuration operations
-require the matching resource tag. An explicit deny blocks changing the project
-tag to a different value or claiming a pool tagged for another project.
-Pinning the pool ID removes that initial tagging grant and pool creation;
-tagging the pinned, already-owned pool remains allowed subject to the project-tag
-denies. `DescribeUserPoolDomain` remains Region-scoped with a
-wildcard resource because AWS does not support resource-level authorization for
-that read-only operation. IAM validation cannot prove the actual deployment;
-the resource PR must verify the real CloudFormation handler path.
+The probe does not use SMS, custom sender encryption or custom domains. Prefix
+domains must not be replaced with custom domains under this grant. Pools and
+domains must be retained; the role cannot delete either resource. The AWS
+registry's optional KMS and CloudFront handler permissions are not granted.
 
 ## Authentication checks after the probe
 
