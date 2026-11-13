@@ -65,7 +65,7 @@ for stack in ObsidianWorkflowStorage ObsidianMcp; do
   esac
   name="${prefix}-${operation}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
   description="repo=${GITHUB_REPOSITORY_ID} sha=${SOURCE_SHA} operation=${operation}"
-  case "$operation" in import) type=IMPORT ;; create) type=CREATE ;; update) type=UPDATE ;; *) exit 1 ;; esac
+  case "$operation" in import) type=IMPORT ;; update) type=UPDATE ;; *) exit 1 ;; esac
   arn=$(aws cloudformation create-change-set --stack-name "$stack" --change-set-name "$name" \
     --change-set-type "$type" --description "$description" \
     --template-body "file://cdk.out/${stack}.template.json" --role-arn "$execution_role" \

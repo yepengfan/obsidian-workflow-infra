@@ -27,13 +27,20 @@ while IFS= read -r entry; do
       jq -e '[.Changes[].ResourceChange] | all((.ResourceType == "AWS::S3::Bucket" and (.LogicalResourceId == "Vault" or .LogicalResourceId == "Library") and .Action == "Modify") or (.ResourceType == "AWS::S3::BucketPolicy" and (.Action == "Add" or .Action == "Modify")))' "$file" ;;
     ObsidianMcp:*)
       jq -e '[.Changes[].ResourceChange] | all((.LogicalResourceId == "UserPool" and .ResourceType == "AWS::Cognito::UserPool") or (.LogicalResourceId == "UserPoolDomain" and .ResourceType == "AWS::Cognito::UserPoolDomain") or (.LogicalResourceId == "CodeArtifacts" and .ResourceType == "AWS::S3::Bucket") or (.LogicalResourceId == "CodeArtifactsPolicy" and .ResourceType == "AWS::S3::BucketPolicy"))' "$file"
-      if [[ "$operation" == create ]]; then
-        jq -e '[.Changes[].ResourceChange] | length == 2 and all(.Action == "Add") and ([.[].LogicalResourceId] | sort == ["UserPool","UserPoolDomain"])' "$file"
-      else
-        jq -e '[.Changes[].ResourceChange] | all((.Action == "Modify") or (.Action == "Add" and (.LogicalResourceId == "CodeArtifacts" or .LogicalResourceId == "CodeArtifactsPolicy")))' "$file"
-        if jq -e 'any(.Changes[].ResourceChange; .LogicalResourceId == "CodeArtifacts" or .LogicalResourceId == "CodeArtifactsPolicy")' "$file" > /dev/null; then
-          node --input-type=commonjs -e 'if (!require("./config/github.json").mcpRuntime?.codeBucketName) process.exit(1)'
-        fi
+      jq -e '[.Changes[].ResourceChange] | all((.Action == "Modify") or (.Action == "Add" and (.LogicalResourceId == "CodeArtifacts" or .LogicalResourceId == "CodeArtifactsPolicy")))' "$file"
+      if jq -e 'any(.Changes[].ResourceChange; .LogicalResourceId == "CodeArtifacts" or .LogicalResourceId == "CodeArtifactsPolicy")' "$file" > /dev/null; then
+        aws cloudformation get-template --change-set-name "$arn" --query TemplateBody --output json > "infrastructure-apply/${stack}.template.json"
+        node --import tsx --input-type=module - "infrastructure-apply/${stack}.template.json" <<'NODE'
+import fs from 'node:fs';
+import { mcpResources } from './infra/mcp-resources.ts';
+const read = file => JSON.parse(fs.readFileSync(file, 'utf8'));
+const expected = mcpResources(read('config/storage.json'), read('config/github.json').runtimeRoleName);
+const body = read(process.argv[2]);
+const resources = (typeof body === 'string' ? JSON.parse(body) : body).Resources;
+if (resources?.CodeArtifacts?.Type !== 'AWS::S3::Bucket' || resources.CodeArtifacts.Properties?.BucketName !== expected.codeBucketName ||
+    resources?.CodeArtifactsPolicy?.Type !== 'AWS::S3::BucketPolicy' ||
+    JSON.stringify(resources.CodeArtifactsPolicy.Properties?.Bucket) !== JSON.stringify({ Ref: 'CodeArtifacts' })) process.exit(1);
+NODE
       fi ;;
   esac
 done < <(jq -c '.stacks[] | select(.hasChanges)' "$manifest")
@@ -41,7 +48,7 @@ done < <(jq -c '.stacks[] | select(.hasChanges)' "$manifest")
 while IFS= read -r entry; do
   stack=$(jq -r .name <<< "$entry"); operation=$(jq -r .operation <<< "$entry"); arn=$(jq -r .arn <<< "$entry")
   [[ "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')" == "$SOURCE_SHA" ]]
-  case "$operation" in import) waiter='stack-import-complete' ;; create) waiter='stack-create-complete' ;; update) waiter='stack-update-complete' ;; *) exit 1 ;; esac
+  case "$operation" in import) waiter='stack-import-complete' ;; update) waiter='stack-update-complete' ;; *) exit 1 ;; esac
   aws cloudformation update-termination-protection --enable-termination-protection --stack-name "$stack"
   aws cloudformation execute-change-set --change-set-name "$arn"
   aws cloudformation wait "$waiter" --stack-name "$stack"
