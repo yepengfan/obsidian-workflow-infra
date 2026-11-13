@@ -25,6 +25,8 @@ jobs:
         run: npm audit --audit-level=high
       - name: Synthesize desired S3 storage without AWS credentials
         run: npm run synth
+      - name: Synthesize Cognito compatibility probe without AWS credentials
+        run: npm run synth:cognito
       - name: Synthesize CI trust without AWS credentials
         run: npx --no-install cdk synth ObsidianGitHubTrust --app 'npx --no-install tsx bin/github.ts' --no-lookups --output cdk.github.out
       - name: Publish the offline infrastructure preview in the run summary
@@ -35,13 +37,14 @@ jobs:
           mkdir -p cdk.review.out
           npx --no-install cdk diff ObsidianWorkflowStorage --app cdk.out --template config/empty-template.json --no-lookups > cdk.review.out/storage.diff.txt 2>&1
           npx --no-install cdk diff ObsidianGitHubTrust --app cdk.github.out --template config/empty-template.json --no-lookups > cdk.review.out/github-trust.diff.txt 2>&1
+          npx --no-install cdk diff ObsidianMcp --app cdk.cognito.out --template config/empty-template.json --no-lookups > cdk.review.out/cognito.diff.txt 2>&1
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const escape = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
           let summary = '## Offline infrastructure preview\n\nCommit: ' + process.env.GITHUB_SHA + '\n\n';
-          summary += 'These definitions are compared with the empty baseline in config/empty-template.json. This offline preview is not a live AWS change set or a PR-base diff. First adoption uses IMPORT; subsequent configuration changes use UPDATE. Existing note buckets must never be recreated. The deployment Plan selects the actual operation from live stack state. No AWS credentials are used.\n\n';
-          summary += '**Permission foundation:** no standard CDK bootstrap or administrator execution role. Review the named Plan / Deploy roles and dedicated storage execution role in the IAM diff. No AWS repository variables or static keys are required. Apply permission changes from a reviewed revision via local SSO before CI deploys resources needing them.\n\n';
-          for (const [label, file] of [['GitHub OIDC / IAM diff', 'github-trust.diff.txt'], ['Existing bucket definitions', 'storage.diff.txt']]) {
+          summary += 'These definitions are compared with the empty baseline in config/empty-template.json. This offline preview is not a live AWS change set or a PR-base diff. Storage first adoption uses IMPORT and later changes use UPDATE. The Cognito probe uses CREATE or UPDATE. Existing note buckets must never be recreated. The deployment Plan selects the actual operation from live stack state. No AWS credentials are used.\n\n';
+          summary += '**Permission foundation:** no standard CDK bootstrap or administrator execution role. Review the named Plan / Deploy roles and dedicated storage and Cognito execution roles in the IAM diff. No AWS repository variables or static keys are required. Apply permission changes from a reviewed revision via local SSO before CI deploys resources needing them.\n\n';
+          for (const [label, file] of [['GitHub OIDC / IAM diff', 'github-trust.diff.txt'], ['Existing bucket definitions', 'storage.diff.txt'], ['Cognito issuer probe', 'cognito.diff.txt']]) {
             summary += '<details><summary>' + label + '</summary><pre>' + escape(fs.readFileSync('cdk.review.out/' + file, 'utf8')) + '</pre></details>\n\n';
           }
           summary += 'After the AWS foundation is configured, successful validate pushes on main automatically start plan and apply: Plan, production approval, then Apply of the same ChangeSet ARN.\n';
@@ -54,5 +57,6 @@ jobs:
           path: |
             cdk.out/ObsidianWorkflowStorage.template.json
             cdk.github.out/ObsidianGitHubTrust.template.json
+            cdk.cognito.out/ObsidianMcp.template.json
             config/import-resources.json
             cdk.review.out/

@@ -1,6 +1,6 @@
 # Obsidian workflow infrastructure
 
-Manage the existing private S3 buckets with explicit AWS CDK resource definitions.
+Manage the existing private S3 buckets and staged MCP identity infrastructure with AWS CDK.
 Native CloudFormation resource import binds these definitions to the existing
 buckets. Existing objects, version history, bucket names and Obsidian sync paths
 stay in place. Notes and credentials never belong in this repository.
@@ -81,10 +81,26 @@ Bucket names and Region cannot change in place. Keep logical IDs stable.
 Import was a separate operation from these improvements. No HTTPS bucket policy
 or replication is introduced.
 
-## MCP application prerequisite
+## Cognito compatibility probe
 
-The next MCP phase starts with a separate Cognito-only permission prerequisite.
-See [Cognito compatibility and deployment order](docs/cognito-preflight.md).
+`infra/cognito-stack.ts` defines the separate `ObsidianMcp` stack: a retained,
+deletion-protected Cognito pool with public signup disabled and required TOTP
+MFA, plus an AWS prefix domain using managed login v2. Account and Region come
+from `config/storage.json`; pool name and domain prefix are in
+`config/cognito.json`. This probe creates no users, clients or MCP endpoint and
+has no access to notes. The owner will create their account in Console later.
+
+```sh
+npm run synth:cognito
+```
+
+`validate` includes this template in its offline preview. The existing
+`plan and apply` workflow adds Cognito Plan/Create-or-Update and a separately
+approved Apply using the dedicated execution role. It checks actual discovery
+after deployment and on unchanged plans. Missing `S256` is a failure, even if
+CloudFormation succeeded. Read the [deployment and compatibility procedure](docs/cognito-preflight.md)
+before approving the resource change. Pool-ID pinning and actual OAuth/ChatGPT
+tests are required before private-note access can be enabled.
 
 ## GitHub identity
 
@@ -98,6 +114,6 @@ The minimatch override fixes the separately installed build-tool copy. The
 pinned CDK library bundles another vulnerable minimatch copy, currently reported
 as two moderate audit findings (minimatch and aws-cdk-lib). npm overrides do not
 replace bundled dependencies. No dependency is deployed as application runtime
-by this storage-only stack. Do not use `npm audit fix --force` to silently
+by these infrastructure-only stacks. Do not use `npm audit fix --force` to silently
 downgrade CDK or claim the bundled finding is resolved. Recheck upstream before
 publishing and report the remaining build-tool limitation.

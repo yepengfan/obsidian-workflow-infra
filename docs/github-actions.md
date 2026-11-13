@@ -36,11 +36,13 @@ Cognito-only MCP execution role. All role names are versioned in
 `config/storage.json`. CDK and CI use the same role names. No role has a managed
 policy attached.
 
-The current deployment workflow operates on storage. The additional app-stack
-permissions are a prerequisite only; see [Cognito preflight](cognito-preflight.md)
-for their scope, bootstrap tagging limitation, pool-ID pinning and deployment order.
+The deployment workflow preserves storage Plan/Apply and adds `plan-cognito` /
+`apply-cognito` for the retained issuer probe. See [Cognito preflight](cognito-preflight.md)
+for its separate native approval, live discovery check, bootstrap tagging
+limitation, pool-ID pinning and deployment order. No MCP endpoint or note access
+is enabled by this stage.
 
-Both stacks are asset-free. CDK generates the templates, and the AWS CLI sends
+All three stacks are asset-free. CDK generates the templates, and the AWS CLI sends
 those templates directly to CloudFormation. They have no bootstrap-version SSM
 parameter. **Do not run standard `cdk bootstrap` or `cdk deploy` for this setup.**
 No CDKToolkit stack, staging bucket, ECR repository, or administrator execution
@@ -189,7 +191,8 @@ not a substitute for the native environment approval itself.
 repository/environment subjects and `sts.amazonaws.com` audience. PlanRole can
 create an unexecuted storage change set and pass its dedicated execution role.
 Separate statements permit an `ObsidianMcp` Cognito-only change set with the
-dedicated MCP role; the storage workflow does not use that grant yet.
+dedicated MCP role; the Cognito jobs use that grant without changing the storage
+execution role or its resource checks.
 DeployRole can execute reviewed change sets but cannot create substitute plans
 or pass roles. Neither GitHub role has direct GetObject, PutObject or DeleteObject
 permissions on the note buckets.
