@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import { spawnSync } from 'node:child_process';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { appEnvironment, openAppSession, parseAppConfig, requireNoMistakesDaemon, runAppCommand, type AppConfig } from '../bin/github-app-session.js';
+import { appEnvironment, consumeAppKeyEnvironment, openAppSession, parseAppConfig, requireNoMistakesDaemon, runAppCommand, type AppConfig } from '../bin/github-app-session.js';
 
 const config: AppConfig = { clientId: 'IvEXAMPLE', appId: 123, installationId: 456,
   owner: 'example', repository: 'private-repo', repositoryId: 789,
@@ -38,6 +38,83 @@ function github(overrides: Record<string, unknown> = {}) {
 }
 
 describe('repository-scoped App sessions', () => {
+  it('consumes only the explicitly selected environment key and rejects a missing key', () => {
+    const env = { GITHUB_APP_TEST_PRIVATE_KEY: pem, KEEP: 'unrelated' };
+    expect(consumeAppKeyEnvironment('GITHUB_APP_TEST_PRIVATE_KEY', env).toString()).toBe(pem);
+    expect(env).toEqual({ KEEP: 'unrelated' });
+    expect(() => consumeAppKeyEnvironment('GITHUB_APP_TEST_PRIVATE_KEY', env)).toThrow('missing or empty');
+    expect(() => consumeAppKeyEnvironment('GH_TOKEN', { GH_TOKEN: 'personal' })).toThrow('dedicated');
+  });
+
+  it('erases the supplied buffer even when private-key parsing fails', async () => {
+    const invalid = Buffer.from('not-a-private-key');
+    const request = github();
+    await expect(openAppSession(invalid, config, request)).rejects.toThrow();
+    expect(invalid.every(byte => byte === 0)).toBe(true);
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each(['environment', 'fd'])('the real %s CLI isolates the key, runs Git as the bot and revokes its token', delivery => {
+    const root = fs.realpathSync(fs.mkdtempSync('/tmp/app-key-route-'));
+    const adapter = path.resolve('bin/github-app-session.ts');
+    const configPath = path.join(root, 'config.json');
+    const preload = path.join(root, 'github.mjs');
+    const marker = path.join(root, 'revoked');
+    const child = path.join(root, 'inspect.mjs');
+    try {
+      fs.writeFileSync(configPath, JSON.stringify(config));
+      fs.writeFileSync(preload, `import fs from 'node:fs';
+globalThis.fetch = async (input, init) => {
+  const url = new URL(String(input));
+  const route = url.pathname + url.search;
+  if (route === '/installation/token' && init.method === 'DELETE') {
+    fs.writeFileSync(${JSON.stringify(marker)}, 'revoked');
+    return new Response(null, { status: 204 });
+  }
+  const data = {
+    '/app': { id: 123, slug: 'example-app', owner: { login: 'example' } },
+    '/repos/example/private-repo/installation': { id: 456, app_id: 123,
+      account: { login: 'example' }, suspended_at: null, permissions: {} },
+    '/app/installations/456/access_tokens': { token: 'test-installation-token',
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+      permissions: { contents: 'write', pull_requests: 'write', metadata: 'read' } },
+    '/installation/repositories?per_page=100': { total_count: 1,
+      repositories: [{ id: 789, full_name: 'example/private-repo' }] }
+  };
+  if (!(route in data)) throw new Error('Unexpected test API route');
+  return Response.json(data[route]);
+};`);
+      fs.writeFileSync(child, `import assert from 'node:assert/strict';
+assert.equal(process.env.GITHUB_APP_TEST_PRIVATE_KEY, undefined);
+assert.equal(process.env.GH_TOKEN, 'test-installation-token');
+assert.equal(process.env.GIT_AUTHOR_NAME, 'example-app[bot]');
+assert.equal(process.env.GIT_COMMITTER_NAME, 'example-app[bot]');
+console.log('isolated App child passed');`);
+      const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+      expect(spawnSync('git', ['init', root], { env: gitEnv }).status).toBe(0);
+      expect(spawnSync('git', ['-C', root, 'remote', 'add', 'origin', 'https://github.com/example/private-repo.git'], { env: gitEnv }).status).toBe(0);
+      const keyPath = path.join(root, 'fixture-key.pem');
+      fs.writeFileSync(keyPath, pem, { mode: 0o600 });
+      const fd = fs.openSync(keyPath, 'r');
+      try {
+        const env = { ...process.env };
+        delete env.GITHUB_APP_TEST_PRIVATE_KEY;
+        if (delivery === 'environment') env.GITHUB_APP_TEST_PRIVATE_KEY = pem;
+        const result = spawnSync(process.execPath, ['--import', preload, adapter,
+          ...(delivery === 'environment' ? ['--key-env', 'GITHUB_APP_TEST_PRIVATE_KEY'] : []),
+          configPath, '--', 'git', '-c', `alias.inspect=!"${process.execPath}" "${child}"`, 'inspect'], {
+          cwd: root, env, encoding: 'utf8', timeout: 15_000,
+          stdio: ['pipe', 'pipe', 'pipe', delivery === 'fd' ? fd : 'ignore'],
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain('isolated App child passed');
+        expect(result.stderr).toContain('installation token revoked');
+        expect(result.stdout + result.stderr).not.toContain(pem);
+        expect(fs.readFileSync(marker, 'utf8')).toBe('revoked');
+      } finally { fs.closeSync(fd); }
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('signs a bounded JWT, explicitly narrows scope, verifies the token and revokes it', async () => {
     const request = github();
     const session = await openAppSession(Buffer.from(pem), config, request);
