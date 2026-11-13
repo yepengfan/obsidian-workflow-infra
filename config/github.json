@@ -4,13 +4,5 @@
   "mcpExecutionRoleName": "obsidian-mcp-execution",
   "planRoleName": "obsidian-workflow-ap-southeast-2-plan",
   "deployRoleName": "obsidian-workflow-ap-southeast-2-deploy",
-  "mcpUserPoolId": "ap-southeast-2_sK7LKlvjK",
-  "mcpRuntime": {
-    "functionName": "obsidian-mcp-server",
-    "runtimeRoleName": "obsidian-mcp-runtime",
-    "apiName": "obsidian-mcp",
-    "codeBucketName": "obsidian-mcp-code-391824190072-ap-southeast-2",
-    "codePrefix": "releases/",
-    "notePrefix": ""
-  }
+  "runtimeRoleName": "obsidian-mcp-runtime"
 }

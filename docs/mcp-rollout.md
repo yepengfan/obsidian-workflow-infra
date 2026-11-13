@@ -9,13 +9,18 @@ Selected notes can be read in chunks without editing S3 objects.
 
 ## Review and deployment order
 
-1. Review the permission-foundation PR. `config/github.json` pins the existing
-   Cognito pool and defines the reserved runtime, function, API and code-bucket
-   names. `infra/mcp-permissions.ts` grants only the modeled capabilities.
-   Synthesize the complete app and review the foundation template diff.
-   Apply only a concrete, approved foundation change set through local SSO,
-   following [the foundation procedure](github-actions.md). This PR does not
-   create a Lambda, API, OAuth client, code bucket or note-reading endpoint.
+1. Review the permission-foundation PR. Resource identities are defined once in
+   `infra/mcp-resources.ts`; `config/github.json` contains only the GitHub OIDC
+   subject and IAM role names. The application stack exports its managed pool ARN
+   as `ObsidianMcp:UserPoolArn`; the IAM foundation imports that exact value.
+   First approve the ordinary CI update that publishes this native export. It
+   changes no pool properties or note resources. Resource metadata ensures AWS
+   recognizes the output update; a native UPDATE can have no resource actions.
+   Then synthesize and review the foundation diff and apply only its concrete,
+   approved IAM change set through local SSO, following the
+   [foundation procedure](github-actions.md). Missing exports fail closed. Do not
+   attempt IAM first or restore wildcard pool creation to bypass the dependency.
+   This stage creates no Lambda, API, OAuth client, code bucket or note endpoint.
 2. Review the code-storage PR and its native CI plan. Create the separate private
    code-artifact bucket before uploading any Lambda ZIP. Keep existing bucket
    identities and protections; never copy notes into deployment storage.
@@ -40,10 +45,10 @@ Implementation-plan approval does not authorize an AWS Apply.
   S3 IAM does not express caller-selected note batches; the handler must enforce
   that additional boundary, supported formats, cursor validity and total budgets.
 - The application CloudFormation role can pass only that named runtime role
-  to Lambda. Function management is restricted to the named function, logs to
+  to Lambda. Function management is restricted to the IaC-defined function, logs to
   its named group, and code reads/bucket configuration to the separate code
   bucket. It cannot edit IAM policies or read private note bodies.
-- Cognito configuration is pinned to the deployed, tagged user pool. Bootstrap
+- Cognito configuration imports the exact ARN of the deployed, tagged user pool. Bootstrap
   pool creation and the unowned-pool initial tagging grant are removed. Client,
   resource-server and managed-login-branding configuration is allowed only there;
   user/password administration is not granted. Pool operations require the
@@ -78,7 +83,7 @@ The new code bucket has no note-object deletion or replication permission.
 
 Run `npm ci`, `npm run check` and `npm run synth`. Tests inspect the synthesized
 IAM contracts, role separation, prefix/listing conditions, code-upload conditions
-and pinned identity. They do not prove live AWS handler permissions or an OAuth
+and the native exported identity binding. They do not prove live AWS handler permissions or an OAuth
 exchange. No AWS changes or private note-body reads are needed for these checks.
 
 After separately approved deployment, verify native resource creation, Cognito

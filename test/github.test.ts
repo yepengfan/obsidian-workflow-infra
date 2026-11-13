@@ -1,3 +1,4 @@
+import { mcpResources } from '../infra/mcp-resources.js';
 import fs from 'node:fs';
 import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
@@ -58,7 +59,7 @@ describe('GitHub OIDC foundation', () => {
         expect(actions).not.toContain('iam:PassRole');
       }
       for (const statement of statements.filter(s => [s.Action].flat().some(a => a === 's3:GetObject' || a === 's3:PutObject'))) {
-        expect(JSON.stringify(statement.Resource)).toContain(github.mcpRuntime!.codeBucketName);
+        expect(JSON.stringify(statement.Resource)).toContain(mcpResources(storage, github.runtimeRoleName).codeBucketName);
         expect(JSON.stringify(statement.Resource)).not.toContain(storage.buckets.vault.name);
         expect(JSON.stringify(statement.Resource)).not.toContain(storage.buckets.library.name);
       }
@@ -122,7 +123,7 @@ describe('GitHub OIDC foundation', () => {
     const roles = Object.values(Template.fromStack(new GitHubTrustStack(new App(), 'Trust', storage, github))
       .findResources('AWS::IAM::Role'));
     expect(roles.map(role => role.Properties.RoleName).sort()).toEqual(
-      [github.planRoleName, github.deployRoleName, github.executionRoleName, github.mcpExecutionRoleName, github.mcpRuntime!.runtimeRoleName].sort(),
+      [github.planRoleName, github.deployRoleName, github.executionRoleName, github.mcpExecutionRoleName, github.runtimeRoleName].sort(),
     );
     for (const [name, environment] of [[github.planRoleName, 'production-plan'], [github.deployRoleName, 'production']]) {
       const role = roles.find(role => role.Properties.RoleName === name)!;

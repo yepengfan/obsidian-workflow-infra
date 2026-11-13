@@ -31,10 +31,11 @@ note access or credentials are part of this stage.
    endpoints and `code_challenge_methods_supported` containing `S256`.
    Stop if the metadata fails; do not fake discovery, disable authentication or
    relax token audience checks to work around incompatibility.
-4. The deployed pool ID is now pinned as `mcpUserPoolId` in
-   `config/github.json`. Apply the reviewed permission-foundation update through
-   local SSO before enabling OAuth or private-note access; merging the pin alone
-   does not update AWS permissions.
+4. The pool remains defined by `infra/cognito-stack.ts`. Publish its native
+   `ObsidianMcp:UserPoolArn` export through the approved resource workflow before
+   applying the permission-foundation update via local SSO. IAM imports this ARN;
+   no deployed pool ID is copied into GitHub configuration. See the
+   [rollout order](mcp-rollout.md#review-and-deployment-order).
 5. Follow the [staged MCP rollout](mcp-rollout.md#review-and-deployment-order)
    for code storage and the authenticated application. The owner creates their
    Cognito user in the Console and handles passwords, MFA and ChatGPT's exact
@@ -42,13 +43,13 @@ note access or credentials are part of this stage.
    put credentials or note content in Git, logs or chat.
 
 Applying only the IAM prerequisite does not deploy the pool. The resource
-workflow starts after a successful `validate` push on main. The shared `plan`
-job selects Cognito CREATE only for an exact
-stack-not-found response or unexecuted `REVIEW_IN_PROGRESS` placeholder. Existing
-stable stacks must contain the expected pool/domain logical IDs and resource
-types, and match the pinned pool ID when one is configured. Other failures and
-in-progress/failed stack states stop the workflow. A pinned pool with an absent
-stack never defaults to creating a replacement.
+workflow starts after a successful `validate` push on main. The current resource
+workflow requires the existing identity stack and never recreates it when absent.
+Existing stable stacks must contain the expected pool/domain logical IDs and
+resource types. Native plan and Apply guards reject replacement or removal;
+CloudFormation export/import binding prevents changing the pool ARN while the
+foundation imports it. Other failures and in-progress/failed states stop the
+workflow. A future new-account bootstrap requires a separately reviewed IAM path.
 
 See the [infrastructure deployment procedure](github-actions.md#automatic-deployment-run)
 for the shared Plan/Apply identity, source and resource-action guards, native
