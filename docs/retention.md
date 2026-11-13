@@ -1,14 +1,19 @@
 # Versioning and 90-day historical retention
 
-This change keeps the original `Vault` and `Library` bucket names and logical
-IDs. Both use versioning. Each has one native S3 lifecycle rule that expires
-versions 90 days after they become noncurrent. Current versions have no expiry
-action. There is no count-based retention floor, expired-current-delete-marker
-cleanup, scheduled Lambda, replication or separate backup bucket.
+The desired configuration keeps the original `Vault` and `Library` bucket names
+and logical IDs. It enables versioning on both and requests one native S3
+lifecycle rule per bucket to expire versions 90 days after they become noncurrent.
+These resource changes await the approved production Apply. Current versions
+have no expiry action. There is no count-based retention floor,
+expired-current-delete-marker cleanup, scheduled Lambda, replication or separate
+backup bucket.
 
 This is version history in the original buckets. It does not provide an
 independent account/Region copy or protection against someone with permission
 to permanently delete versions or change lifecycle configuration.
+
+In `config/storage.json`, `noncurrentVersionRetentionDays` is optional and accepts
+only `90`; when present, the bucket's `versioning` must be `enabled`.
 
 ## Activation order
 
@@ -45,8 +50,9 @@ cannot be reconstructed by enabling versioning now.
 
 Use the immediate successor's creation time, add 90 days and round up to the
 next midnight UTC to estimate lifecycle eligibility. Do not use the old
-version's original upload time. S3 processes eligible versions asynchronously.
-The 90-day period starts at supersession, not at deployment.
+version's original upload time. S3 processes eligible versions asynchronously;
+this is not an instantaneous cap on version count or total storage. The 90-day
+period starts at supersession, not at deployment.
 
 Noncurrent delete markers can also expire under the native noncurrent-version
 rule. A current delete marker is not removed by this configuration, even after
@@ -55,6 +61,10 @@ resurrecting an older version. No `Expiration` or `ExpiredObjectDeleteMarker`
 action is configured.
 
 ## Read-only verification
+
+Offline template checks and role-authorization checks do not demonstrate deployed
+versioning, lifecycle processing or recovery. Actual lifecycle processing and
+restore tests remain deferred until separately authorized.
 
 After Apply completes, run these commands using an authorized local profile;
 they do not read note bodies or modify objects:

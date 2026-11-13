@@ -5,16 +5,17 @@ Native CloudFormation resource import binds these definitions to the existing
 buckets. Existing objects, version history, bucket names and Obsidian sync paths
 stay in place. Notes and credentials never belong in this repository.
 
-This repository defines the import baseline, scoped permission foundation and
-automatic GitHub Actions Plan/Apply workflow. Applying cloud changes requires
-separate review and approval; no object copy or cleanup is part of the baseline.
+This repository defines the managed storage configuration, scoped permission
+foundation and automatic GitHub Actions Plan/Apply workflow. Applying cloud
+changes requires separate review and approval; no object copy or cleanup was
+part of the initial import baseline.
 
 ## Resource definitions
 
 - `infra/storage-stack.ts` declares two managed `AWS::S3::Bucket` resources.
   These are not `fromBucketName` references.
 - `config/storage.json` contains the visible, editable account, region, names,
-  encryption, public-access, ownership and versioning settings.
+  encryption, public-access, ownership, versioning and retention settings.
 - `config/import-resources.json` maps the stable logical IDs `Vault` and
   `Library` to the original physical bucket names. It is the native
   CloudFormation `--resources-to-import` format, not CDK's mapping format.
@@ -78,8 +79,7 @@ verification procedure](docs/retention.md) before approving the change.
 Bucket names and Region cannot change in place. Keep logical IDs stable.
 
 Import was a separate operation from these improvements. No HTTPS bucket policy
-or replication is introduced. See [the selected post-import policy](docs/post-import-plan.md)
-and the required historical-impact review before retention activation.
+or replication is introduced.
 
 ## GitHub identity
 
