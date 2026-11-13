@@ -4,7 +4,7 @@ The repository uses two workflows. `validate` checks pull requests
 and main without AWS credentials. After a successful validation **push on main**,
 `plan and apply`
 automatically plans the exact verified commit, waits for the owner's native
-GitHub environment approval, then applies that same CloudFormation change set.
+GitHub environment approval, then applies those exact CloudFormation change sets.
 There is no routine Run workflow action, operation input, ARN copy, or second
 manual Apply trigger. First import is planned automatically too.
 
@@ -36,11 +36,14 @@ Cognito-only MCP execution role. All role names are versioned in
 `config/storage.json`. CDK and CI use the same role names. No role has a managed
 policy attached.
 
-The deployment workflow preserves storage Plan/Apply and adds `plan-cognito` /
-`apply-cognito` for the retained issuer probe. See [Cognito preflight](cognito-preflight.md)
-for its separate native approval, live discovery check, bootstrap tagging
-limitation, pool-ID pinning and deployment order. No MCP endpoint or note access
-is enabled by this stage.
+The deployment workflow handles the infrastructure as one unit: one CDK app,
+one synthesis, one combined Plan, and one native production approval/Apply.
+`bin/infrastructure.ts` synthesizes storage, the Cognito probe and the IAM
+foundation into `cdk.out`. Native stack IDs and scoped CloudFormation service
+roles remain stable, so no existing resources need to move between stacks.
+The foundation is part of the shared review preview; its permissions remain
+outside CI deployment and require the approved local SSO procedure.
+See [Cognito preflight](cognito-preflight.md) for discovery and pool-ID pinning.
 
 All three stacks are asset-free. CDK generates the templates, and the AWS CLI sends
 those templates directly to CloudFormation. They have no bootstrap-version SSM
@@ -124,7 +127,7 @@ A main deployment that starts between the merge and the foundation update can
 fail OIDC login because the new names do not exist yet. It must not fall back to
 the old roles or a broader identity. Once the approved foundation update succeeds,
 rerun `validate` for current main once; its completion automatically
-starts storage Plan.
+starts the infrastructure Plan.
 Review the import plan before production approval. No ARN copy, Repository
 variable update, or extra configuration service is part of this migration.
 Subsequent normal deployments remain automatic Plan, approval, automatic Apply.
@@ -165,8 +168,8 @@ Do not merge resource changes that require new permissions before step 2. If
 permissions are missing, CI fails closed; it never falls back to SSO or an
 administrator role and cannot update its own foundation. No extra CI permission
 updater or long-lived AWS key is introduced. A future stack or resource type
-also needs corresponding reviewed workflow/IAM scope changes: the current
-storage workflow intentionally accepts only the original two buckets and a
+also needs corresponding reviewed workflow/IAM scope changes: the shared
+pipeline validates the original storage stack against the two buckets and a
 reviewed later BucketPolicy, whose write permission must first be added here.
 For the separate MCP execution role and its staged permission expansion, see
 [Cognito preflight](cognito-preflight.md).
@@ -199,57 +202,67 @@ permissions on the note buckets.
 
 ## Automatic deployment run
 
-`deploy-storage.yml` listens to successful completed `validate` runs. It accepts only
-pushes to main in this repository, never PR or fork runs. It checks out the
-upstream run's exact `head_sha`, rejects a superseded main revision before AWS
-authentication, and binds that SHA into the native change-set description.
-It does not download or execute artifacts from untrusted PR runs.
+`.github/workflows/plan-and-apply.yml` listens to successful completed `validate`
+runs. The `plan` job accepts only pushes to main in this repository, checks out
+the verified SHA, rejects a superseded revision, and requires the actual native
+production reviewer rule before AWS authentication. The same checks protect
+`apply`. PR and fork validation never starts this deployment path.
 
-### Storage Plan
+### One infrastructure Plan
 
-The Plan job uses the unapproved `production-plan` environment and PlanRole:
+The Plan job uses `production-plan` and the fixed Plan role. It synthesizes the
+entire CDK app once, then runs `bin/plan-infrastructure.sh`:
 
-1. Synthesize storage from the verified commit.
-2. Read actual `ObsidianWorkflowStorage` state. An exact stack-not-found response
-   or an unexecuted `REVIEW_IN_PROGRESS` placeholder selects IMPORT. A stable
-   imported/created/updated stack selects UPDATE only after its two bucket
-   physical IDs match the versioned import mapping. Unsupported states,
-   permission failures and network errors stop; they never default to import.
-3. Create an unexecuted native CloudFormation change set. IMPORT passes
-   `config/import-resources.json`; no object copying or note reads are involved.
-4. Publish account, region, stack, full SHA, operation, ARN, resource actions,
-   replacement indicators and original bucket mapping in the job Summary.
-   Full plan/template/mapping are attached to this run's artifact.
+1. Inspect actual state for both deployment stacks. Storage selects IMPORT only
+   on an exact stack-not-found response or unexecuted `REVIEW_IN_PROGRESS`
+   placeholder; stable storage must match the original two bucket physical IDs.
+   Cognito selects CREATE on that same absence/placeholder condition, and stable
+   Cognito must contain the expected pool/domain IDs and match a configured pin.
+   Other errors and unsupported states fail the entire Plan.
+2. Prepare native source-bound change sets for both stacks using their dedicated
+   service roles and reviewed resource-type scopes. The IAM foundation is never
+   included in this execution list. Plan creates metadata, not resources.
+3. Publish one `infrastructure-plan.json`, one summary covering both stacks and
+   their exact ARNs/actions/replacements, and one review artifact containing all
+   templates and native plans. A failed second plan prevents any Apply.
 
-A no-change UPDATE is reported without requesting approval or running Apply.
-Other change-set creation failures fail the run. Plan creates metadata and may
-create an empty stack placeholder; it does not execute changes to bucket
-configuration. An IMPORT plan must contain only the two original buckets.
-Library versioning, policies and lifecycle changes remain separate updates.
+Only a recognized no-change UPDATE is tolerated as unchanged. Approval is
+skipped only when **all** deployment stacks are unchanged; that path still
+checks public Cognito discovery once. Artifact retention is seven days.
 
-### Storage approval and Apply
+### One approval and infrastructure Apply
 
-For a plan with changes, Apply depends on Plan and references `production`.
-GitHub waits for Required reviewers before starting that job. In the deployment
-run, read the **Plan** Summary/artifact, then use **Review deployments** to
-approve or reject. Approval starts Apply automatically; no ARN needs copying.
+The `apply` job depends on the combined Plan and uses the native `production`
+environment. Review **the entire plan** and templates in that Actions run, then
+use **Review deployments** to approve or reject once. Apply receives the combined
+manifest through same-run job outputs and never resynthesizes templates or
+constructs replacement plans.
 
-Apply receives the exact ARN and operation through job outputs. It checks the
-native plan's available status, stack, repository, verified SHA and allowed
-resource actions. IMPORT is exactly Vault / Library; UPDATE rejects removals,
-replacements, new buckets and non-S3 resources, while permitting a later reviewed
-BucketPolicy addition. Immediately before execution it queries live main again,
-rejecting a superseded commit even on a rerun. It executes that ARN without
-resynthesizing, waits for AWS completion, enables termination protection, and
-checks modeled resource drift with a bounded poll.
+`bin/apply-infrastructure.sh` verifies the manifest's source/repository/account/
+Region and exact deployment stack set. It inspects **every changed native plan
+before executing any**. Each must be available, bound to the expected stack and
+source, and pass its existing resource checks: storage IMPORT is exactly Vault /
+Library; storage UPDATE permits original bucket modifications or reviewed later
+BucketPolicy changes; Cognito CREATE is exactly its pool/domain and UPDATE only
+modifies them. Removals and replacements are rejected.
 
-The workflow concurrency group does not interrupt an in-flight deployment.
-A newer main can queue while an old run awaits approval: reject or cancel the
-superseded waiting run so the current one can plan. Approving an old run cannot
-bypass the live-main check. If a deployment needs replanning, rerun
-`validate` for the current main commit; successful completion
-automatically triggers deployment. An old validation rerun is rejected if main
-advanced.
+Apply rechecks live main immediately before each execution, enables termination
+protection, executes the exact approved ARN and waits for the correct import,
+create or update completion. It preserves the bounded storage drift check and
+then checks live Cognito discovery, with propagation retries only if that stack
+changed. A discovery failure leaves OAuth/private-note access disabled.
+
+One approval coordinates the infrastructure; CloudFormation execution remains
+per stack and is **not a transaction across stacks**. A later failure may leave
+earlier stacks completed. The Apply summary records each successful stack;
+inspect actual AWS stack/change-set status before retrying. Do not recreate
+retained resources or blindly re-import. A fresh successful validation of current
+main prepares a new combined plan against actual state.
+
+Workflow concurrency does not interrupt an in-flight apply. Reject or cancel an
+older waiting run when main advances, so the latest revision can plan. The live
+main check rejects stale approvals/reruns. Ordinary CI never uses SSO, expands
+its own permissions, or reads/writes note bodies.
 
 ## Recovery and successful adoption
 

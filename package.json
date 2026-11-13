@@ -12,10 +12,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm test",
-    "synth": "cdk synth ObsidianWorkflowStorage --no-lookups",
-    "synth:cognito": "cdk synth ObsidianMcp --app 'npx --no-install tsx bin/cognito.ts' --no-lookups --output cdk.cognito.out",
+    "synth": "cdk synth --no-lookups",
     "check:cognito": "tsx bin/check-cognito.ts",
-    "diff": "cdk diff ObsidianWorkflowStorage --method=template --no-lookups"
+    "diff": "cdk diff --method=template --no-lookups"
   },
   "dependencies": {
     "aws-cdk-lib": "2.276.0",

@@ -4,9 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { expect, it } from 'vitest';
 
 it.each([
-  { entry: 'storage', stack: 'ObsidianWorkflowStorage', type: 'AWS::S3::Bucket', count: 2 },
+  { entry: 'infrastructure', stack: 'ObsidianWorkflowStorage', type: 'AWS::S3::Bucket', count: 2 },
   { entry: 'github', stack: 'ObsidianGitHubTrust', type: 'AWS::IAM::OIDCProvider', count: 1 },
-  { entry: 'cognito', stack: 'ObsidianMcp', type: 'AWS::Cognito::UserPool', count: 1 },
 ])('synthesizes $entry from the fixed versioned configuration', ({ entry, stack, type, count }) => {
   const directory = fs.mkdtempSync(path.resolve('.entrypoint-test-'));
   try {

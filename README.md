@@ -50,8 +50,9 @@ npm run check
 npm run synth
 ```
 
-These commands validate types, lint, test the synthesized resource semantics,
-and produce `cdk.out/ObsidianWorkflowStorage.template.json`. They do not deploy.
+These commands validate types, lint and behavior, then synthesize the entire
+infrastructure through `bin/infrastructure.ts` into one `cdk.out` assembly. It
+contains the storage, Cognito and IAM foundation templates. They do not deploy.
 The tests cover enabling Library versioning, expiring only noncurrent versions,
 rejecting unsupported retention settings, removing lifecycle without changing
 versioning, and preserving the original logical/physical resource definitions.
@@ -60,10 +61,11 @@ Do not hand-edit synthesized files. Edit TypeScript/configuration and synthesize
 again. Review [the import procedure](docs/github-actions.md) before any AWS write.
 `validate` runs without AWS credentials and publishes an offline infrastructure
 preview, including OIDC and the scoped role definitions, in its Summary and
-artifact. Successful main validation automatically starts `plan and apply`: storage Plan
-selects first import or later update, publishes the actual native change set,
-and Apply waits for the owner's production environment approval before
-automatically executing that exact ARN. See [setup and review steps](docs/github-actions.md).
+artifact. Successful main validation starts `plan and apply`: one combined
+infrastructure Plan, one native production approval, then Apply of all exact
+changed ARNs. Existing stack IDs and scoped roles remain stable; IAM permission
+updates still require the reviewed local SSO procedure. AWS executes each stack
+independently, so partial completion must be inspected before retrying. See [setup and review steps](docs/github-actions.md).
 
 See [foundation setup and permission updates](docs/github-actions.md) for
 versioned role configuration, the migration of existing CI roles, permission
@@ -85,10 +87,10 @@ or replication is introduced.
 
 The separate `ObsidianMcp` stack probes Cognito issuer compatibility before
 building the authenticated MCP application. It provides no MCP endpoint or
-note access. To preview its template locally:
+note access. Its template is included in the shared infrastructure assembly:
 
 ```sh
-npm run synth:cognito
+npm run synth
 ```
 
 Read the [Cognito deployment and compatibility procedure](docs/cognito-preflight.md)

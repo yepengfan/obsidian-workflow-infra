@@ -24,9 +24,9 @@ note access or credentials are part of this stage.
    deletion protection and retained identity resources. No app client, user,
    note-reading Lambda, API endpoint or registration endpoint is enabled by
    this initial compatibility probe. The existing storage checks remain intact.
-   After merge, inspect **plan-cognito** in the Actions run and approve
-   **apply-cognito** through the native `production` environment only after
-   reviewing its exact change-set ARN, source SHA, resource actions and template.
+   After merge, inspect the combined **Plan** in the Actions run and approve
+   the single infrastructure **Apply** through the native `production` environment after
+   reviewing all exact change-set ARNs, source SHA, resource actions and templates.
 3. Read the real issuer's discovery metadata. Require a matching issuer, HTTPS
    endpoints and `code_challenge_methods_supported` containing `S256`.
    Stop if the metadata fails; do not fake discovery, disable authentication or
@@ -41,8 +41,8 @@ note access or credentials are part of this stage.
    put credentials or note content in Git, logs or chat.
 
 Applying only the IAM prerequisite does not deploy the pool. The resource
-workflow starts after a successful `validate` push on main. `plan-cognito`
-depends on the guarded storage Plan; it selects CREATE only for an exact
+workflow starts after a successful `validate` push on main. The shared `plan`
+job selects Cognito CREATE only for an exact
 stack-not-found response or unexecuted `REVIEW_IN_PROGRESS` placeholder. Existing
 stable stacks must contain the expected pool/domain logical IDs and resource
 types, and match the pinned pool ID when one is configured. Other failures and
@@ -51,14 +51,17 @@ stack never defaults to creating a replacement.
 
 No AWS Repository variables, static keys, standard CDK bootstrap or IAM update
 capability are added. The existing fixed Plan/Deploy role configuration and
-GitHub OIDC environments are reused. `apply-cognito` validates the native plan's
+GitHub OIDC environments are reused. The shared `apply` job validates every changed plan's
 account, Region, stack, source binding, available status and resource actions.
 CREATE must add exactly `UserPool` and `UserPoolDomain`; UPDATE allows only
 modification of those resources, with no replacements or removals. It rechecks
 live main immediately before execution, enables termination protection,
 executes the same ARN without resynthesis, and waits for the correct operation.
 
-The protected pool requires TOTP MFA, uses email sign-in and the Essentials
+The shared pipeline coordinates the existing native stacks without moving
+resources or broadening IAM. It is not an atomic transaction across stacks;
+inspect actual AWS state after partial failure. The protected pool requires
+TOTP MFA, uses email sign-in and the Essentials
 tier, and has a 14-character password policy. The prefix domain uses managed
 login v2. Both resources have `DeletionPolicy` and `UpdateReplacePolicy` Retain.
 Failed creation can leave retained resources or a failed stack: inspect native
@@ -70,7 +73,7 @@ do not delete or recreate retained identity resources as automatic recovery.
 ```sh
 npm ci
 npm run check
-npm run synth:cognito
+npm run synth
 actionlint
 ```
 
@@ -83,15 +86,15 @@ CloudFormation handler, live metadata or OAuth login. Those require the
 separately approved resource deployment.
 
 After successful Apply, the workflow reads the stack's non-secret outputs and
-runs `npm run check:cognito -- cognito-stack.json`. It uses at most six attempts
+runs `npm run check:cognito -- infrastructure-apply/ObsidianMcp.stack.json`. It uses at most six attempts
 with ten-second gaps for propagation. Each attempt tries standard OAuth
 authorization-server metadata, falling back to OIDC discovery if needed, with
 five-second request timeouts, no redirects and a 64 KiB response limit. It requires the expected
 issuer/JWKS, exact AWS-domain authorize/token endpoints, authorization-code
 support, `S256` and supported confidential-client authentication. It never
 registers a client or requests tokens, and errors omit remote bodies.
-Unchanged stack plans run this read-only discovery check once, without the
-post-Apply propagation retries.
+When the entire infrastructure is unchanged, Plan runs discovery once. After
+Apply, propagation retries are used only if Cognito changed.
 
 To repeat the check locally after an approved deployment:
 
