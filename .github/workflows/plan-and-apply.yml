@@ -163,7 +163,7 @@ jobs:
           if jq -e 'any(.stacks[]; .name == "ObsidianMcp" and .hasChanges)' infrastructure-plan.json; then attempts=6; fi
           for ((attempt=1; attempt<=attempts; attempt++)); do
             if npm run check:cognito -- infrastructure-apply/ObsidianMcp.stack.json; then
-              echo 'Live discovery passed, including S256. Pool-ID pinning and real PKCE, audience, refresh and ChatGPT tests remain required before enabling OAuth or note access.' >> "$GITHUB_STEP_SUMMARY"
+              echo 'Live discovery passed, including S256. Follow the native pool ARN export handoff in docs/github-actions.md. Real PKCE, exact audience, refresh and ChatGPT tests remain required before enabling OAuth or note access.' >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             if [[ "$attempt" -lt "$attempts" ]]; then sleep 10; fi
