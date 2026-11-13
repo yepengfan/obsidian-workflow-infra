@@ -1,10 +1,10 @@
 # Cognito compatibility prerequisite
 
 The separate `obsidian-mcp-execution` service role is the IAM prerequisite for
-the `ObsidianMcp` stack. The resource definitions now contain only a Cognito
-user pool and AWS prefix domain. These are a compatibility probe, not an
-enabled MCP application. Reviewing or merging the resource PR does not approve
-its AWS change set. No users, app clients, registration endpoint, Lambda, API,
+the `ObsidianMcp` stack. Its Cognito user pool and AWS prefix domain
+form a compatibility probe, not an enabled MCP application. The later
+[code-storage stage](mcp-rollout.md#code-storage-stage) extends that stack.
+Reviewing or merging the resource PR does not approve its AWS change set. No users, app clients, registration endpoint, Lambda, API,
 note access or credentials are part of this stage.
 
 `infra/cognito-stack.ts` defines the resources. Account and Region come from
@@ -83,9 +83,9 @@ Do not invent metadata, add a proxy/broker silently or weaken validation.
 
 The authoritative [MCP permission scope](mcp-rollout.md#permission-scope)
 includes the pinned Cognito pool and the reserved runtime/delivery grants.
-The deployed probe's resource definitions and the current Plan/Apply resource
-checks remain limited to the pool and prefix domain. IAM prerequisites do not
-create an application or change those checks.
+For the current stack resources and Plan/Apply guards, see the
+[code-storage stage](mcp-rollout.md#code-storage-stage). IAM prerequisites alone
+do not create an application or expand the script checks.
 
 The probe does not use SMS, custom sender encryption or custom domains. Prefix
 domains must not be replaced with custom domains under this grant. Pools and

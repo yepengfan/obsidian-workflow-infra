@@ -12,7 +12,7 @@ Selected notes can be read in chunks without editing S3 objects.
 1. Review the permission-foundation PR and follow the
    [foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
    for resource identities, configuration ownership and prerequisite deployment order.
-   This stage creates no Lambda, API, OAuth client, code bucket or note endpoint.
+   That foundation stage creates no Lambda, API, OAuth client, code bucket or note endpoint.
 2. Review the code-storage PR and its native CI plan. Create the separate private
    code-artifact bucket before uploading any Lambda ZIP. Keep existing bucket
    identities and protections; never copy notes into deployment storage.
@@ -100,10 +100,18 @@ auto-empty behavior, lifecycle expiry, object deletion or note replication.
 
 This stage adds only `CodeArtifacts` and `CodeArtifactsPolicy`; it preserves
 `UserPool`, `UserPoolDomain` and all original storage identities. Plan recognizes
-only these named native resource bindings. Apply permits their Add/Modify while
+only these named native resource bindings, with the code bucket and policy
+bound to the configured bucket name and the pool matching its configured ID.
+Initial CREATE remains limited to the pool/domain and is rejected when the pool
+is pinned. On UPDATE, Apply permits pool/domain modifications and code-resource
+additions or modifications only when code storage is configured, while
 continuing to reject note-bucket creation, other S3 resources, removals and
 replacements. After PR1's separately approved IAM deployment, review PR2's actual
-CI plan and approve production to create code storage. This PR uploads no ZIP.
+CI plan and approve production to create code storage. This stage uploads no ZIP.
+Offline synthesis and fake-AWS CLI checks do not establish native bucket/policy
+creation, CloudFormation handler permissions or S3 security enforcement. Verify
+those during the separately approved rollout after the IAM prerequisite is
+applied; validation must not modify either original note bucket or its files.
 
 If a rollout partially fails, inspect native stack events and retained resources
 before retrying. A retained bucket from a failed rollback may need an explicit
