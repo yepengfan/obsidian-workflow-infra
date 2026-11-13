@@ -103,7 +103,9 @@ and manually run **Apply storage change set** on main. Enter the exact reviewed
 ChangeSet ARN, matching operation and `execute` confirmation.
 
 The job requires an available, unexecuted change set for the expected stack,
-repository and current full main SHA. If main advanced, make a fresh plan.
+repository and current full main SHA. Immediately before execution it queries
+live main through the read-only GitHub API token and rejects an outdated
+workflow revision, including reruns. If main advanced, make a fresh plan.
 Initial import is restricted to the two expected bucket logical IDs. Updates
 reject removals, replacements, new buckets and non-S3 resource types; adding
 an S3 BucketPolicy is allowed for a later reviewed HTTPS policy.

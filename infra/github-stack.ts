@@ -6,7 +6,6 @@ import { STORAGE_STACK_NAME, type StorageConfig } from './storage-config.js';
 
 export const githubSchema = z.object({
   repositorySubject: z.string().regex(/^repo:[A-Za-z0-9_.-]+@\d+\/[A-Za-z0-9_.-]+@\d+$/u),
-  createProvider: z.boolean(),
   bootstrapQualifier: z.string().regex(/^[a-z0-9]+$/u),
 }).strict();
 
@@ -14,9 +13,7 @@ export const githubSchema = z.object({
 export class GitHubTrustStack extends Stack {
   constructor(scope: Construct, id: string, storage: StorageConfig, github: z.infer<typeof githubSchema>) {
     super(scope, id, { env: { account: storage.account, region: storage.region } });
-    const provider = github.createProvider
-      ? new iam.OidcProviderNative(this, 'Provider', { url: 'https://token.actions.githubusercontent.com', clientIds: ['sts.amazonaws.com'] })
-      : iam.OidcProviderNative.fromOidcProviderArn(this, 'Provider', `arn:${this.partition}:iam::${this.account}:oidc-provider/token.actions.githubusercontent.com`);
+    const provider = new iam.OidcProviderNative(this, 'Provider', { url: 'https://token.actions.githubusercontent.com', clientIds: ['sts.amazonaws.com'] });
     const principal = (environment: string) => new iam.FederatedPrincipal(provider.oidcProviderArn, {
       StringEquals: {
         'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
@@ -56,9 +53,8 @@ export class GitHubTrustStack extends Stack {
       actions: ['cloudformation:ExecuteChangeSet'], resources: [stackArn],
       conditions: { StringLike: { 'cloudformation:ChangeSetName': changeSetNames } },
     }));
-    apply.addToPolicy(new iam.PolicyStatement({ actions: ['cloudformation:UpdateTerminationProtection', 'cloudformation:DetectStackDrift', 'cloudformation:DescribeStackResourceDrifts'], resources: [stackArn] }));
-    // This read API accepts a detection ID and has no resource-level IAM scope.
-    apply.addToPolicy(new iam.PolicyStatement({ actions: ['cloudformation:DescribeStackDriftDetectionStatus'], resources: ['*'] }));
+    apply.addToPolicy(new iam.PolicyStatement({ actions: ['cloudformation:UpdateTerminationProtection', 'cloudformation:DetectStackDrift', 'cloudformation:DetectStackResourceDrift', 'cloudformation:DescribeStackResourceDrifts'], resources: [stackArn] }));
+    apply.addToPolicy(new iam.PolicyStatement({ actions: ['cloudformation:DescribeStackDriftDetectionStatus', 'cloudformation:BatchDescribeTypeConfigurations'], resources: ['*'] }));
     new CfnOutput(this, 'PlanRoleArn', { value: plan.roleArn });
     new CfnOutput(this, 'DeployRoleArn', { value: apply.roleArn });
     new CfnOutput(this, 'CloudFormationExecutionRoleArn', { value: executionRole });

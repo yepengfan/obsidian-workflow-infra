@@ -7,7 +7,7 @@ import { storageSchema } from '../infra/storage-config.js';
 
 const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
 const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
-type Statement = { Action: string | string[]; Condition?: { StringEquals?: Record<string, string> } };
+type Statement = { Action: string | string[]; Resource?: unknown; Condition?: { StringEquals?: Record<string, string> } };
 type Role = { Properties: { AssumeRolePolicyDocument: { Statement: Statement[] } } };
 type Policy = { Properties: { Roles: { Ref: string }[]; PolicyDocument: { Statement: Statement[] } } };
 
@@ -31,7 +31,8 @@ describe('GitHub OIDC foundation', () => {
   });
 
   it('separates creating a change set from executing it and grants no note-object access', () => {
-    const template = Template.fromStack(new GitHubTrustStack(new App(), 'Trust', storage, github));
+    const stack = new GitHubTrustStack(new App(), 'Trust', storage, github);
+    const template = Template.fromStack(stack);
     const roles = template.findResources('AWS::IAM::Role') as Record<string, Role>;
     const policies = Object.values(template.findResources('AWS::IAM::Policy')) as Policy[];
     for (const [id, role] of Object.entries(roles)) {
@@ -44,6 +45,13 @@ describe('GitHub OIDC foundation', () => {
         expect(actions).not.toContain('cloudformation:ExecuteChangeSet');
       } else {
         expect(actions).toContain('cloudformation:ExecuteChangeSet');
+        for (const action of ['cloudformation:DetectStackDrift', 'cloudformation:DetectStackResourceDrift', 'cloudformation:DescribeStackResourceDrifts']) {
+          expect(statements.find((statement) => [statement.Action].flat().includes(action))?.Resource)
+            .toEqual(stack.resolve(`arn:${stack.partition}:cloudformation:${storage.region}:${storage.account}:stack/ObsidianWorkflowStorage/*`));
+        }
+        for (const action of ['cloudformation:BatchDescribeTypeConfigurations', 'cloudformation:DescribeStackDriftDetectionStatus']) {
+          expect(statements.find((statement) => [statement.Action].flat().includes(action))?.Resource).toBe('*');
+        }
         expect(actions).not.toContain('cloudformation:CreateChangeSet');
         expect(actions).not.toContain('iam:PassRole');
       }
@@ -55,10 +63,7 @@ describe('GitHub OIDC foundation', () => {
     }
   });
 
-  it('can reference an already existing OIDC provider without creating a second one', () => {
-    const template = Template.fromStack(new GitHubTrustStack(new App(), 'Trust', storage, { ...github, createProvider: false }));
-    template.resourceCountIs('AWS::IAM::OIDCProvider', 0);
-    template.resourceCountIs('AWS::IAM::Role', 2);
+  it('rejects mutable repository subjects', () => {
     expect(() => githubSchema.parse({ ...github, repositorySubject: 'repo:yepengfan/obsidian-workflow-infra' })).toThrow();
   });
 });

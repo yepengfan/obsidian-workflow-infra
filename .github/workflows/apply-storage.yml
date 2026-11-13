@@ -72,9 +72,15 @@ jobs:
           jq '{Description, Changes}' reviewed-plan.json
       - name: Execute that existing change set without resynthesizing
         env:
+          GH_TOKEN: ${{ github.token }}
           CHANGE_SET_ARN: ${{ inputs.change_set_arn }}
           OPERATION: ${{ inputs.operation }}
         run: |
+          live_main_sha=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$live_main_sha" != "$GITHUB_SHA" ]]; then
+            echo 'Main advanced since this workflow revision. Review a fresh plan on current main.' >&2
+            exit 1
+          fi
           aws cloudformation execute-change-set --change-set-name "$CHANGE_SET_ARN"
           if [[ "$OPERATION" == import ]]; then
             aws cloudformation wait stack-import-complete --stack-name ObsidianWorkflowStorage
