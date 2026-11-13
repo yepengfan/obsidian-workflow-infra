@@ -96,6 +96,8 @@ jobs:
             infrastructure-plan.json
             infrastructure-plan/
             cdk.out/*.template.json
+            cdk.out/CodeBundle.zip
+            cdk.out/CodeBundle.json
             config/import-resources.json
   apply:
     needs: plan
@@ -148,14 +150,21 @@ jobs:
           role-to-assume: ${{ steps.config.outputs.roleArn }}
           aws-region: ${{ steps.config.outputs.region }}
           allowed-account-ids: ${{ steps.config.outputs.account }}
+      - name: Download this run's reviewed templates and exact runtime ZIP
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: infrastructure-plan-${{ github.event.workflow_run.head_sha }}
+          path: reviewed-plan
       - name: Apply the reviewed infrastructure plan
         env:
           GH_TOKEN: ${{ github.token }}
           ACCOUNT: ${{ steps.config.outputs.account }}
           REGION: ${{ steps.config.outputs.region }}
           INFRASTRUCTURE_PLAN: ${{ needs.plan.outputs.plan }}
+          CODE_ARTIFACT_DIR: reviewed-plan/cdk.out
         run: |
           printf '%s\n' "$INFRASTRUCTURE_PLAN" > infrastructure-plan.json
+          cmp <(jq -Sc . infrastructure-plan.json) <(jq -Sc . reviewed-plan/infrastructure-plan.json)
           bash bin/apply-infrastructure.sh infrastructure-plan.json
       - name: Check actual OAuth discovery after infrastructure Apply
         run: |
@@ -163,7 +172,7 @@ jobs:
           if jq -e 'any(.stacks[]; .name == "ObsidianMcp" and .hasChanges)' infrastructure-plan.json; then attempts=6; fi
           for ((attempt=1; attempt<=attempts; attempt++)); do
             if npm run check:cognito -- infrastructure-apply/ObsidianMcp.stack.json; then
-              echo 'Live discovery passed, including S256. Follow the native pool ARN export handoff in docs/github-actions.md. Real PKCE, exact audience, refresh and ChatGPT tests remain required before enabling OAuth or note access.' >> "$GITHUB_STEP_SUMMARY"
+              echo 'Live discovery passed, including S256. Real PKCE, exact audience, refresh and ChatGPT connection tests remain required; an empty owner allowlist denies all note access.' >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             if [[ "$attempt" -lt "$attempts" ]]; then sleep 10; fi

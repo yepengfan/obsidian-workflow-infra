@@ -1,11 +1,8 @@
 # Selected-note MCP rollout
 
-The approved design exposes a structured, paginated folder/note catalog. The
-caller chooses notes before retrieval. There is no full-vault scan, recursive
-listing, folder-expanded body search, background index or automatic widening.
-Body search takes an explicit bounded selection of note paths and reads them
-in parallel. Filename search examines one bounded direct-child metadata page.
-Selected notes can be read in chunks without editing S3 objects.
+The approved design lets the caller browse a structured catalog and select notes
+before retrieval. See [tools and retrieval](mcp-server.md#tools-and-retrieval) for
+the authoritative tool scope, paging and no-scan contract.
 
 ## Review and deployment order
 
@@ -98,19 +95,16 @@ bucket-enforced, default encryption is AES256 with SSE-C blocked, and versioning
 is enabled. Both resources are retained on deletion/replacement. There is no
 auto-empty behavior, lifecycle expiry, object deletion or note replication.
 
-This stage adds only `CodeArtifacts` and `CodeArtifactsPolicy`; it preserves
-`UserPool`, `UserPoolDomain` and all original storage identities. Plan recognizes
-only these named native resource bindings, with the code bucket and policy
-bound to the shared IaC bucket name. The pool retains its native ARN export and
-permission-binding metadata; follow the
+The code-storage prerequisite adds only `CodeArtifacts` and
+`CodeArtifactsPolicy`, preserving the original identity and storage resources.
+It uploads no ZIP. The runtime extends this stack afterward; the current
+[Plan](github-actions.md#one-infrastructure-plan) and
+[Apply guards](github-actions.md#one-approval-and-infrastructure-apply) require
+already-deployed code storage and bind the runtime to the exact reviewed native
+template. Follow the
 [foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
-for prerequisite ordering. Plan refuses an absent identity stack, and application
-deployment is UPDATE-only. Apply permits pool/domain modifications and code-resource
-additions or modifications. When code resources change, it requires the native
-change-set template to bind the bucket to the shared name and its policy to that
-bucket. It continues to reject note-bucket creation, other S3 resources, removals and
-replacements. After PR1's separately approved IAM deployment, review PR2's actual
-CI plan and approve production to create code storage. This stage uploads no ZIP.
+for prerequisite ordering, then review the code-storage CI plan and approve
+production to create that bucket before runtime delivery.
 Offline synthesis and fake-AWS CLI checks do not establish native bucket/policy
 creation, CloudFormation handler permissions or S3 security enforcement. Verify
 those during the separately approved rollout after the IAM prerequisite is

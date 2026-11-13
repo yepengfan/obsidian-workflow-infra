@@ -19,6 +19,7 @@
   "include": [
     "infra/**/*.ts",
     "bin/**/*.ts",
-    "test/**/*.ts"
+    "test/**/*.ts",
+    "src/**/*.ts"
   ]
 }

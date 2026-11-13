@@ -17,13 +17,14 @@ const metadata = {
 };
 
 describe('Cognito discovery command', () => {
-  it.each(['valid', 'missing S256', 'wrong output', 'pinned mismatch'] as const)('runs the real CLI for %s', mode => {
+  it.each(['valid', 'missing S256', 'wrong output', 'pinned mismatch', 'MCP valid', 'MCP wrong metadata', 'MCP unprotected', 'MCP bad challenge'] as const)('runs the real CLI for %s', mode => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cognito-discovery-test-'));
     try {
       fs.mkdirSync(path.join(dir, 'config'));
       for (const file of ['storage.json', 'github.json', 'cognito.json']) fs.copyFileSync(`config/${file}`, path.join(dir, 'config', file));
       const stack = { Stacks: [{ StackName: 'ObsidianMcp', StackStatus: 'CREATE_COMPLETE', Outputs: [
         { OutputKey: 'UserPoolId', OutputValue: pool },
+        ...(mode.startsWith('MCP') ? [{ OutputKey: 'McpEndpoint', OutputValue: `https://example.execute-api.${aws.region}.amazonaws.com/mcp` }] : []),
         { OutputKey: 'PermissionPoolArn', OutputValue: `arn:aws:cognito-idp:${aws.region}:${aws.account}:userpool/${mode === 'pinned mismatch' ? 'Other' : pool}` },
         { OutputKey: 'OAuthIssuer', OutputValue: mode === 'wrong output' ? 'https://other.example' : issuer },
         { OutputKey: 'ManagedLoginDomain', OutputValue: domain },
@@ -37,17 +38,22 @@ describe('Cognito discovery command', () => {
       fs.writeFileSync(preload, `import fs from 'node:fs';
 globalThis.fetch = async (url, init) => {
   fs.appendFileSync(${JSON.stringify(requests)}, JSON.stringify({ url, redirect: init.redirect })+'\\n');
+  if (url.includes('execute-api')) {
+    const endpoint = 'https://example.execute-api.${aws.region}.amazonaws.com/mcp';
+    if (init.method === 'POST') return new Response('', { status: ${JSON.stringify(mode)} === 'MCP unprotected' ? 200 : 401, headers: { 'WWW-Authenticate': ${JSON.stringify(mode)} === 'MCP bad challenge' ? 'Bearer' : 'Bearer resource_metadata="https://example.execute-api.${aws.region}.amazonaws.com/.well-known/oauth-protected-resource/mcp"' } });
+    return Response.json({ resource: ${JSON.stringify(mode)} === 'MCP wrong metadata' ? 'https://wrong.example/mcp' : endpoint, authorization_servers: [${JSON.stringify(issuer)}], scopes_supported: ['obsidian.notes/read'] });
+  }
   if (url.includes('oauth-authorization-server')) return new Response('', { status: 404 });
   return Response.json(JSON.parse(fs.readFileSync(${JSON.stringify(path.join(dir, 'metadata.json'))}, 'utf8')));
 };`);
       const result = spawnSync(process.execPath, ['--import', import.meta.resolve('tsx'), '--import', preload,
         path.resolve('bin/check-cognito.ts'), path.join(dir, 'stack.json')], { cwd: dir, encoding: 'utf8', env: process.env });
       expect(result.error).toBeUndefined();
-      expect(result.status === 0, result.stderr).toBe(mode === 'valid');
-      if (mode === 'valid') expect(result.stdout).toContain('Cognito discovery passed');
+      expect(result.status === 0, result.stderr).toBe(mode === 'valid' || mode === 'MCP valid');
+      if (mode === 'valid' || mode === 'MCP valid') expect(result.stdout).toContain('Cognito discovery passed');
       else expect(result.stdout).not.toContain('Cognito discovery passed');
       const calls = fs.existsSync(requests) ? fs.readFileSync(requests, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
-      expect(calls).toHaveLength(['valid', 'missing S256'].includes(mode) ? 2 : 0);
+      expect(calls).toHaveLength(mode.startsWith('MCP') ? (mode === 'MCP wrong metadata' ? 3 : 4) : ['valid', 'missing S256'].includes(mode) ? 2 : 0);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });

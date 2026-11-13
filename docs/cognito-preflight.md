@@ -3,7 +3,8 @@
 The separate `obsidian-mcp-execution` service role is the IAM prerequisite for
 the `ObsidianMcp` stack. Its Cognito user pool and AWS prefix domain
 form a compatibility probe, not an enabled MCP application. The later
-[code-storage stage](mcp-rollout.md#code-storage-stage) extends that stack.
+[code-storage stage](mcp-rollout.md#code-storage-stage) and
+[authenticated runtime](mcp-server.md) extend that stack.
 Reviewing or merging the resource PR does not approve its AWS change set. No users, app clients, registration endpoint, Lambda, API,
 note access or credentials are part of this stage.
 
@@ -64,7 +65,12 @@ The fallback can make a second request within an attempt. It requires the expect
 issuer/JWKS, exact AWS-domain authorize/token endpoints, authorization-code
 support, `S256` and supported confidential-client authentication. It never
 registers a client or requests tokens, and errors omit remote bodies.
-When the entire infrastructure is unchanged, Plan runs discovery once.
+When `McpEndpoint` is present, the same command also validates the public
+protected-resource metadata against that endpoint and Cognito issuer, then
+requires an anonymous MCP initialization request to return 401 with the expected
+resource-metadata challenge. It never authenticates or requests a note. These
+public checks do not establish an authenticated OAuth exchange.
+When the entire infrastructure is unchanged, Plan runs this check once.
 
 To repeat the check locally after an approved deployment:
 
@@ -84,8 +90,8 @@ Do not invent metadata, add a proxy/broker silently or weaken validation.
 
 The authoritative [MCP permission scope](mcp-rollout.md#permission-scope)
 includes the pinned Cognito pool and the reserved runtime/delivery grants.
-For the current stack resources and Plan/Apply guards, see the
-[code-storage stage](mcp-rollout.md#code-storage-stage). IAM prerequisites alone
+For the current Plan/Apply guards, see the
+[deployment workflow](github-actions.md#automatic-deployment-run). IAM prerequisites alone
 do not create an application or expand the script checks.
 
 The probe does not use SMS, custom sender encryption or custom domains. Prefix
@@ -95,12 +101,10 @@ registry's optional KMS and CloudFront handler permissions are not granted.
 
 ## Authentication checks after the probe
 
-OpenAI supports predefined OAuth clients, so this private MVP does not require
-open dynamic client registration. A client ID/secret can be configured directly
-in ChatGPT. Supporting PKCE is insufficient if discovery does not advertise it.
-Later authorization-code/PKCE and refresh tests must verify the access token's
-audience matches the MCP resource URL and that only the owner's subject and
-read-only scope are accepted. Discovery checks alone do not prove these flows.
+The [runtime connection guide](mcp-server.md#owner-setup-and-chatgpt-connection)
+owns predefined-client setup and the required live authentication checks.
+Discovery alone does not prove authorization-code/PKCE, token audience, refresh
+or owner-only access.
 
 References:
 [OpenAI authentication requirements](https://developers.openai.com/plugins/build/auth),
