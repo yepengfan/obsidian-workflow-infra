@@ -1,7 +1,7 @@
 name: Plan and deploy S3 storage
 on:
   workflow_run:
-    workflows: [Validate infrastructure]
+    workflows: [validate]
     branches: [main]
     types: [completed]
 permissions:

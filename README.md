@@ -56,7 +56,7 @@ to the same logical and physical resource definitions.
 
 Do not hand-edit synthesized files. Edit TypeScript/configuration and synthesize
 again. Review [the import procedure](docs/github-actions.md) before any AWS write.
-`Validate infrastructure` runs without AWS credentials and publishes an offline infrastructure
+`validate` runs without AWS credentials and publishes an offline infrastructure
 preview, including OIDC and all three scoped role definitions, in its Summary and
 artifact. Successful main validation automatically starts `Plan and deploy S3 storage`: Plan
 selects first import or later update, publishes the actual native change set,
