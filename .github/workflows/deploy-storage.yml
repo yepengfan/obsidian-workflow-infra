@@ -1,7 +1,7 @@
-name: Deploy storage
+name: Plan and deploy S3 storage
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [validate]
     branches: [main]
     types: [completed]
 permissions:

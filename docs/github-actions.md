@@ -1,7 +1,8 @@
 # GitHub Actions: automatic Plan, approval, Apply
 
-The repository uses two workflows. `CI` checks pull requests and main without
-AWS credentials. After a successful CI **push on main**, `Deploy storage`
+The repository uses two workflows. `validate` checks pull requests
+and main without AWS credentials. After a successful validation **push on main**,
+`Plan and deploy S3 storage`
 automatically plans the exact verified commit, waits for the owner's native
 GitHub environment approval, then applies that same CloudFormation change set.
 There is no routine Run workflow action, operation input, ARN copy, or second
@@ -13,7 +14,7 @@ import existing buckets, copy objects or activate lifecycle cleanup.
 
 ## What to review in CI
 
-Open a CI run's Summary. It includes the synthesized storage definitions and
+Open a `validate` run's Summary. It includes the synthesized storage definitions and
 GitHub OIDC / IAM diff against `config/empty-template.json`, including the
 dedicated storage execution role and its bucket-scoped policy. Download `cloudformation-review` for the full templates and diff files.
 Artifacts are retained for seven days.
@@ -115,7 +116,8 @@ the configured names and that execution permissions have not broadened.
 A main deployment that starts between the merge and the foundation update can
 fail OIDC login because the new names do not exist yet. It must not fall back to
 the old roles or a broader identity. Once the approved foundation update succeeds,
-rerun the current main CI once; its completion automatically starts storage Plan.
+rerun `validate` for current main once; its completion automatically
+starts storage Plan.
 Review the import plan before production approval. No ARN copy, Repository
 variable update, or extra configuration service is part of this migration.
 Subsequent normal deployments remain automatic Plan, approval, automatic Apply.
@@ -187,7 +189,7 @@ permissions on the note buckets.
 
 ## Automatic deployment run
 
-`deploy-storage.yml` listens to successful completed `CI` runs. It accepts only
+`deploy-storage.yml` listens to successful completed `validate` runs. It accepts only
 pushes to main in this repository, never PR or fork runs. It checks out the
 upstream run's exact `head_sha`, rejects a superseded main revision before AWS
 authentication, and binds that SHA into the native change-set description.
@@ -234,9 +236,10 @@ checks modeled resource drift with a bounded poll.
 The workflow concurrency group does not interrupt an in-flight deployment.
 A newer main can queue while an old run awaits approval: reject or cancel the
 superseded waiting run so the current one can plan. Approving an old run cannot
-bypass the live-main check. If a deployment needs replanning, rerun CI for the
-current main commit; successful CI completion automatically triggers deployment.
-An old CI rerun is rejected if main advanced.
+bypass the live-main check. If a deployment needs replanning, rerun
+`validate` for the current main commit; successful completion
+automatically triggers deployment. An old validation rerun is rejected if main
+advanced.
 
 ## Recovery and successful adoption
 
