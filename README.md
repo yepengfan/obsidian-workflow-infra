@@ -24,6 +24,7 @@ flowchart TB
         OIDC --> PlanRole["Scoped CI Plan role"]
         OIDC --> DeployRole["Scoped CI Deploy role"]
         Foundation --> Execution["Scoped CloudFormation execution roles"]
+        Foundation --> RuntimeRole["Read-only Lambda role - IAM prerequisite"]
     end
 ```
 
@@ -85,6 +86,7 @@ deploy. Edit the TypeScript/configuration sources, never generated templates.
 
 - [Deployment, approvals and permission updates](docs/github-actions.md)
 - [Cognito compatibility and OAuth rollout](docs/cognito-preflight.md)
+- [Selected-note MCP rollout and permission scope](docs/mcp-rollout.md)
 - [Storage retention and recovery verification](docs/retention.md)
 - [GitHub App identity and credential handling](docs/github-app-identity.md)
 

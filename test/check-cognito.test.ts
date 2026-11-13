@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 const aws = JSON.parse(fs.readFileSync('config/storage.json', 'utf8'));
 const cognito = JSON.parse(fs.readFileSync('config/cognito.json', 'utf8'));
-const pool = `${aws.region}_Example`;
+const pool = JSON.parse(fs.readFileSync('config/github.json', 'utf8')).mcpUserPoolId ?? `${aws.region}_Example`;
 const issuer = `https://cognito-idp.${aws.region}.amazonaws.com/${pool}`;
 const domain = `https://${cognito.domainPrefix}.auth.${aws.region}.amazoncognito.com`;
 const metadata = {

@@ -3,6 +3,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import type { Construct } from 'constructs';
 import { z } from 'zod';
 import { STORAGE_STACK_NAME, type StorageConfig } from './storage-config.js';
+import { grantMcpRuntime, mcpDeploymentSchema, MCP_RESOURCE_TYPES } from './mcp-permissions.js';
 
 const roleName = z.string().regex(/^obsidian-[A-Za-z0-9+=,.@_-]+$/u).max(64);
 
@@ -12,9 +13,11 @@ export const githubSchema = z.object({
   deployRoleName: roleName,
   executionRoleName: roleName,
   mcpExecutionRoleName: roleName,
+  mcpRuntime: mcpDeploymentSchema.optional(),
   mcpUserPoolId: z.string().regex(/^[a-z]{2}-[a-z]+-\d_[A-Za-z0-9]+$/u).max(64).optional(),
 }).strict().refine(config => new Set([config.planRoleName, config.deployRoleName, config.executionRoleName, config.mcpExecutionRoleName]
-  .map(name => name.toLowerCase())).size === 4, 'Role names must be distinct');
+  .concat(config.mcpRuntime ? [config.mcpRuntime.runtimeRoleName] : []).map(name => name.toLowerCase())).size === (config.mcpRuntime ? 5 : 4), 'Role names must be distinct')
+  .refine(config => !config.mcpRuntime || !!config.mcpUserPoolId, 'Runtime grants require a pinned Cognito pool');
 
 /** Reviewed permission foundation; local SSO update procedure: docs/github-actions.md. */
 export class GitHubTrustStack extends Stack {
@@ -41,11 +44,7 @@ export class GitHubTrustStack extends Stack {
       assumedBy: new iam.ServicePrincipal('cloudformation.amazonaws.com'),
       description: 'Manage only the modeled configuration of the two existing Obsidian buckets',
     });
-    execution.addToPolicy(new iam.PolicyStatement({
-      // AWS::S3::Bucket read permissions (Sydney registry, 2026-11-13),
-      // excluding its unrecognized GetBucketDefaultStorageClass action.
-      // ListBucket is needed for HeadBucket; no object-body permissions are granted.
-      actions: [
+    const bucketReadActions = [
         's3:GetAccelerateConfiguration', 's3:GetLifecycleConfiguration',
         's3:GetBucketPublicAccessBlock', 's3:GetAnalyticsConfiguration',
         's3:GetBucketCORS', 's3:GetEncryptionConfiguration',
@@ -57,7 +56,12 @@ export class GitHubTrustStack extends Stack {
         's3:GetBucketOwnershipControls', 's3:GetIntelligentTieringConfiguration',
         's3:GetBucketMetadataTableConfiguration',
         's3:ListBucket', 's3:GetBucketLocation',
-      ],
+      ];
+    execution.addToPolicy(new iam.PolicyStatement({
+      // AWS::S3::Bucket read permissions (Sydney registry, 2026-11-13),
+      // excluding its unrecognized GetBucketDefaultStorageClass action.
+      // ListBucket is needed for HeadBucket; no object-body permissions are granted.
+      actions: bucketReadActions,
       resources: bucketArns,
     }));
     execution.addToPolicy(new iam.PolicyStatement({
@@ -73,12 +77,11 @@ export class GitHubTrustStack extends Stack {
       resources: bucketArns,
     }));
     const executionRole = execution.roleArn;
-    // First application phase: a fail-closed Cognito issuer compatibility probe.
-    // No app clients, users, notes, Lambda, API Gateway or asset access yet.
+    // Dedicated application service role. IAM itself remains foundation-owned.
     const mcpExecution = new iam.Role(this, 'McpExecutionRole', {
       roleName: github.mcpExecutionRoleName,
       assumedBy: new iam.ServicePrincipal('cloudformation.amazonaws.com'),
-      description: 'Provision the tagged MCP Cognito pool and prefix domain only',
+      description: 'Manage the pinned MCP identity and reviewed application resources',
     });
     const poolArn = `arn:${this.partition}:cognito-idp:${this.region}:${this.account}:userpool/${github.mcpUserPoolId ?? '*'}`;
     const project = 'obsidian-mcp';
@@ -119,6 +122,17 @@ export class GitHubTrustStack extends Stack {
       effect: iam.Effect.DENY, actions: ['cognito-idp:TagResource'], resources: [poolArn],
       conditions: { StringNotEquals: { 'aws:ResourceTag/Project': project }, Null: { 'aws:ResourceTag/Project': 'false' } },
     }));
+    if (github.mcpRuntime) {
+      mcpExecution.addToPolicy(new iam.PolicyStatement({ actions: [
+        'cognito-idp:CreateUserPoolClient', 'cognito-idp:DescribeUserPoolClient',
+        'cognito-idp:UpdateUserPoolClient', 'cognito-idp:DeleteUserPoolClient',
+        'cognito-idp:CreateResourceServer', 'cognito-idp:DescribeResourceServer',
+        'cognito-idp:UpdateResourceServer', 'cognito-idp:DeleteResourceServer',
+        'cognito-idp:CreateManagedLoginBranding', 'cognito-idp:DescribeManagedLoginBranding',
+        'cognito-idp:UpdateManagedLoginBranding', 'cognito-idp:DeleteManagedLoginBranding',
+      ], resources: [poolArn], conditions: { StringEquals: { 'aws:ResourceTag/Project': project } } }));
+      grantMcpRuntime(this, storage, github.mcpRuntime, mcpExecution, apply, bucketReadActions);
+    }
     const changeSetNames = ['obsidian-storage-*', `arn:${this.partition}:cloudformation:${this.region}:${this.account}:changeSet/obsidian-storage-*/*`];
     for (const role of [plan, apply]) {
       role.addToPolicy(new iam.PolicyStatement({
@@ -163,7 +177,7 @@ export class GitHubTrustStack extends Stack {
       conditions: {
         ArnEquals: { 'cloudformation:RoleArn': mcpExecution.roleArn },
         StringLike: { 'cloudformation:ChangeSetName': mcpChangeSets },
-        'ForAllValues:StringEquals': { 'cloudformation:ResourceTypes': ['AWS::Cognito::UserPool', 'AWS::Cognito::UserPoolDomain'] },
+        'ForAllValues:StringEquals': { 'cloudformation:ResourceTypes': github.mcpRuntime ? MCP_RESOURCE_TYPES : ['AWS::Cognito::UserPool', 'AWS::Cognito::UserPoolDomain'] },
         Null: { 'cloudformation:ResourceTypes': 'false' },
       },
     }));

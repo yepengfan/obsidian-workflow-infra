@@ -40,6 +40,12 @@ function execute(script: string, fixture: Record<string, unknown> = {}, plan = m
   try {
     fs.mkdirSync(path.join(dir, 'config'));
     for (const file of ['storage.json', 'github.json', 'import-resources.json']) fs.copyFileSync(`config/${file}`, path.join(dir, 'config', file));
+    {
+      const file = path.join(dir, 'config/github.json');
+      const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
+      delete settings.mcpUserPoolId; delete settings.mcpRuntime;
+      fs.writeFileSync(file, JSON.stringify(settings));
+    }
     if (fixture.pinned) {
       const file = path.join(dir, 'config/github.json');
       fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), mcpUserPoolId: fixture.pinned }));

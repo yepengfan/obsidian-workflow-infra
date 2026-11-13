@@ -8,7 +8,7 @@ import { storageSchema } from '../infra/storage-config.js';
 const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
 const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
 const build = (mcpUserPoolId?: string) => {
-  const stack = new GitHubTrustStack(new App(), 'Trust', storage, { ...github, ...(mcpUserPoolId ? { mcpUserPoolId } : {}) });
+  const stack = new GitHubTrustStack(new App(), 'Trust', storage, { ...github, mcpRuntime: undefined, mcpUserPoolId });
   const template = Template.fromStack(stack);
   const roleId = Object.entries(template.findResources('AWS::IAM::Role'))
     .find(([, role]) => role.Properties.RoleName === github.mcpExecutionRoleName)![0];

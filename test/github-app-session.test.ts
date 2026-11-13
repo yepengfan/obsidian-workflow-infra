@@ -113,7 +113,9 @@ console.log('isolated App child passed');`);
         expect(fs.readFileSync(marker, 'utf8')).toBe('revoked');
       } finally { fs.closeSync(fd); }
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
-  });
+  // Two Git processes and the bounded 15s real adapter subprocess need a
+  // matching integration deadline when the full suite also synthesizes CDK.
+  }, 30_000);
 
   it('signs a bounded JWT, explicitly narrows scope, verifies the token and revokes it', async () => {
     const request = github();
