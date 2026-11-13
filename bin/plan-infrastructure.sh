@@ -51,12 +51,17 @@ for stack in ObsidianWorkflowStorage ObsidianMcp; do
       fi ;;
     ObsidianMcp)
       prefix=obsidian-mcp; execution_role=$MCP_EXECUTION_ROLE
-      types=(AWS::Cognito::UserPool AWS::Cognito::UserPoolDomain)
+      types=(AWS::Cognito::UserPool AWS::Cognito::UserPoolDomain AWS::S3::Bucket AWS::S3::BucketPolicy)
       if [[ "$operation" == initial ]]; then
         operation=create
         node --input-type=commonjs -e 'if (require("./config/github.json").mcpUserPoolId) { console.error("Pinned pool stack is absent; inspect retained identity resources."); process.exit(1); }'
       else
-        jq -e '[.StackResources[] | {LogicalResourceId, ResourceType}] | sort_by(.LogicalResourceId) == [{LogicalResourceId:"UserPool", ResourceType:"AWS::Cognito::UserPool"}, {LogicalResourceId:"UserPoolDomain", ResourceType:"AWS::Cognito::UserPoolDomain"}]' "$resources"
+        code_bucket=$(node --input-type=commonjs -e 'process.stdout.write(require("./config/github.json").mcpRuntime?.codeBucketName ?? "")')
+        jq -e --arg bucket "$code_bucket" '.StackResources |
+          ([.[] | select(.LogicalResourceId == "UserPool" or .LogicalResourceId == "UserPoolDomain") | {LogicalResourceId,ResourceType}] | sort_by(.LogicalResourceId) == [{LogicalResourceId:"UserPool",ResourceType:"AWS::Cognito::UserPool"},{LogicalResourceId:"UserPoolDomain",ResourceType:"AWS::Cognito::UserPoolDomain"}]) and
+          all(.[]; (.LogicalResourceId == "UserPool" and .ResourceType == "AWS::Cognito::UserPool") or
+            (.LogicalResourceId == "UserPoolDomain" and .ResourceType == "AWS::Cognito::UserPoolDomain") or
+            ($bucket != "" and .PhysicalResourceId == $bucket and ((.LogicalResourceId == "CodeArtifacts" and .ResourceType == "AWS::S3::Bucket") or (.LogicalResourceId == "CodeArtifactsPolicy" and .ResourceType == "AWS::S3::BucketPolicy"))))' "$resources"
         node --input-type=commonjs - "$resources" <<'NODE'
 const fs = require('node:fs');
 const pinned = require('./config/github.json').mcpUserPoolId;
@@ -104,7 +109,7 @@ done
   jq -r '.[] | "| \(.LogicalResourceId) | \(.ResourceIdentifier.BucketName) |"' config/import-resources.json
   echo
   echo 'Review the entire infrastructure plan and template artifact. One production approval authorizes Apply of these exact changed ARNs. AWS executes each stack independently; partial completion is possible and must be inspected before retrying.'
-  echo 'The IAM foundation is included in the assembly preview but is never deployed by ordinary CI. Permission changes still require the reviewed local SSO procedure. No users, clients, MCP endpoint or note access are enabled by the Cognito probe.'
+  echo 'The IAM foundation is included in the assembly preview but is never deployed by ordinary CI. Permission changes still require the reviewed local SSO procedure. Code storage contains deployment ZIPs only. No users, OAuth clients, MCP endpoint or note access are enabled by this stage.'
 } >> "$GITHUB_STEP_SUMMARY"
 echo "plan=$(jq -c . infrastructure-plan.json)" >> "$GITHUB_OUTPUT"
 echo "has_changes=$(jq 'any(.stacks[]; .hasChanges)' infrastructure-plan.json)" >> "$GITHUB_OUTPUT"

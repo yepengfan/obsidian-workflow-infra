@@ -46,6 +46,11 @@ function execute(script: string, fixture: Record<string, unknown> = {}, plan = m
       delete settings.mcpUserPoolId; delete settings.mcpRuntime;
       fs.writeFileSync(file, JSON.stringify(settings));
     }
+    if (fixture.artifactConfig) {
+      const file = path.join(dir, 'config/github.json');
+      const configured = JSON.parse(fs.readFileSync('config/github.json', 'utf8'));
+      fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), mcpRuntime: configured.mcpRuntime, mcpUserPoolId: resources.cognito[0]!.PhysicalResourceId }));
+    }
     if (fixture.pinned) {
       const file = path.join(dir, 'config/github.json');
       fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), mcpUserPoolId: fixture.pinned }));
@@ -218,6 +223,33 @@ describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
     if (kind === 'IAM stack') plan.stacks[1]!.name = 'ObsidianGitHubTrust';
     if (kind === 'wrong ARN') plan.stacks[1]!.arn = arn(cognito, 'create').replace(account, '111122223333');
     const result = execute(applyScript, {}, plan); expect(result.status).not.toBe(0); expect(executions(result.calls)).toEqual([]);
+  });
+  it('can add the approved code bucket and policy to the existing MCP stack', () => {
+    const fixture = defaults();
+    fixture.cognito.stack = { Stacks: [{ StackStatus: 'UPDATE_COMPLETE', EnableTerminationProtection: true }] };
+    fixture.cognito.plan = nativePlan(cognito, 'update');
+    for (const [LogicalResourceId, ResourceType] of [['CodeArtifacts', 'AWS::S3::Bucket'], ['CodeArtifactsPolicy', 'AWS::S3::BucketPolicy']]) {
+      fixture.cognito.plan.Changes.push({ ResourceChange: { Action: 'Add', LogicalResourceId: LogicalResourceId!, ResourceType: ResourceType!, Replacement: 'False' } });
+    }
+    const plan = manifest(); plan.stacks[1]!.operation = 'update'; plan.stacks[1]!.arn = arn(cognito, 'update');
+    const result = execute(applyScript, { ...fixture, artifactConfig: true }, plan);
+    expect(result.status, result.stderr).toBe(0);
+    expect(executions(result.calls)).toHaveLength(2);
+  });
+  it.each(['unconfigured', 'other bucket', 'removal'])('refuses an unreviewed code-storage change: %s', mode => {
+    const fixture = defaults(); fixture.cognito.plan = nativePlan(cognito, 'update');
+    fixture.cognito.plan.Changes.push({ ResourceChange: { Action: mode === 'removal' ? 'Remove' : 'Add', LogicalResourceId: mode === 'other bucket' ? 'OtherBucket' : 'CodeArtifacts', ResourceType: 'AWS::S3::Bucket', Replacement: 'False' } });
+    const plan = manifest(); plan.stacks[1]!.operation = 'update'; plan.stacks[1]!.arn = arn(cognito, 'update');
+    const result = execute(applyScript, { ...fixture, artifactConfig: mode !== 'unconfigured' }, plan);
+    expect(result.status).not.toBe(0); expect(executions(result.calls)).toEqual([]);
+  });
+  it.each([false, true])('validates existing code bucket identity before planning (wrong: %s)', wrong => {
+    const fixture = defaults(); fixture.cognito.stack = { Stacks: [{ StackStatus: 'UPDATE_COMPLETE' }] };
+    const configured = JSON.parse(fs.readFileSync('config/github.json', 'utf8')).mcpRuntime.codeBucketName;
+    fixture.cognito.resources.StackResources.push({ LogicalResourceId: 'CodeArtifacts', ResourceType: 'AWS::S3::Bucket', PhysicalResourceId: wrong ? 'other-code-bucket' : configured });
+    const result = execute(planScript, { ...fixture, artifactConfig: true });
+    expect(result.status === 0, result.stderr).toBe(!wrong);
+    expect(executions(result.calls)).toEqual([]);
   });
   it('executes only changed stacks from the full plan', () => {
     const plan = manifest(); plan.stacks[0]!.hasChanges = false;

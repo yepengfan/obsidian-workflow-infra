@@ -84,3 +84,25 @@ Sources: [API Gateway V2 authorization](https://docs.aws.amazon.com/service-auth
 [S3 listing conditions](https://docs.aws.amazon.com/AmazonS3/latest/userguide/amazon-s3-policy-keys.html),
 [conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html),
 [Cognito rollout](cognito-preflight.md).
+
+## Code-storage stage
+
+`infra/code-artifacts.ts` models the one new code bucket and its HTTPS-only deny
+policy inside the existing `ObsidianMcp` stack. Its name is versioned under
+`mcpRuntime` in `config/github.json`. All public access is blocked; ownership is
+bucket-enforced, default encryption is AES256 with SSE-C blocked, and versioning
+is enabled. Both resources are retained on deletion/replacement. There is no
+auto-empty behavior, lifecycle expiry, object deletion or note replication.
+
+This stage adds only `CodeArtifacts` and `CodeArtifactsPolicy`; it preserves
+`UserPool`, `UserPoolDomain` and all original storage identities. Plan recognizes
+only these named native resource bindings. Apply permits their Add/Modify while
+continuing to reject note-bucket creation, other S3 resources, removals and
+replacements. After PR1's separately approved IAM deployment, review PR2's actual
+CI plan and approve production to create code storage. This PR uploads no ZIP.
+
+If a rollout partially fails, inspect native stack events and retained resources
+before retrying. A retained bucket from a failed rollback may need an explicit
+reviewed recovery/import; never delete it or bypass the native binding guards.
+Code versions remain retained initially. Revisit code-only retention if measured
+build growth justifies it, through a reviewed change, without touching notes.

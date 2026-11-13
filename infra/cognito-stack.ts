@@ -3,6 +3,8 @@ import { CfnUserPool, CfnUserPoolDomain } from 'aws-cdk-lib/aws-cognito';
 import type { Construct } from 'constructs';
 import { z } from 'zod';
 import type { StorageConfig } from './storage-config.js';
+import type { McpDeploymentConfig } from './mcp-permissions.js';
+import { addCodeArtifacts } from './code-artifacts.js';
 
 export const cognitoSchema = z.strictObject({
   userPoolName: z.string().min(1).max(128).regex(/^[\w -]+$/u),
@@ -13,7 +15,7 @@ export const cognitoSchema = z.strictObject({
 
 /** A retained issuer probe, with no client, user, registration or MCP endpoint. */
 export class CognitoStack extends Stack {
-  constructor(scope: Construct, id: string, aws: Pick<StorageConfig, 'account' | 'region'>, settings: z.infer<typeof cognitoSchema>) {
+  constructor(scope: Construct, id: string, aws: Pick<StorageConfig, 'account' | 'region'>, settings: z.infer<typeof cognitoSchema>, deployment?: McpDeploymentConfig) {
     super(scope, id, {
       env: { account: aws.account, region: aws.region },
       synthesizer: new DefaultStackSynthesizer({ generateBootstrapVersionRule: false }),
@@ -51,5 +53,6 @@ export class CognitoStack extends Stack {
     // the exact issuer instead of assuming PKCE/discovery compatibility.
     new CfnOutput(this, 'OAuthIssuer', { value: `https://cognito-idp.${aws.region}.amazonaws.com/${pool.ref}` });
     new CfnOutput(this, 'ManagedLoginDomain', { value: `https://${settings.domainPrefix}.auth.${aws.region}.amazoncognito.com` });
+    if (deployment) addCodeArtifacts(this, deployment);
   }
 }
