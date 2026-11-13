@@ -57,6 +57,16 @@ describe('MCP runtime permission boundary', () => {
       Condition: { StringEquals: { 's3:x-amz-server-side-encryption': 'AES256', 's3:if-none-match': '*' } } });
     expect(statements(config.planRoleName).flatMap(actions)).not.toContain('s3:PutObject');
   });
+  it('allows only Deploy to verify the named function configuration without downloading code', () => {
+    const { stack, statements } = build();
+    const lambda = statements(config.deployRoleName).filter(s => actions(s).some(a => a.startsWith('lambda:')));
+    expect(lambda).toEqual([{
+      Action: 'lambda:GetFunctionConfiguration',
+      Effect: 'Allow',
+      Resource: stack.resolve(`arn:${stack.partition}:lambda:${storage.region}:${storage.account}:function:${settings.functionName}`),
+    }]);
+    expect(statements(config.planRoleName).flatMap(actions).filter(a => a.startsWith('lambda:'))).toEqual([]);
+  });
   it('pins Cognito, constrains API ownership, and passes only the named Lambda role', () => {
     const { stack, template, statements } = build();
     const execution = statements(config.mcpExecutionRoleName);

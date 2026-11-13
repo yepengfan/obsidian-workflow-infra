@@ -57,6 +57,10 @@ Implementation-plan approval does not authorize an AWS Apply.
 - The production Deploy role can upload only `releases/*` in the code bucket,
   using AES256 and `If-None-Match: *`. Its code-read permission supports checksum
   verification and safe retries. Plan has no upload or note-body permission.
+  Deploy can also read `CodeSha256`, `State` and `LastUpdateStatus` through
+  `lambda:GetFunctionConfiguration` on only the configured function to verify
+  deployed code after Apply. Neither CI role receives `lambda:GetFunction`
+  code-download URLs, and Plan has no Lambda configuration-read permission.
   Neither CI role can update the IAM foundation or assume another role.
 - Metadata APIs without resource-level authorization retain explicit exceptions:
   CloudFormation summary/status reads and regional Cognito-domain/log-group
