@@ -34,9 +34,9 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
     tokenValidityUnits: { accessToken: 'minutes', idToken: 'minutes', refreshToken: 'days' },
     enableTokenRevocation: true, preventUserExistenceErrors: 'ENABLED', readAttributes: ['email'], writeAttributes: ['email'],
   });
-  client.overrideLogicalId('ChatGptClient'); client.addDependency(resourceServer);
+  client.overrideLogicalId('ChatGptClient'); client.addResourceDependency(resourceServer);
   const branding = new CfnManagedLoginBranding(scope, 'ChatGptLoginBranding', { userPoolId: pool.ref, clientId: client.ref, useCognitoProvidedValues: true });
-  branding.overrideLogicalId('ChatGptLoginBranding'); branding.addDependency(domain);
+  branding.overrideLogicalId('ChatGptLoginBranding'); branding.addResourceDependency(domain);
   const api = new CfnApi(scope, 'McpApi', { name: deployment.apiName, protocolType: 'HTTP', tags: { Project: 'obsidian-mcp' } });
   api.overrideLogicalId('McpApi');
   const endpoint = `${api.attrApiEndpoint}/mcp`;
@@ -52,7 +52,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
       OAUTH_CLIENT_ID: client.ref, OAUTH_SCOPE: scopeName, MCP_RESOURCE: endpoint, MCP_OPTIONS: JSON.stringify(options),
     } }, tags: [{ key: 'Project', value: 'obsidian-mcp' }],
   });
-  runtime.overrideLogicalId('McpFunction'); runtime.addDependency(logs);
+  runtime.overrideLogicalId('McpFunction'); runtime.addResourceDependency(logs);
   const integration = new CfnIntegration(scope, 'McpIntegration', { apiId: api.ref, integrationType: 'AWS_PROXY', integrationUri: runtime.attrArn, payloadFormatVersion: '2.0', timeoutInMillis: 11000 });
   integration.overrideLogicalId('McpIntegration');
   const routes = [ ['McpRoute', 'ANY /mcp'], ['MetadataRoute', 'GET /.well-known/oauth-protected-resource'], ['MetadataPathRoute', 'GET /.well-known/oauth-protected-resource/mcp'] ].map(([id, key]) => {
@@ -60,7 +60,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
     route.overrideLogicalId(id!); return route;
   });
   const stage = new CfnStage(scope, 'McpStage', { apiId: api.ref, stageName: '$default', autoDeploy: true, tags: { Project: 'obsidian-mcp' }, defaultRouteSettings: { throttlingBurstLimit: 5, throttlingRateLimit: 2 } });
-  stage.overrideLogicalId('McpStage'); routes.forEach(route => stage.addDependency(route));
+  stage.overrideLogicalId('McpStage'); routes.forEach(route => stage.addResourceDependency(route));
   const permission = new CfnPermission(scope, 'ApiInvokePermission', { action: 'lambda:InvokeFunction', functionName: runtime.ref,
     principal: 'apigateway.amazonaws.com', sourceAccount: stack.account, sourceArn: `arn:${stack.partition}:execute-api:${stack.region}:${stack.account}:${api.ref}/*/*` });
   permission.overrideLogicalId('ApiInvokePermission');
