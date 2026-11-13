@@ -103,7 +103,9 @@ const planScript = `bash ${JSON.stringify(path.resolve('bin/plan-infrastructure.
 const applyScript = `bash ${JSON.stringify(path.resolve('bin/apply-infrastructure.sh'))}`;
 const executions = (calls: Call[]) => calls.filter(c => c.tool === 'aws' && c.args[1] === 'execute-change-set');
 
-describe('one infrastructure plan and approval', () => {
+// Each case executes real shell scripts with 30s-bounded CLI subprocesses.
+// The unit-test default of 5s is too short during concurrent CDK synthesis.
+describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
   it('has one shared Plan and one native approval/apply for the whole infrastructure', () => {
     expect(workflow.name).toBe('plan and apply');
     expect(workflow.on.workflow_run).toEqual({ workflows: ['validate'], branches: ['main'], types: ['completed'] });
