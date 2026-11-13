@@ -20,6 +20,7 @@ flowchart TB
         Storage --> Library["Private S3 ebook library"]
         Identity --> Pool["Protected Cognito user pool"]
         Pool --> Login["Managed login domain"]
+        Identity --> CodeAssets["Private S3 code artifacts - provision before Lambda"]
         Foundation --> OIDC["GitHub OIDC trust"]
         OIDC --> PlanRole["Scoped CI Plan role"]
         OIDC --> DeployRole["Scoped CI Deploy role"]
