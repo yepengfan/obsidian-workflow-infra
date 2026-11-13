@@ -3,5 +3,6 @@
   "executionRoleName": "obsidian-workflow-storage-execution",
   "mcpExecutionRoleName": "obsidian-mcp-execution",
   "planRoleName": "obsidian-workflow-ap-southeast-2-plan",
-  "deployRoleName": "obsidian-workflow-ap-southeast-2-deploy"
+  "deployRoleName": "obsidian-workflow-ap-southeast-2-deploy",
+  "runtimeRoleName": "obsidian-mcp-runtime"
 }

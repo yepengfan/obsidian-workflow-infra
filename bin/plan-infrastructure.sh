@@ -53,16 +53,9 @@ for stack in ObsidianWorkflowStorage ObsidianMcp; do
       prefix=obsidian-mcp; execution_role=$MCP_EXECUTION_ROLE
       types=(AWS::Cognito::UserPool AWS::Cognito::UserPoolDomain)
       if [[ "$operation" == initial ]]; then
-        operation=create
-        node --input-type=commonjs -e 'if (require("./config/github.json").mcpUserPoolId) { console.error("Pinned pool stack is absent; inspect retained identity resources."); process.exit(1); }'
+        echo "Managed pool stack is absent; inspect retained identity resources before bootstrapping." >&2; exit 1
       else
         jq -e '[.StackResources[] | {LogicalResourceId, ResourceType}] | sort_by(.LogicalResourceId) == [{LogicalResourceId:"UserPool", ResourceType:"AWS::Cognito::UserPool"}, {LogicalResourceId:"UserPoolDomain", ResourceType:"AWS::Cognito::UserPoolDomain"}]' "$resources"
-        node --input-type=commonjs - "$resources" <<'NODE'
-const fs = require('node:fs');
-const pinned = require('./config/github.json').mcpUserPoolId;
-const resources = JSON.parse(fs.readFileSync(process.argv[2], 'utf8')).StackResources;
-if (pinned && resources.find(r => r.LogicalResourceId === 'UserPool').PhysicalResourceId !== pinned) process.exit(1);
-NODE
       fi ;;
   esac
   name="${prefix}-${operation}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -87,6 +80,9 @@ NODE
     '.stacks += [{name:$name,operation:$operation,arn:$arn,hasChanges:$changed}]' infrastructure-plan.json > infrastructure-plan/next.json
   mv infrastructure-plan/next.json infrastructure-plan.json
   if [[ "$has_changes" == true ]]; then
+    if jq -e '.Changes | length == 0' "$plan" > /dev/null; then
+      echo "| ${stack} | ${operation} | Outputs/metadata update | | | |" >> "$GITHUB_STEP_SUMMARY"
+    fi
     jq -r --arg stack "$stack" --arg operation "$operation" '.Changes[].ResourceChange | "| \($stack) | \($operation) | \(.Action) | \(.LogicalResourceId) | \(.ResourceType) | \(.Replacement // "n/a") |"' "$plan" >> "$GITHUB_STEP_SUMMARY"
   else
     echo "| ${stack} | ${operation} | No changes | | | |" >> "$GITHUB_STEP_SUMMARY"

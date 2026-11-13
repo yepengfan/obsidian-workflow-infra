@@ -1,3 +1,4 @@
+import { MCP_POOL_ARN_EXPORT } from './mcp-resources.js';
 import { CfnOutput, DefaultStackSynthesizer, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import { CfnUserPool, CfnUserPoolDomain } from 'aws-cdk-lib/aws-cognito';
 import type { Construct } from 'constructs';
@@ -39,6 +40,9 @@ export class CognitoStack extends Stack {
       } },
     });
     pool.overrideLogicalId('UserPool');
+    // CloudFormation can ignore output-only updates. Metadata ensures that the
+    // native pool-ARN export is published without changing pool properties.
+    pool.cfnOptions.metadata = { PermissionBinding: 'native-pool-arn-export-v1' };
     const domain = new CfnUserPoolDomain(this, 'UserPoolDomain', {
       domain: settings.domainPrefix, userPoolId: pool.ref, managedLoginVersion: 2,
     });
@@ -46,6 +50,7 @@ export class CognitoStack extends Stack {
     for (const resource of [pool, domain]) {
       resource.applyRemovalPolicy(RemovalPolicy.RETAIN, { applyToUpdateReplacePolicy: true });
     }
+    new CfnOutput(this, 'PermissionPoolArn', { value: pool.attrArn, exportName: MCP_POOL_ARN_EXPORT });
     new CfnOutput(this, 'UserPoolId', { value: pool.ref });
     // The pool uses Cognito's default original issuer. The live check verifies
     // the exact issuer instead of assuming PKCE/discovery compatibility.

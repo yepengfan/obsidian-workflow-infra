@@ -22,12 +22,9 @@ describe('Cognito discovery command', () => {
     try {
       fs.mkdirSync(path.join(dir, 'config'));
       for (const file of ['storage.json', 'github.json', 'cognito.json']) fs.copyFileSync(`config/${file}`, path.join(dir, 'config', file));
-      if (mode === 'pinned mismatch') {
-        const file = path.join(dir, 'config/github.json');
-        fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), mcpUserPoolId: `${aws.region}_Different` }));
-      }
       const stack = { Stacks: [{ StackName: 'ObsidianMcp', StackStatus: 'CREATE_COMPLETE', Outputs: [
         { OutputKey: 'UserPoolId', OutputValue: pool },
+        { OutputKey: 'PermissionPoolArn', OutputValue: `arn:aws:cognito-idp:${aws.region}:${aws.account}:userpool/${mode === 'pinned mismatch' ? 'Other' : pool}` },
         { OutputKey: 'OAuthIssuer', OutputValue: mode === 'wrong output' ? 'https://other.example' : issuer },
         { OutputKey: 'ManagedLoginDomain', OutputValue: domain },
       ] }] };

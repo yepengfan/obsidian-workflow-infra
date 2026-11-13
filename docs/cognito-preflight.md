@@ -13,50 +13,23 @@ note access or credentials are part of this stage.
 
 ## Deployment order
 
-1. Confirm the separate Cognito IAM prerequisite has been reviewed, merged and
-   applied using the
-   [local SSO foundation UPDATE procedure](github-actions.md#permission-scope-and-future-changes).
-   That procedure requires inspection and user confirmation of the exact change
-   set before execution. This resource PR does not change the IAM foundation.
-2. Review the resource PR extending the existing `plan and apply`
-   workflow to the `ObsidianMcp` stack. It initially defines only a Cognito user pool
-   and AWS prefix domain, with public signup disabled, required TOTP MFA,
-   deletion protection and retained identity resources. No app client, user,
-   note-reading Lambda, API endpoint or registration endpoint is enabled by
-   this initial compatibility probe. The existing storage checks remain intact.
-   After merge, inspect the combined **Plan** in the Actions run and approve
-   the single infrastructure **Apply** through the native `production` environment after
-   reviewing all exact change-set ARNs, source SHA, resource actions and templates.
-3. Read the real issuer's discovery metadata. Require a matching issuer, HTTPS
+1. Start from the existing deployed identity probe. Follow the
+   [foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
+   and [resource deployment procedure](github-actions.md#automatic-deployment-run)
+   for the required ordering, native approval and retained-identity guards.
+2. Read the real issuer's discovery metadata. Require a matching issuer, HTTPS
    endpoints and `code_challenge_methods_supported` containing `S256`.
    Stop if the metadata fails; do not fake discovery, disable authentication or
    relax token audience checks to work around incompatibility.
-4. Add the actual pool ID as `mcpUserPoolId` in `config/github.json` through a
-   reviewed IAM PR and local SSO update. This removes pool creation and initial
-   tagging permission and pins subsequent pool operations to that ARN.
-   Do this before enabling OAuth or private-note access.
-5. Integrate the authenticated MCP application, with reviewed Lambda/API/asset
-   IAM scope added separately. The owner creates their Cognito user in the
-   Console and handles passwords, MFA and ChatGPT's exact callback URI. Never
-   put credentials or note content in Git, logs or chat.
-
-Applying only the IAM prerequisite does not deploy the pool. The resource
-workflow starts after a successful `validate` push on main. The shared `plan`
-job selects Cognito CREATE only for an exact
-stack-not-found response or unexecuted `REVIEW_IN_PROGRESS` placeholder. Existing
-stable stacks must contain the expected pool/domain logical IDs and resource
-types, and match the pinned pool ID when one is configured. Other failures and
-in-progress/failed stack states stop the workflow. A pinned pool with an absent
-stack never defaults to creating a replacement.
-
-See the [infrastructure deployment procedure](github-actions.md#automatic-deployment-run)
-for the shared Plan/Apply identity, source and resource-action guards, native
-approval, exact-ARN execution and completion checks.
+3. Follow the [staged MCP rollout](mcp-rollout.md#review-and-deployment-order)
+   for code storage and the authenticated application. The owner creates their
+   Cognito user in the Console and handles passwords, MFA and ChatGPT's exact
+   callback URI. Never put credentials or note content in Git, logs or chat.
 
 The shared pipeline coordinates the existing native stacks without moving
 resources or broadening IAM. It is not an atomic transaction across stacks;
-inspect actual AWS state after partial failure. The protected pool requires
-TOTP MFA, uses email sign-in and the Essentials
+inspect actual AWS state after partial failure. The protected pool disables
+public signup, requires TOTP MFA, uses email sign-in and the Essentials
 tier, and has a 14-character password policy. The prefix domain uses managed
 login v2. Both resources have `DeletionPolicy` and `UpdateReplacePolicy` Retain.
 Failed creation can leave retained resources or a failed stack: inspect native
@@ -74,7 +47,7 @@ actionlint
 
 Tests execute the workflow's shell steps with controlled AWS/GitHub responses,
 including no-change updates, stale source, unavailable plans, access errors,
-missing approval protection, destructive plans and pinned-pool mismatch. They
+missing approval protection, destructive plans and pool-ARN output mismatch. They
 also synthesize the actual CDK entry point and exercise discovery validation.
 These checks do not prove hosted OIDC, native reviewer routing, the Cognito
 CloudFormation handler, live metadata or OAuth login. Those require the
@@ -108,36 +81,16 @@ Do not invent metadata, add a proxy/broker silently or weaken validation.
 
 ## Permission boundary
 
-Plan and Deploy retain separate responsibilities. The added app statements are
-limited to the `ObsidianMcp` stack and `obsidian-mcp-*` change sets. Plan can pass
-only the dedicated role to CloudFormation and create unexecuted change sets
-whose resource-type list is present and contains only `AWS::Cognito::UserPool`
-and `AWS::Cognito::UserPoolDomain`. Deploy executes those reviewed change sets
-after the existing native production approval. Ordinary CI cannot update IAM.
-No administrator execution role or standard CDK bootstrap is introduced.
+The authoritative [MCP permission scope](mcp-rollout.md#permission-scope)
+includes the pinned Cognito pool and the reserved runtime/delivery grants.
+The deployed probe's resource definitions and the current Plan/Apply resource
+checks remain limited to the pool and prefix domain. IAM prerequisites do not
+create an application or change those checks.
 
-The new service role configures only pool settings and a prefix domain. It has
-no user creation/password/token operations, app-client operations, S3 access,
-IAM mutation/PassRole, KMS or CloudFront permissions. The AWS registry lists
-optional permissions for SMS, custom sender encryption and custom domains;
-those features are not authorized or part of this probe. Prefix domains must
-not be replaced with custom domains under this grant. Pools and domains must be
-retained; the role cannot delete either resource. Tag removal is not granted.
-
-Cognito assigns pool IDs. Until the first pool ID is known, `CreateUserPool`
-requires a wildcard resource, restricted to the configured Region and the
-request tag `Project=obsidian-mcp`. Initial `TagResource` permission is limited
-to pool ARNs in the configured account/Region and that requested project tag.
-It can also label another unowned pool in that account/Region, so it is a bootstrap
-capability, not proof of exclusive ownership. All pool configuration operations
-require the matching resource tag. An explicit deny blocks changing the project
-tag to a different value or claiming a pool tagged for another project.
-Pinning the pool ID removes that initial tagging grant and pool creation;
-tagging the pinned, already-owned pool remains allowed subject to the project-tag
-denies. `DescribeUserPoolDomain` remains Region-scoped with a
-wildcard resource because AWS does not support resource-level authorization for
-that read-only operation. IAM validation cannot prove the actual deployment;
-the resource PR must verify the real CloudFormation handler path.
+The probe does not use SMS, custom sender encryption or custom domains. Prefix
+domains must not be replaced with custom domains under this grant. Pools and
+domains must be retained; the role cannot delete either resource. The AWS
+registry's optional KMS and CloudFront handler permissions are not granted.
 
 ## Authentication checks after the probe
 

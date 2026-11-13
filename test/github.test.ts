@@ -1,3 +1,4 @@
+import { mcpResources } from '../infra/mcp-resources.js';
 import fs from 'node:fs';
 import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
@@ -16,7 +17,7 @@ describe('GitHub OIDC foundation', () => {
     const template = Template.fromStack(new GitHubTrustStack(new App(), 'Trust', storage, github));
     template.resourceCountIs('AWS::IAM::OIDCProvider', 1);
     const roles = template.findResources('AWS::IAM::Role') as Record<string, Role>;
-    expect(Object.keys(roles)).toHaveLength(4);
+    expect(Object.keys(roles)).toHaveLength(5);
     const subjects = Object.values(roles).filter(role => role.Properties.AssumeRolePolicyDocument.Statement[0]?.Principal?.Federated).map((role) => {
       const statement = role.Properties.AssumeRolePolicyDocument.Statement[0]!;
       expect(statement.Condition?.StringEquals?.['token.actions.githubusercontent.com:aud']).toBe('sts.amazonaws.com');
@@ -26,8 +27,8 @@ describe('GitHub OIDC foundation', () => {
       `${github.repositorySubject}:environment:production`, `${github.repositorySubject}:environment:production-plan`,
     ]);
     expect(Object.values(template.toJSON().Resources).map((r) => (r as { Type: string }).Type).sort()).toEqual([
-      'AWS::IAM::OIDCProvider', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy',
-      'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role',
+      'AWS::IAM::OIDCProvider', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy',
+      'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role',
     ]);
   });
 
@@ -57,8 +58,11 @@ describe('GitHub OIDC foundation', () => {
         expect(actions).not.toContain('cloudformation:CreateChangeSet');
         expect(actions).not.toContain('iam:PassRole');
       }
-      expect(actions).not.toContain('s3:GetObject');
-      expect(actions).not.toContain('s3:PutObject');
+      for (const statement of statements.filter(s => [s.Action].flat().some(a => a === 's3:GetObject' || a === 's3:PutObject'))) {
+        expect(JSON.stringify(statement.Resource)).toContain(mcpResources(storage, github.runtimeRoleName).codeBucketName);
+        expect(JSON.stringify(statement.Resource)).not.toContain(storage.buckets.vault.name);
+        expect(JSON.stringify(statement.Resource)).not.toContain(storage.buckets.library.name);
+      }
       expect(actions).not.toContain('s3:DeleteObject');
       expect(actions).not.toContain('sts:AssumeRole');
       expect(actions).not.toContain('*');
@@ -119,7 +123,7 @@ describe('GitHub OIDC foundation', () => {
     const roles = Object.values(Template.fromStack(new GitHubTrustStack(new App(), 'Trust', storage, github))
       .findResources('AWS::IAM::Role'));
     expect(roles.map(role => role.Properties.RoleName).sort()).toEqual(
-      [github.planRoleName, github.deployRoleName, github.executionRoleName, github.mcpExecutionRoleName].sort(),
+      [github.planRoleName, github.deployRoleName, github.executionRoleName, github.mcpExecutionRoleName, github.runtimeRoleName].sort(),
     );
     for (const [name, environment] of [[github.planRoleName, 'production-plan'], [github.deployRoleName, 'production']]) {
       const role = roles.find(role => role.Properties.RoleName === name)!;

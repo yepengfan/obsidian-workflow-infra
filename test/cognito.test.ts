@@ -31,7 +31,7 @@ describe('Cognito compatibility probe', () => {
     expect(template.Resources.UserPoolDomain.Properties.CustomDomainConfig).toBeUndefined();
     expect(template.Parameters).toBeUndefined();
     expect(template.Rules).toBeUndefined();
-    expect(Object.keys(template.Outputs).sort()).toEqual(['ManagedLoginDomain', 'OAuthIssuer', 'UserPoolId']);
+    expect(Object.keys(template.Outputs).sort()).toEqual(['ManagedLoginDomain', 'OAuthIssuer', 'PermissionPoolArn', 'UserPoolId']);
   });
 
   it.each(['https://auth.example.com', 'auth.example.com', 'Uppercase', 'aws-test', '-prefix', 'prefix-', 'x'.repeat(64)])('rejects unsupported domain %s', domainPrefix => {

@@ -30,9 +30,11 @@ moderate CDK-bundled dependency findings.
 
 The permission foundation is `ObsidianGitHubTrust`, defined in
 `infra/github-stack.ts`. It contains the native GitHub OIDC provider, PlanRole,
-DeployRole, a dedicated CloudFormation storage execution role, and a separate
-Cognito-only MCP execution role. All role names are versioned in
-`config/github.json`; account and Region are in
+DeployRole, dedicated CloudFormation storage and MCP execution roles, and the
+reserved Lambda runtime role. See [MCP permission scope](mcp-rollout.md#permission-scope)
+for the application grants. `config/github.json` contains only the immutable
+GitHub OIDC repository subject and IAM role names. Fixed application resource
+names are defined once in `infra/mcp-resources.ts`; account and Region are in
 `config/storage.json`. CDK and CI use the same role names. No role has a managed
 policy attached.
 
@@ -43,7 +45,20 @@ foundation into `cdk.out`. Native stack IDs and scoped CloudFormation service
 roles remain stable, so no existing resources need to move between stacks.
 The foundation is part of the shared review preview; its permissions remain
 outside CI deployment and require the approved local SSO procedure.
-See [Cognito preflight](cognito-preflight.md) for discovery and pool-ID pinning.
+See [Cognito preflight](cognito-preflight.md) for discovery and authentication checks.
+
+Before updating the IAM foundation for the MCP runtime permissions, publish the
+existing `ObsidianMcp` application stack's native `ObsidianMcp:UserPoolArn`
+CloudFormation export through the approved resource CI Plan/Apply. Resource
+metadata makes the output update detectable without changing Cognito resource
+properties; an UPDATE change set may have no resource actions. Only after that
+export is published, synthesize and review the local SSO foundation UPDATE and
+obtain owner approval of its concrete IAM change set before execution. The
+foundation uses `Fn::ImportValue` for the exact pool ARN and fails closed if the
+export is missing. The imported export cannot change while the foundation uses
+it. Do not copy a deployed pool ID into GitHub configuration.
+This export publication uses existing resource permissions; ordinary CI cannot
+apply the IAM foundation or widen its own permissions.
 
 All three stacks are asset-free. CDK generates the templates, and the AWS CLI sends
 those templates directly to CloudFormation. They have no bootstrap-version SSM
@@ -155,7 +170,8 @@ that property is not modeled here). Granting every advertised create/update
 handler permission would unnecessarily include object deletion and PassRole;
 those permissions are deliberately absent.
 
-Permission changes follow a separate, infrequent path:
+After any prerequisite updates described above, permission expansion follows
+a separate, infrequent path:
 
 1. Open a Bot-authored PR changing the foundation policy to cover the intended
    IaC scope. Review the IAM diff and merge it yourself.
@@ -175,7 +191,7 @@ also needs corresponding reviewed workflow/IAM scope changes: the shared
 pipeline validates the original storage stack against the two buckets and a
 reviewed later BucketPolicy, whose write permission must first be added here.
 For the separate MCP execution role and its staged permission expansion, see
-[Cognito preflight](cognito-preflight.md).
+[the MCP rollout](mcp-rollout.md).
 
 Configure repository Settings > Environments:
 
@@ -196,9 +212,11 @@ not a substitute for the native environment approval itself.
 `infra/github-stack.ts` defines native OIDC trust for the exact immutable
 repository/environment subjects and `sts.amazonaws.com` audience. PlanRole can
 create an unexecuted storage change set and pass its dedicated execution role.
-Separate statements permit an `ObsidianMcp` Cognito-only change set with the
-dedicated MCP role; the shared Plan/Apply jobs use that grant without changing
-the storage execution role or its resource checks.
+Separate statements permit `ObsidianMcp` change sets with the dedicated MCP
+role and the [reviewed application scope](mcp-rollout.md#permission-scope).
+The current shared Plan/Apply scripts still accept only the Cognito probe
+resources; expanding IAM does not expand those script checks or deploy resources.
+The storage execution role and its resource checks remain unchanged.
 DeployRole can execute reviewed change sets but cannot create substitute plans
 or pass roles. Neither GitHub role has direct GetObject, PutObject or DeleteObject
 permissions on the note buckets.
@@ -219,8 +237,10 @@ entire CDK app once, then runs `bin/plan-infrastructure.sh`:
 1. Inspect actual state for both deployment stacks. Storage selects IMPORT only
    on an exact stack-not-found response or unexecuted `REVIEW_IN_PROGRESS`
    placeholder; stable storage must match the original two bucket physical IDs.
-   Cognito selects CREATE on that same absence/placeholder condition, and stable
-   Cognito must contain the expected pool/domain IDs and match a configured pin.
+   Cognito stops on that same absence/placeholder condition; never silently
+   recreate retained identity resources. A future new-account bootstrap requires
+   separately reviewed authorization. Stable Cognito must contain exactly the
+   expected pool/domain logical IDs and resource types.
    Other errors and unsupported states fail the entire Plan.
 2. Prepare native source-bound change sets for both stacks using their dedicated
    service roles and reviewed resource-type scopes. The IAM foundation is never
@@ -246,12 +266,13 @@ Region and exact deployment stack set. It inspects **every changed native plan
 before executing any**. Each must be available, bound to the expected stack and
 source, and pass its existing resource checks: storage IMPORT is exactly Vault /
 Library; storage UPDATE permits original bucket modifications or reviewed later
-BucketPolicy changes; Cognito CREATE is exactly its pool/domain and UPDATE only
-modifies them. Removals and replacements are rejected.
+BucketPolicy changes; Cognito accepts only UPDATE and only modifies its existing
+pool/domain. An UPDATE with no resource actions is allowed for native
+metadata/output changes. Removals and replacements are rejected.
 
 Apply rechecks live main immediately before each execution, enables termination
-protection, executes the exact approved ARN and waits for the correct import,
-create or update completion. It preserves the bounded storage drift check and
+protection, executes the exact approved ARN and waits for the correct import
+or update completion. It preserves the bounded storage drift check and
 then checks live Cognito discovery, with propagation retries only if that stack
 changed. A discovery failure leaves OAuth/private-note access disabled.
 

@@ -7,7 +7,7 @@ jq -e --arg sha "$SOURCE_SHA" --arg repo "$GITHUB_REPOSITORY_ID" --arg account "
   .schemaVersion == 1 and .sourceSha == $sha and .repositoryId == $repo and .account == $account and .region == $region and (.stacks | type == "array") and
   ([.stacks[].name] | sort == ["ObsidianMcp","ObsidianWorkflowStorage"]) and
   all(.stacks[]; (.hasChanges | type == "boolean") and
-    (if .name == "ObsidianWorkflowStorage" then (.operation == "import" or .operation == "update") else (.operation == "create" or .operation == "update") end) and
+    (if .name == "ObsidianWorkflowStorage" then (.operation == "import" or .operation == "update") else .operation == "update" end) and
     (.arn | type == "string"))' "$manifest"
 
 # Validate every changed native plan before executing any stack in the group.
@@ -19,7 +19,7 @@ while IFS= read -r entry; do
   aws cloudformation describe-change-set --change-set-name "$arn" > "$file"
   expected="repo=${GITHUB_REPOSITORY_ID} sha=${SOURCE_SHA} operation=${operation}"
   jq -e --arg description "$expected" --arg stack "arn:aws:cloudformation:${REGION}:${ACCOUNT}:stack/${stack}/" \
-    '.Status == "CREATE_COMPLETE" and .ExecutionStatus == "AVAILABLE" and .Description == $description and (.StackId | startswith($stack)) and ([.Changes[].ResourceChange] | length > 0 and all(.Replacement == null or .Replacement == "False"))' "$file"
+    '.Status == "CREATE_COMPLETE" and .ExecutionStatus == "AVAILABLE" and .Description == $description and (.StackId | startswith($stack)) and ([.Changes[].ResourceChange] | all(.Replacement == null or .Replacement == "False"))' "$file"
   case "$stack:$operation" in
     ObsidianWorkflowStorage:import)
       jq -e '[.Changes[].ResourceChange] | length == 2 and all(.Action == "Import" and .ResourceType == "AWS::S3::Bucket") and ([.[].LogicalResourceId] | sort == ["Library","Vault"])' "$file" ;;

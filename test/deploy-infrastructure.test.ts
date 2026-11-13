@@ -26,12 +26,12 @@ const nativePlan = (stack: string, operation: string) => ({
 });
 const manifest = () => ({ schemaVersion: 1, sourceSha: source, repositoryId: '123', account, region, stacks: [
   { name: storage, operation: 'update', arn: arn(storage, 'update'), hasChanges: true },
-  { name: cognito, operation: 'create', arn: arn(cognito, 'create'), hasChanges: true },
+  { name: cognito, operation: 'update', arn: arn(cognito, 'update'), hasChanges: true },
 ] });
 type StackState = { Stacks: { StackStatus: string; EnableTerminationProtection?: boolean }[] } | { error: string };
 const defaults = () => ({
   storage: { stack: { Stacks: [{ StackStatus: 'UPDATE_COMPLETE', EnableTerminationProtection: true }] } as StackState, resources: { StackResources: structuredClone(resources.storage) }, plan: nativePlan(storage, 'update'), waitExit: 0 },
-  cognito: { stack: { error: '(ValidationError) Stack with id ObsidianMcp does not exist' } as StackState, resources: { StackResources: structuredClone(resources.cognito) }, plan: nativePlan(cognito, 'create'), waitExit: 0 },
+  cognito: { stack: { Stacks: [{ StackStatus: 'UPDATE_COMPLETE', EnableTerminationProtection: true }] } as StackState, resources: { StackResources: structuredClone(resources.cognito) }, plan: nativePlan(cognito, 'update'), waitExit: 0 },
 });
 const step = (job: string, name: string) => workflow.jobs[job]!.steps.find(s => s.name === name)!.run!;
 type Call = { tool: string; args: string[] };
@@ -40,10 +40,6 @@ function execute(script: string, fixture: Record<string, unknown> = {}, plan = m
   try {
     fs.mkdirSync(path.join(dir, 'config'));
     for (const file of ['storage.json', 'github.json', 'import-resources.json']) fs.copyFileSync(`config/${file}`, path.join(dir, 'config', file));
-    if (fixture.pinned) {
-      const file = path.join(dir, 'config/github.json');
-      fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), mcpUserPoolId: fixture.pinned }));
-    }
     fs.writeFileSync(path.join(dir, 'fixture.json'), JSON.stringify({ ...defaults(), ...fixture }));
     fs.writeFileSync(path.join(dir, 'infrastructure-plan.json'), JSON.stringify(plan));
     for (const tool of ['aws', 'gh', 'git', 'npm', 'sleep']) fs.writeFileSync(path.join(dir, tool), `#!/usr/bin/env node
@@ -97,7 +93,9 @@ const planScript = `bash ${JSON.stringify(path.resolve('bin/plan-infrastructure.
 const applyScript = `bash ${JSON.stringify(path.resolve('bin/apply-infrastructure.sh'))}`;
 const executions = (calls: Call[]) => calls.filter(c => c.tool === 'aws' && c.args[1] === 'execute-change-set');
 
-describe('one infrastructure plan and approval', () => {
+// Each case executes real shell scripts with 30s-bounded CLI subprocesses.
+// The unit-test default of 5s is too short during concurrent CDK synthesis.
+describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
   it('has one shared Plan and one native approval/apply for the whole infrastructure', () => {
     expect(workflow.name).toBe('plan and apply');
     expect(workflow.on.workflow_run).toEqual({ workflows: ['validate'], branches: ['main'], types: ['completed'] });
@@ -133,15 +131,15 @@ describe('one infrastructure plan and approval', () => {
     expect(creates).toHaveLength(2);
     expect(creates[0]!.args).toContain('AWS::S3::Bucket'); expect(creates[1]!.args).toContain('AWS::Cognito::UserPool');
     expect(creates[0]!.args).toContain('file://cdk.out/ObsidianWorkflowStorage.template.json');
-    expect(creates[1]!.args).toContain(`repo=123 sha=${source} operation=create`);
+    expect(creates[1]!.args).toContain(`repo=123 sha=${source} operation=update`);
   });
-  it.each(['absent', 'placeholder'])('imports original storage and creates identity on %s state', kind => {
+  it.each(['absent', 'placeholder'])('refuses recreating managed identity on %s state', kind => {
     const fixture = defaults();
     for (const [key, stack] of [['storage', storage], ['cognito', cognito]] as const) fixture[key].stack = kind === 'absent' ? { error: `(ValidationError) Stack with id ${stack} does not exist` } as typeof fixture[typeof key]['stack'] : { Stacks: [{ StackStatus: 'REVIEW_IN_PROGRESS' }] } as typeof fixture[typeof key]['stack'];
     fixture.storage.plan = nativePlan(storage, 'import');
     const result = execute(planScript, fixture);
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.plan.stacks.map(s => s.operation)).toEqual(['import', 'create']);
+    expect(result.status).not.toBe(0);
+    expect(executions(result.calls)).toEqual([]);
     expect(result.calls.find(c => c.args[1] === 'create-change-set')!.args).toContain('file://config/import-resources.json');
   });
   it.each(['access denied', 'timeout', 'wrong bucket', 'wrong pool', 'failed state'])('fails the entire Plan on %s', kind => {
@@ -153,10 +151,11 @@ describe('one infrastructure plan and approval', () => {
     const result = execute(planScript, fixture);
     expect(result.status).not.toBe(0); expect(result.output).toBe(''); expect(executions(result.calls)).toEqual([]);
   });
-  it('refuses pinned pool recreation or rebinding', () => {
-    expect(execute(planScript, { pinned: `${region}_Pinned` }).status).not.toBe(0);
-    const fixture = defaults(); fixture.cognito.stack = { Stacks: [{ StackStatus: 'UPDATE_COMPLETE' }] } as typeof fixture.cognito.stack;
-    expect(execute(planScript, { ...fixture, pinned: `${region}_Pinned` }).status).not.toBe(0);
+  it('allows a native output-only UPDATE to publish the managed pool ARN before IAM narrows', () => {
+    const fixture = defaults(); fixture.cognito.plan.Changes = [];
+    const result = execute(applyScript, fixture);
+    expect(result.status, result.stderr).toBe(0);
+    expect(executions(result.calls)).toHaveLength(2);
   });
   it('skips approval only when every native UPDATE is unchanged', () => {
     const fixture = defaults();
@@ -176,7 +175,7 @@ describe('one infrastructure plan and approval', () => {
     expect(executions(result.calls).map(c => c.args.at(-1))).toEqual(manifest().stacks.map(s => s.arn));
     const first = result.calls.findIndex(c => c.args[1] === 'execute-change-set');
     expect(result.calls.slice(0, first).filter(c => c.args[1] === 'describe-change-set')).toHaveLength(2);
-    expect(result.calls.filter(c => c.args[1] === 'wait').map(c => c.args[2])).toEqual(['stack-update-complete', 'stack-create-complete']);
+    expect(result.calls.filter(c => c.args[1] === 'wait').map(c => c.args[2])).toEqual(['stack-update-complete', 'stack-update-complete']);
     expect(result.calls.some(c => c.args[1] === 'detect-stack-drift')).toBe(true);
   });
   it('preserves first adoption as IMPORT of the original buckets', () => {
@@ -214,7 +213,7 @@ describe('one infrastructure plan and approval', () => {
   it('executes only changed stacks from the full plan', () => {
     const plan = manifest(); plan.stacks[0]!.hasChanges = false;
     const result = execute(applyScript, {}, plan); expect(result.status, result.stderr).toBe(0);
-    expect(executions(result.calls).map(c => c.args.at(-1))).toEqual([arn(cognito, 'create')]);
+    expect(executions(result.calls).map(c => c.args.at(-1))).toEqual([arn(cognito, 'update')]);
   });
   it.each([false, true])('rejects stale main before each execution (partial completion: %s)', advanceAfterFirst => {
     const result = execute(applyScript, advanceAfterFirst ? { advanceAfterFirst } : { main: 'b'.repeat(40) });

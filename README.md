@@ -24,6 +24,7 @@ flowchart TB
         OIDC --> PlanRole["Scoped CI Plan role"]
         OIDC --> DeployRole["Scoped CI Deploy role"]
         Foundation --> Execution["Scoped CloudFormation execution roles"]
+        Foundation --> RuntimeRole["Read-only Lambda role - IAM prerequisite"]
     end
 ```
 
@@ -47,7 +48,7 @@ flowchart TD
     Verify --> Review["Owner reviews and merges"]
     Review --> Main["validate on main"]
     Main --> Plan["Plan the entire business infrastructure"]
-    Plan --> Changes{"Any resource changes?"}
+    Plan --> Changes{"Any stack changes?"}
     Changes -->|No| Unchanged["Read-only discovery check; skip Apply"]
     Changes -->|Yes| Approval["Owner approves production deployment"]
     Approval --> Preflight["Validate every changed native plan"]
@@ -85,6 +86,7 @@ deploy. Edit the TypeScript/configuration sources, never generated templates.
 
 - [Deployment, approvals and permission updates](docs/github-actions.md)
 - [Cognito compatibility and OAuth rollout](docs/cognito-preflight.md)
+- [Selected-note MCP rollout and permission scope](docs/mcp-rollout.md)
 - [Storage retention and recovery verification](docs/retention.md)
 - [GitHub App identity and credential handling](docs/github-app-identity.md)
 
