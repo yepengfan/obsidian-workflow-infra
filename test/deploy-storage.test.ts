@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 
-type Step = { name?: string; id?: string; run?: string };
+type Step = { name?: string; id?: string; run?: string; uses?: string; with?: Record<string, string> };
 const workflow = parse(fs.readFileSync('.github/workflows/deploy-storage.yml', 'utf8')) as {
   on: { workflow_run: { workflows: string[]; branches: string[]; types: string[] } };
   jobs: { plan: { steps: Step[] }; apply: { needs: string; environment: string; steps: Step[] } };
@@ -93,15 +93,19 @@ describe('automatic storage deployment', () => {
     expect(result.output).toBe(operation ? `operation=${operation}\n` : '');
   });
 
-  it('uses the versioned dedicated execution role, without a CDK bootstrap role', () => {
-    const result = execute(step('Read versioned AWS settings'), {}, { PLAN_ROLE: 'plan', DEPLOY_ROLE: 'deploy' });
+  it.each(['plan', 'apply'] as const)('resolves %s authentication from versioned config without repository variables', job => {
+    const configStep = workflow.jobs[job].steps.find(s => s.name === 'Read versioned AWS settings')!;
+    const result = execute(configStep.run!, {}, { PLAN_ROLE: '', DEPLOY_ROLE: '' });
     const storage = JSON.parse(fs.readFileSync('config/storage.json', 'utf8'));
     const github = JSON.parse(fs.readFileSync('config/github.json', 'utf8'));
     expect(result.status, result.stderr).toBe(0);
     expect(result.output.trim().split('\n')).toEqual([
       `account=${storage.account}`, `region=${storage.region}`,
-      `executionRole=arn:aws:iam::${storage.account}:role/${github.executionRoleName}`,
+      ...(job === 'plan' ? [`executionRole=arn:aws:iam::${storage.account}:role/${github.executionRoleName}`] : []),
+      `roleArn=arn:aws:iam::${storage.account}:role/${job === 'plan' ? github.planRoleName : github.deployRoleName}`,
     ]);
+    const authentication = workflow.jobs[job].steps.find(s => s.uses?.startsWith('aws-actions/configure-aws-credentials@'))!;
+    expect(authentication.with?.['role-to-assume']).toBe('${{ steps.config.outputs.roleArn }}');
     expect(result.calls).toBe('');
   });
 
