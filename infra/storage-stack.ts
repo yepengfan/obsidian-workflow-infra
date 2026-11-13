@@ -1,4 +1,4 @@
-import { RemovalPolicy, Stack } from 'aws-cdk-lib';
+import { DefaultStackSynthesizer, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import type { Construct } from 'constructs';
 import type { StorageConfig } from './storage-config.js';
@@ -8,6 +8,7 @@ export class StorageStack extends Stack {
   constructor(scope: Construct, id: string, config: StorageConfig) {
     super(scope, id, {
       env: { account: config.account, region: config.region },
+      synthesizer: new DefaultStackSynthesizer({ generateBootstrapVersionRule: false }),
       terminationProtection: true,
       description: 'Existing private Obsidian storage under IaC management',
     });

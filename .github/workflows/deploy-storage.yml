@@ -74,7 +74,7 @@ jobs:
           const g = require('./config/github.json');
           console.log('account=' + s.account);
           console.log('region=' + s.region);
-          console.log('executionRole=arn:aws:iam::' + s.account + ':role/cdk-' + g.bootstrapQualifier + '-cfn-exec-role-' + s.account + '-' + s.region);
+          console.log('executionRole=arn:aws:iam::' + s.account + ':role/' + g.executionRoleName);
           NODE
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:

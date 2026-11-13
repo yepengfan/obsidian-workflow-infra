@@ -20,9 +20,12 @@ it.each([
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
     const template = JSON.parse(fs.readFileSync(path.join(directory, `${stack}.template.json`), 'utf8')) as {
-      Resources: Record<string, { Type: string }>;
+      Resources: Record<string, { Type: string }>; Parameters?: Record<string, unknown>; Rules?: Record<string, unknown>;
     };
     expect(Object.values(template.Resources).filter((resource) => resource.Type === type)).toHaveLength(count);
+    expect(Buffer.byteLength(JSON.stringify(template))).toBeLessThanOrEqual(51_200);
+    expect(template.Parameters).toBeUndefined();
+    expect(template.Rules).toBeUndefined();
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
