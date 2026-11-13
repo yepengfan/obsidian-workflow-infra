@@ -9,7 +9,7 @@ export const githubSchema = z.object({
   executionRoleName: z.string().regex(/^obsidian-[A-Za-z0-9+=,.@_-]+$/u).max(64),
 }).strict();
 
-/** One-time reviewed foundation, separate from the unchanged bucket import. */
+/** Reviewed permission foundation; local SSO update procedure: docs/github-actions.md. */
 export class GitHubTrustStack extends Stack {
   constructor(scope: Construct, id: string, storage: StorageConfig, github: z.infer<typeof githubSchema>) {
     super(scope, id, {

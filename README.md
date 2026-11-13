@@ -61,10 +61,8 @@ and Apply waits for the owner's production environment approval before
 automatically executing that exact ARN. See [setup and review steps](docs/github-actions.md).
 
 The permission foundation uses a dedicated execution role scoped to the two
-configured buckets. No standard CDK bootstrap or administrator execution role is
-required. Apply reviewed permission-IaC changes from local SSO before merging
-resource changes that need them. CI cannot change its own IAM permissions.
-See [foundation setup and permission updates](docs/github-actions.md).
+configured buckets. See [foundation setup and permission updates](docs/github-actions.md)
+for its permission boundaries and the required local SSO update procedure.
 
 ## Changes after import
 
