@@ -17,7 +17,9 @@ function execute(script: string, fixture: Record<string, unknown>, extra: Record
   const summary = path.join(directory, 'summary');
   fs.writeFileSync(path.join(directory, 'fixture.json'), JSON.stringify(fixture));
   fs.mkdirSync(path.join(directory, 'config'));
-  fs.copyFileSync('config/import-resources.json', path.join(directory, 'config/import-resources.json'));
+  for (const file of ['import-resources.json', 'storage.json', 'github.json']) {
+    fs.copyFileSync(`config/${file}`, path.join(directory, `config/${file}`));
+  }
   for (const tool of ['aws', 'gh']) {
     fs.writeFileSync(path.join(directory, tool), `#!/bin/bash
 printf '%s %s\\n' '${tool}' "$*" >> "$CALL_LOG"
@@ -89,6 +91,18 @@ describe('automatic storage deployment', () => {
     const result = execute(step('Select import or update from actual stack state'), { stack, resources });
     expect(result.status === 0).toBe(operation !== null);
     expect(result.output).toBe(operation ? `operation=${operation}\n` : '');
+  });
+
+  it('uses the versioned dedicated execution role, without a CDK bootstrap role', () => {
+    const result = execute(step('Read versioned AWS settings'), {}, { PLAN_ROLE: 'plan', DEPLOY_ROLE: 'deploy' });
+    const storage = JSON.parse(fs.readFileSync('config/storage.json', 'utf8'));
+    const github = JSON.parse(fs.readFileSync('config/github.json', 'utf8'));
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.output.trim().split('\n')).toEqual([
+      `account=${storage.account}`, `region=${storage.region}`,
+      `executionRole=arn:aws:iam::${storage.account}:role/${github.executionRoleName}`,
+    ]);
+    expect(result.calls).toBe('');
   });
 
   it('rejects an existing stack bound to a different bucket', () => {

@@ -14,9 +14,8 @@ App-authored PRs, and separately approves concrete AWS changes.
 ## What to review in CI
 
 Open a CI run's Summary. It includes the synthesized storage definitions and
-GitHub OIDC / IAM diff against `config/empty-template.json`, plus the standard
-CDK bootstrap template and its default AdministratorAccess execution-role
-warning. Download `cloudformation-review` for the full templates and diff files.
+GitHub OIDC / IAM diff against `config/empty-template.json`, including the
+dedicated storage execution role and its bucket-scoped policy. Download `cloudformation-review` for the full templates and diff files.
 Artifacts are retained for seven days.
 
 This is an **offline first-adoption preview**, not a live AWS plan or a diff
@@ -28,27 +27,102 @@ moderate CDK-bundled dependency findings.
 
 ## One-time foundation and GitHub environment setup
 
-Before cloud planning can run, separately review the CI bootstrap template and
-GitHub trust diff. Use the local `obsidian-admin` SSO session only for the
-reviewed initial AWS foundation; do not upload a local profile to GitHub.
-The standard bootstrap CloudFormation execution role defaults to
-AdministratorAccess. Review or narrow this material permission explicitly;
-the separate GitHub Plan / Deploy roles do not reduce the execution role's
-permissions. Do not silently deploy or broaden it.
+The permission foundation is `ObsidianGitHubTrust`, defined in
+`infra/github-stack.ts`. It contains the native GitHub OIDC provider, PlanRole,
+DeployRole, and a dedicated CloudFormation storage execution role. The role name
+is versioned in `config/github.json`. No role has a managed policy attached.
 
-Only after the user confirms the concrete foundation plan, typical commands are:
+Both stacks are asset-free. CDK generates the templates, and the AWS CLI sends
+those templates directly to CloudFormation. They have no bootstrap-version SSM
+parameter. **Do not run standard `cdk bootstrap` or `cdk deploy` for this setup.**
+No CDKToolkit stack, staging bucket, ECR repository, or administrator execution
+role is required. The AWS CLI does not need an assets publishing role.
+
+Use the local `obsidian-admin` SSO session for the reviewed foundation only.
+That caller must be allowed to manage this foundation's IAM/OIDC resources and
+CloudFormation stack; full AdministratorAccess is not intrinsically required.
+Its credentials are never uploaded to GitHub. CloudFormation uses the caller's
+session for this foundation; it is not assigned a permanent administrator role.
+
+From the reviewed, merged revision, create and inspect an unexecuted foundation
+plan (these commands create CloudFormation metadata, not IAM resources):
 
 ```sh
-npx --no-install cdk bootstrap aws://391824190072/ap-southeast-2 \
-  --profile obsidian-admin
-npx --no-install cdk deploy ObsidianGitHubTrust \
-  --app 'npx --no-install tsx bin/github.ts' \
-  --profile obsidian-admin --no-lookups --require-approval broadening \
-  --outputs-file cdk-outputs-github.json
+npx --no-install cdk synth ObsidianGitHubTrust \
+  --app 'npx --no-install tsx bin/github.ts' --no-lookups \
+  --output cdk.github.out --quiet
+FOUNDATION_CHANGE_SET="obsidian-foundation-$(git rev-parse --short=12 HEAD)"
+aws cloudformation create-change-set \
+  --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
+  --change-set-type CREATE --capabilities CAPABILITY_NAMED_IAM \
+  --template-body file://cdk.github.out/ObsidianGitHubTrust.template.json \
+  --description "Reviewed foundation $(git rev-parse HEAD)" \
+  --profile obsidian-admin --region ap-southeast-2
+aws cloudformation wait change-set-create-complete \
+  --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
+  --profile obsidian-admin --region ap-southeast-2
+aws cloudformation describe-change-set \
+  --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
+  --profile obsidian-admin --region ap-southeast-2
 ```
 
-Set `AWS_PLAN_ROLE_ARN` and `AWS_DEPLOY_ROLE_ARN` from the actual stack outputs.
-No static AWS key or GitHub App private key is used in the AWS jobs.
+Only after the user confirms that actual plan and its IAM policies:
+
+```sh
+aws cloudformation execute-change-set \
+  --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
+  --profile obsidian-admin --region ap-southeast-2
+aws cloudformation wait stack-create-complete \
+  --stack-name ObsidianGitHubTrust \
+  --profile obsidian-admin --region ap-southeast-2
+aws cloudformation update-termination-protection --enable-termination-protection \
+  --stack-name ObsidianGitHubTrust \
+  --profile obsidian-admin --region ap-southeast-2
+aws cloudformation describe-stacks --stack-name ObsidianGitHubTrust \
+  --query 'Stacks[0].Outputs' --profile obsidian-admin --region ap-southeast-2
+```
+
+Set `AWS_PLAN_ROLE_ARN` and `AWS_DEPLOY_ROLE_ARN` from those actual stack outputs.
+`CloudFormationExecutionRoleArn` must match the configured role used by Plan.
+No static AWS key or GitHub App private key is used in AWS jobs. If the previous
+standard-bootstrap preview still exists, delete its unexecuted change set after
+verifying it was not executed; do not execute that administrator-role proposal.
+
+### Permission scope and future changes
+
+The execution role grants bucket metadata reads required by the native
+`AWS::S3::Bucket` read handler and four writes on **only the two configured
+bucket ARNs**: encryption, public-access blocks, ownership controls, and
+versioning. `ListBucket` supports HeadBucket and can also enumerate keys; it
+does not grant object-body access. The role cannot read/write/delete object
+bodies or versions, create/delete buckets, manage IAM, change bucket policies,
+or change lifecycle rules. Read actions follow the Sydney CloudFormation
+registry schema checked on 2026-11-13, excluding its unrecognized
+`GetBucketDefaultStorageClass` action (AWS Access Analyzer reports INVALID_ACTION;
+that property is not modeled here). Granting every advertised create/update
+handler permission would unnecessarily include object deletion and PassRole;
+those permissions are deliberately absent.
+
+Permission changes follow a separate, infrequent path:
+
+1. Open a Bot-authored PR changing the foundation policy to cover the intended
+   IaC scope. Review the IAM diff and merge it yourself.
+2. From that reviewed revision, use the local SSO session to synthesize the
+   foundation and create an **UPDATE** change set instead of CREATE. Review
+   and approve it, execute it, then wait with `stack-update-complete`.
+   Keep role names stable so existing CI role variables remain valid.
+3. Open the resource-change PR after that permission update has succeeded.
+   CI can then Plan and, after production approval, Apply those resource changes.
+
+Do not merge resource changes that require new permissions before step 2. If
+permissions are missing, CI fails closed; it never falls back to SSO or an
+administrator role and cannot update its own foundation. No extra CI permission
+updater or long-lived AWS key is introduced. A future stack or resource type
+also needs corresponding reviewed workflow/IAM scope changes: the current
+storage workflow intentionally accepts only the original two buckets and a
+reviewed later BucketPolicy, whose write permission must first be added here.
+Future Lambda/MCP deployment should have its own scoped execution role rather
+than giving this storage role unrelated service access.
 
 Configure repository Settings > Environments:
 
@@ -60,8 +134,8 @@ Configure repository Settings > Environments:
   Choose that option consistently with the actual approval participants.
 - Disable administrator bypass if all deployments must use the reviewer gate.
 
-The last read-only audit found no Required reviewers on `production`, and no
-AWS role variables. These settings still need to be configured; workflow YAML
+The owner configured the production Required reviewer after the initial audit.
+The AWS role variables still require the actual foundation outputs; workflow YAML
 alone does not create environment protection. Both Plan and Apply check for the
 owner's reviewer rule before AWS authentication and stop if it is absent or
 cannot be read. This addresses the observed missing-rule configuration; it is
@@ -69,7 +143,7 @@ not a substitute for the native environment approval itself.
 
 `infra/github-stack.ts` defines native OIDC trust for the exact immutable
 repository/environment subjects and `sts.amazonaws.com` audience. PlanRole can
-create an unexecuted change set and pass only the fixed CDK execution role.
+create an unexecuted change set and pass only the dedicated storage execution role.
 DeployRole can execute reviewed change sets but cannot create substitute plans
 or pass roles. Neither GitHub role has direct GetObject, PutObject or DeleteObject
 permissions on the note buckets.
@@ -141,6 +215,8 @@ reviewed PRs and the same automatic Plan / approved Apply flow. See
 [the post-import plan](post-import-plan.md) for the selected, not-yet-enabled
 historical retention policy and its separate impact review.
 
-References: [GitHub workflow_run](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run),
+References: [CloudFormation service roles](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-iam-servicerole.html),
+[CDK synthesizer bootstrap checks](https://docs.aws.amazon.com/cdk/api/v2/docs/aws-cdk-lib.DefaultStackSynthesizerProps.html#generatebootstrapversionrule),
+[GitHub workflow_run](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run),
 [environment approval](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments),
 [CloudFormation change sets](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-cfn-updating-stacks-changesets.html).

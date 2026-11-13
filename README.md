@@ -54,11 +54,15 @@ to the same logical and physical resource definitions.
 Do not hand-edit synthesized files. Edit TypeScript/configuration and synthesize
 again. Review [the import procedure](docs/github-actions.md) before any AWS write.
 PR CI runs without AWS credentials and publishes an offline infrastructure
-preview, including bootstrap and OIDC / IAM definitions, in its Summary and
+preview, including OIDC and all three scoped role definitions, in its Summary and
 artifact. Successful main CI automatically starts one deployment run: Plan
 selects first import or later update, publishes the actual native change set,
 and Apply waits for the owner's production environment approval before
 automatically executing that exact ARN. See [setup and review steps](docs/github-actions.md).
+
+The permission foundation uses a dedicated execution role scoped to the two
+configured buckets. See [foundation setup and permission updates](docs/github-actions.md)
+for its permission boundaries and the required local SSO update procedure.
 
 ## Changes after import
 

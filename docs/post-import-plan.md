@@ -23,5 +23,8 @@ rule is enabled. Retain policies do not protect versions from lifecycle expiry.
 The user must review the concrete post-import diff and impact and explicitly
 confirm before activation. The import template deliberately contains no lifecycle
 rules, and selecting this plan does not authorize running deletion now.
+The current execution role cannot change lifecycle rules. First follow the
+[permission-update procedure](github-actions.md#permission-scope-and-future-changes)
+before merging the lifecycle resource change.
 
 Reference: [S3 lifecycle elements](https://docs.aws.amazon.com/AmazonS3/latest/userguide/intro-lifecycle-rules.html).

@@ -1,4 +1,4 @@
-import { CfnOutput, Duration, Stack } from 'aws-cdk-lib';
+import { CfnOutput, DefaultStackSynthesizer, Duration, Stack } from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import type { Construct } from 'constructs';
 import { z } from 'zod';
@@ -6,13 +6,17 @@ import { STORAGE_STACK_NAME, type StorageConfig } from './storage-config.js';
 
 export const githubSchema = z.object({
   repositorySubject: z.string().regex(/^repo:[A-Za-z0-9_.-]+@\d+\/[A-Za-z0-9_.-]+@\d+$/u),
-  bootstrapQualifier: z.string().regex(/^[a-z0-9]+$/u),
+  executionRoleName: z.string().regex(/^obsidian-[A-Za-z0-9+=,.@_-]+$/u).max(64),
 }).strict();
 
-/** One-time reviewed foundation, separate from the unchanged bucket import. */
+/** Reviewed permission foundation; local SSO update procedure: docs/github-actions.md. */
 export class GitHubTrustStack extends Stack {
   constructor(scope: Construct, id: string, storage: StorageConfig, github: z.infer<typeof githubSchema>) {
-    super(scope, id, { env: { account: storage.account, region: storage.region } });
+    super(scope, id, {
+      env: { account: storage.account, region: storage.region },
+      // Native CloudFormation receives this asset-free template directly.
+      synthesizer: new DefaultStackSynthesizer({ generateBootstrapVersionRule: false }),
+    });
     const provider = new iam.OidcProviderNative(this, 'Provider', { url: 'https://token.actions.githubusercontent.com', clientIds: ['sts.amazonaws.com'] });
     const principal = (environment: string) => new iam.FederatedPrincipal(provider.oidcProviderArn, {
       StringEquals: {
@@ -23,7 +27,42 @@ export class GitHubTrustStack extends Stack {
     const plan = new iam.Role(this, 'PlanRole', { assumedBy: principal('production-plan'), maxSessionDuration: Duration.hours(1) });
     const apply = new iam.Role(this, 'DeployRole', { assumedBy: principal('production'), maxSessionDuration: Duration.hours(1) });
     const stackArn = `arn:${this.partition}:cloudformation:${this.region}:${this.account}:stack/${STORAGE_STACK_NAME}/*`;
-    const executionRole = `arn:${this.partition}:iam::${this.account}:role/cdk-${github.bootstrapQualifier}-cfn-exec-role-${this.account}-${this.region}`;
+    const bucketArns = [storage.buckets.vault.name, storage.buckets.library.name]
+      .map((name) => `arn:${this.partition}:s3:::${name}`);
+    const execution = new iam.Role(this, 'StorageExecutionRole', {
+      roleName: github.executionRoleName,
+      assumedBy: new iam.ServicePrincipal('cloudformation.amazonaws.com'),
+      description: 'Manage only the modeled configuration of the two existing Obsidian buckets',
+    });
+    execution.addToPolicy(new iam.PolicyStatement({
+      // AWS::S3::Bucket read permissions (Sydney registry, 2026-11-13),
+      // excluding its unrecognized GetBucketDefaultStorageClass action.
+      // ListBucket is needed for HeadBucket; no object-body permissions are granted.
+      actions: [
+        's3:GetAccelerateConfiguration', 's3:GetLifecycleConfiguration',
+        's3:GetBucketPublicAccessBlock', 's3:GetAnalyticsConfiguration',
+        's3:GetBucketCORS', 's3:GetEncryptionConfiguration',
+        's3:GetInventoryConfiguration', 's3:GetBucketLogging',
+        's3:GetMetricsConfiguration', 's3:GetBucketNotification',
+        's3:GetBucketVersioning', 's3:GetReplicationConfiguration',
+        's3:GetBucketWebsite', 's3:GetBucketObjectLockConfiguration',
+        's3:GetBucketTagging', 's3:ListTagsForResource', 's3:GetBucketAbac',
+        's3:GetBucketOwnershipControls', 's3:GetIntelligentTieringConfiguration',
+        's3:GetBucketMetadataTableConfiguration',
+        's3:ListBucket', 's3:GetBucketLocation',
+      ],
+      resources: bucketArns,
+    }));
+    execution.addToPolicy(new iam.PolicyStatement({
+      // Only properties modeled today. Future capabilities require a reviewed
+      // foundation update via local SSO before the resource deployment.
+      actions: [
+        's3:PutEncryptionConfiguration', 's3:PutBucketPublicAccessBlock',
+        's3:PutBucketOwnershipControls', 's3:PutBucketVersioning',
+      ],
+      resources: bucketArns,
+    }));
+    const executionRole = execution.roleArn;
     const changeSetNames = ['obsidian-storage-*', `arn:${this.partition}:cloudformation:${this.region}:${this.account}:changeSet/obsidian-storage-*/*`];
     for (const role of [plan, apply]) {
       role.addToPolicy(new iam.PolicyStatement({
@@ -32,7 +71,7 @@ export class GitHubTrustStack extends Stack {
       }));
       role.addToPolicy(new iam.PolicyStatement({
         actions: ['s3:GetBucketLocation', 's3:GetBucketPublicAccessBlock', 's3:GetBucketVersioning', 's3:GetEncryptionConfiguration', 's3:GetBucketOwnershipControls'],
-        resources: [storage.buckets.vault.name, storage.buckets.library.name].map((name) => `arn:${this.partition}:s3:::${name}`),
+        resources: bucketArns,
       }));
     }
     plan.addToPolicy(new iam.PolicyStatement({ actions: ['cloudformation:GetTemplateSummary'], resources: ['*'] }));
