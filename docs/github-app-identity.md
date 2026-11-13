@@ -5,7 +5,7 @@ must also use that App's bot login and numeric bot-user email. Existing history
 and personal interactive Git settings are unchanged. A `Verified` signature is
 not required for the initial rollout.
 
-Create all new AI PRs as `yepeng-ai-developer[bot]`, using the App's
+Create all new AI PRs as `yepeng-developer[bot]`, using the App's
 repository-scoped installation token. The user reviews and merges PRs;
 agents must never merge them or enable auto-merge.
 
