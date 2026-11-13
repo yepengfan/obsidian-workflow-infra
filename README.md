@@ -5,7 +5,7 @@ Native CloudFormation resource import binds these definitions to the existing
 buckets. Existing objects, version history, bucket names and Obsidian sync paths
 stay in place. Notes and credentials never belong in this repository.
 
-This branch prepares the import baseline and GitHub Actions Plan/Apply workflow.
+This repository defines the import baseline and automatic GitHub Actions Plan/Apply workflow.
 No AWS import, deployment, data copy or lifecycle cleanup has been executed.
 
 ## Resource definitions
@@ -53,8 +53,12 @@ to the same logical and physical resource definitions.
 
 Do not hand-edit synthesized files. Edit TypeScript/configuration and synthesize
 again. Review [the import procedure](docs/github-actions.md) before any AWS write.
-PR CI runs without AWS credentials; manual main-only jobs create a native
-unexecuted change set and execute only the reviewed ARN in separate steps.
+PR CI runs without AWS credentials and publishes an offline infrastructure
+preview, including bootstrap and OIDC / IAM definitions, in its Summary and
+artifact. Successful main CI automatically starts one deployment run: Plan
+selects first import or later update, publishes the actual native change set,
+and Apply waits for the owner's production environment approval before
+automatically executing that exact ARN. See [setup and review steps](docs/github-actions.md).
 
 ## Changes after import
 

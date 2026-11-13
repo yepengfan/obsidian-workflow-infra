@@ -2,6 +2,7 @@ node_modules/
 cdk.out/
 cdk.storage.out/
 cdk.github.out/
+cdk.review.out/
 coverage/
 config/local.json
 config/github.local.json
