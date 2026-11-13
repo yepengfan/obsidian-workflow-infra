@@ -60,7 +60,7 @@ Do not hand-edit synthesized files. Edit TypeScript/configuration and synthesize
 again. Review [the import procedure](docs/github-actions.md) before any AWS write.
 `validate` runs without AWS credentials and publishes an offline infrastructure
 preview, including OIDC and all three scoped role definitions, in its Summary and
-artifact. Successful main validation automatically starts `Plan and deploy S3 storage`: Plan
+artifact. Successful main validation automatically starts `plan and apply`: Plan
 selects first import or later update, publishes the actual native change set,
 and Apply waits for the owner's production environment approval before
 automatically executing that exact ARN. See [setup and review steps](docs/github-actions.md).

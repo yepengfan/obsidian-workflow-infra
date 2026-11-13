@@ -66,7 +66,7 @@ describe('automatic storage deployment', () => {
   it('uses completed main CI and native production approval, connecting Apply to Plan', () => {
     const validation = parse(fs.readFileSync('.github/workflows/ci.yml', 'utf8')) as { name: string };
     expect(validation.name).toBe('validate');
-    expect(workflow.name).toBe('Plan and deploy S3 storage');
+    expect(workflow.name).toBe('plan and apply');
     expect(workflow.on.workflow_run).toEqual({ workflows: [validation.name], branches: ['main'], types: ['completed'] });
     expect(workflow.jobs.apply.needs).toBe('plan');
     expect(workflow.jobs.apply.environment).toBe('production');

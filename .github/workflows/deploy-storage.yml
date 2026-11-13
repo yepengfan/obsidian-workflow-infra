@@ -1,4 +1,4 @@
-name: Plan and deploy S3 storage
+name: plan and apply
 on:
   workflow_run:
     workflows: [validate]
