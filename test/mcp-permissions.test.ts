@@ -1,3 +1,4 @@
+import { MCP_POOL_ARN_EXPORT, mcpResources } from '../infra/mcp-resources.js';
 import fs from 'node:fs';
 import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
@@ -8,10 +9,10 @@ import { mcpDeploymentSchema } from '../infra/mcp-permissions.js';
 
 const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
 const config = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
-const settings = config.mcpRuntime!;
+const settings = mcpResources(storage, config.runtimeRoleName);
 type Statement = { Action: string | string[]; Resource: unknown; Effect: string; Condition?: Record<string, Record<string, unknown>> };
 function build(prefix = '') {
-  const stack = new GitHubTrustStack(new App(), 'Trust', storage, { ...config, mcpRuntime: { ...settings, notePrefix: prefix } });
+  const stack = new GitHubTrustStack(new App(), 'Trust', storage, config, { ...settings, notePrefix: prefix });
   const template = Template.fromStack(stack);
   const statements = (name: string): Statement[] => {
     const [id] = Object.entries(template.findResources('AWS::IAM::Role')).find(([, r]) => r.Properties.RoleName === name)!;
@@ -57,12 +58,22 @@ describe('MCP runtime permission boundary', () => {
       Condition: { StringEquals: { 's3:x-amz-server-side-encryption': 'AES256', 's3:if-none-match': '*' } } });
     expect(statements(config.planRoleName).flatMap(actions)).not.toContain('s3:PutObject');
   });
+  it('allows only Deploy to verify the named function configuration without downloading code', () => {
+    const { stack, statements } = build();
+    const lambda = statements(config.deployRoleName).filter(s => actions(s).some(a => a.startsWith('lambda:')));
+    expect(lambda).toEqual([{
+      Action: 'lambda:GetFunctionConfiguration',
+      Effect: 'Allow',
+      Resource: stack.resolve(`arn:${stack.partition}:lambda:${storage.region}:${storage.account}:function:${settings.functionName}`),
+    }]);
+    expect(statements(config.planRoleName).flatMap(actions).filter(a => a.startsWith('lambda:'))).toEqual([]);
+  });
   it('pins Cognito, constrains API ownership, and passes only the named Lambda role', () => {
-    const { stack, template, statements } = build();
+    const { template, statements } = build();
     const execution = statements(config.mcpExecutionRoleName);
     expect(execution.flatMap(actions)).not.toContain('cognito-idp:CreateUserPool');
     for (const s of execution.filter(s => actions(s).some(a => a.startsWith('cognito-idp:') && a !== 'cognito-idp:DescribeUserPoolDomain'))) {
-      expect(s.Resource).toEqual(stack.resolve(`arn:${stack.partition}:cognito-idp:${storage.region}:${storage.account}:userpool/${config.mcpUserPoolId}`));
+      expect(s.Resource).toEqual({ 'Fn::ImportValue': MCP_POOL_ARN_EXPORT });
     }
     const apiCreate = execution.find(s => s.Condition?.StringEquals?.['apigateway:Request/ApiName']);
     expect(apiCreate?.Condition?.StringEquals).toEqual({ 'aws:RequestTag/Project': 'obsidian-mcp', 'apigateway:Request/ApiName': settings.apiName });
@@ -83,7 +94,7 @@ describe('MCP runtime permission boundary', () => {
   it.each(['../', 'Notes/../', '/Notes/', 'Notes/*/', 'Notes/?/', 'Notes\\Folder/', 'Notes/\n/'])('rejects a nonliteral or escaping prefix %j', notePrefix => {
     expect(mcpDeploymentSchema.safeParse({ ...settings, notePrefix }).success).toBe(false);
   });
-  it('requires the deployed pool pin before adding runtime permissions', () => {
-    expect(githubSchema.safeParse({ ...config, mcpUserPoolId: undefined }).success).toBe(false);
+  it('keeps generated resource IDs out of GitHub configuration', () => {
+    expect(githubSchema.safeParse({ ...config, mcpUserPoolId: 'ap-southeast-2_Manual' }).success).toBe(false);
   });
 });

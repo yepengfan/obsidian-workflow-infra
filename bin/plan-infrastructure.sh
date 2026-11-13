@@ -90,6 +90,9 @@ for stack in ObsidianWorkflowStorage ObsidianMcp; do
     '.stacks += [{name:$name,operation:$operation,arn:$arn,hasChanges:$changed}]' infrastructure-plan.json > infrastructure-plan/next.json
   mv infrastructure-plan/next.json infrastructure-plan.json
   if [[ "$has_changes" == true ]]; then
+    if jq -e '.Changes | length == 0' "$plan" > /dev/null; then
+      echo "| ${stack} | ${operation} | Outputs/metadata update | | | |" >> "$GITHUB_STEP_SUMMARY"
+    fi
     jq -r --arg stack "$stack" --arg operation "$operation" '.Changes[].ResourceChange | "| \($stack) | \($operation) | \(.Action) | \(.LogicalResourceId) | \(.ResourceType) | \(.Replacement // "n/a") |"' "$plan" >> "$GITHUB_STEP_SUMMARY"
   else
     echo "| ${stack} | ${operation} | No changes | | | |" >> "$GITHUB_STEP_SUMMARY"

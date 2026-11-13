@@ -1,3 +1,4 @@
+import { mcpResources } from '../infra/mcp-resources.js';
 import fs from 'node:fs';
 import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
@@ -9,7 +10,7 @@ import { storageSchema } from '../infra/storage-config.js';
 
 const aws = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
 const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
-const deployment = github.mcpRuntime!;
+const deployment = mcpResources(aws, github.runtimeRoleName);
 const cognito = cognitoSchema.parse(JSON.parse(fs.readFileSync('config/cognito.json', 'utf8')));
 const code = { schemaVersion: 1 as const, sourceSha: 'local', sha256: 'a'.repeat(64), sha256Base64: 'a'.repeat(43) + '=', key: 'releases/' + 'a'.repeat(64) + '.zip', bytes: 100 };
 it.each([false, true])('synthesizes the protected runtime with callback enabled: %s', enabled => {
@@ -33,6 +34,7 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
     expect(resources.ChatGptClient.Properties.AllowedOAuthFlows).toBeUndefined();
   }
   expect(Object.keys(template.toJSON().Outputs)).not.toContain('ClientSecret');
+  expect(resources.McpStage.Properties.Tags).toEqual({ Project: 'obsidian-mcp' });
   expect(resources.McpApi.Properties.Tags).toEqual({ Project: 'obsidian-mcp' });
   expect(resources.ApiInvokePermission.Properties.Principal).toBe('apigateway.amazonaws.com');
   expect(resources.UserPool.Properties.AdminCreateUserConfig).toEqual({ AllowAdminCreateUserOnly: true });

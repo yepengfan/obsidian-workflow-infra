@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 const aws = JSON.parse(fs.readFileSync('config/storage.json', 'utf8'));
 const cognito = JSON.parse(fs.readFileSync('config/cognito.json', 'utf8'));
-const pool = JSON.parse(fs.readFileSync('config/github.json', 'utf8')).mcpUserPoolId ?? `${aws.region}_Example`;
+const pool = `${aws.region}_Example`;
 const issuer = `https://cognito-idp.${aws.region}.amazonaws.com/${pool}`;
 const domain = `https://${cognito.domainPrefix}.auth.${aws.region}.amazoncognito.com`;
 const metadata = {
@@ -22,13 +22,10 @@ describe('Cognito discovery command', () => {
     try {
       fs.mkdirSync(path.join(dir, 'config'));
       for (const file of ['storage.json', 'github.json', 'cognito.json']) fs.copyFileSync(`config/${file}`, path.join(dir, 'config', file));
-      if (mode === 'pinned mismatch') {
-        const file = path.join(dir, 'config/github.json');
-        fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), mcpUserPoolId: `${aws.region}_Different` }));
-      }
       const stack = { Stacks: [{ StackName: 'ObsidianMcp', StackStatus: 'CREATE_COMPLETE', Outputs: [
         { OutputKey: 'UserPoolId', OutputValue: pool },
         ...(mode.startsWith('MCP') ? [{ OutputKey: 'McpEndpoint', OutputValue: `https://example.execute-api.${aws.region}.amazonaws.com/mcp` }] : []),
+        { OutputKey: 'PermissionPoolArn', OutputValue: `arn:aws:cognito-idp:${aws.region}:${aws.account}:userpool/${mode === 'pinned mismatch' ? 'Other' : pool}` },
         { OutputKey: 'OAuthIssuer', OutputValue: mode === 'wrong output' ? 'https://other.example' : issuer },
         { OutputKey: 'ManagedLoginDomain', OutputValue: domain },
       ] }] };

@@ -9,13 +9,10 @@ Selected notes can be read in chunks without editing S3 objects.
 
 ## Review and deployment order
 
-1. Review the permission-foundation PR. `config/github.json` pins the existing
-   Cognito pool and defines the reserved runtime, function, API and code-bucket
-   names. `infra/mcp-permissions.ts` grants only the modeled capabilities.
-   Synthesize the complete app and review the foundation template diff.
-   Apply only a concrete, approved foundation change set through local SSO,
-   following [the foundation procedure](github-actions.md). This PR does not
-   create a Lambda, API, OAuth client, code bucket or note-reading endpoint.
+1. Review the permission-foundation PR and follow the
+   [foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
+   for resource identities, configuration ownership and prerequisite deployment order.
+   This stage creates no Lambda, API, OAuth client, code bucket or note endpoint.
 2. Review the code-storage PR and its native CI plan. Create the separate private
    code-artifact bucket before uploading any Lambda ZIP. Keep existing bucket
    identities and protections; never copy notes into deployment storage.
@@ -40,13 +37,16 @@ Implementation-plan approval does not authorize an AWS Apply.
   S3 IAM does not express caller-selected note batches; the handler must enforce
   that additional boundary, supported formats, cursor validity and total budgets.
 - The application CloudFormation role can pass only that named runtime role
-  to Lambda. Function management is restricted to the named function, logs to
+  to Lambda. Function management is restricted to the IaC-defined function, logs to
   its named group, and code reads/bucket configuration to the separate code
   bucket. It cannot edit IAM policies or read private note bodies.
-- Cognito configuration is pinned to the deployed, tagged user pool. Bootstrap
+- Cognito configuration imports the exact ARN of the deployed, tagged user pool. Bootstrap
   pool creation and the unowned-pool initial tagging grant are removed. Client,
   resource-server and managed-login-branding configuration is allowed only there;
-  user/password administration is not granted.
+  user/password administration is not granted. Pool operations require the
+  matching `Project` resource tag; tag removal is not granted. Explicit denies
+  prevent changing that tag or claiming a pool owned by another project.
+  Tagging the pinned, already-owned pool remains allowed under those guards.
 - HTTP API creation requires the configured API name and `Project=obsidian-mcp`.
   Management is limited to project-tagged API resources in the configured Region.
   API IDs are AWS-generated, so the initial API ARN pattern contains a wildcard;
@@ -57,6 +57,10 @@ Implementation-plan approval does not authorize an AWS Apply.
 - The production Deploy role can upload only `releases/*` in the code bucket,
   using AES256 and `If-None-Match: *`. Its code-read permission supports checksum
   verification and safe retries. Plan has no upload or note-body permission.
+  Deploy can also read `CodeSha256`, `State` and `LastUpdateStatus` through
+  `lambda:GetFunctionConfiguration` on only the configured function to verify
+  deployed code after Apply. Neither CI role receives `lambda:GetFunction`
+  code-download URLs, and Plan has no Lambda configuration-read permission.
   Neither CI role can update the IAM foundation or assume another role.
 - Metadata APIs without resource-level authorization retain explicit exceptions:
   CloudFormation summary/status reads and regional Cognito-domain/log-group
@@ -71,7 +75,7 @@ The new code bucket has no note-object deletion or replication permission.
 
 Run `npm ci`, `npm run check` and `npm run synth`. Tests inspect the synthesized
 IAM contracts, role separation, prefix/listing conditions, code-upload conditions
-and pinned identity. They do not prove live AWS handler permissions or an OAuth
+and the native exported identity binding. They do not prove live AWS handler permissions or an OAuth
 exchange. No AWS changes or private note-body reads are needed for these checks.
 
 After separately approved deployment, verify native resource creation, Cognito

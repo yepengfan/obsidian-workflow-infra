@@ -1,3 +1,5 @@
+import { mcpResources } from '../infra/mcp-resources.js';
+import { mcpDeploymentSchema } from '../infra/mcp-permissions.js';
 import { mcpAppSchema } from '../infra/mcp-runtime.js';
 import { buildRuntime } from './runtime-package.js';
 import fs from 'node:fs';
@@ -12,10 +14,10 @@ const aws = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json'
 const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
 const options = mcpAppSchema.parse(JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8')));
 const code = await buildRuntime(app.outdir, process.env.SOURCE_SHA ?? 'local');
-if (!github.mcpRuntime || github.mcpRuntime.notePrefix !== options.notePrefix) throw Error('Runtime and IAM prefix must match');
+const deployment = mcpDeploymentSchema.parse(mcpResources(aws, github.runtimeRoleName, options.notePrefix));
 new StorageStack(app, STORAGE_STACK_NAME, aws);
 new CognitoStack(app, 'ObsidianMcp', aws,
-  cognitoSchema.parse(JSON.parse(fs.readFileSync('config/cognito.json', 'utf8'))), github.mcpRuntime, { options, code, noteBucket: aws.buckets.vault.name });
+  cognitoSchema.parse(JSON.parse(fs.readFileSync('config/cognito.json', 'utf8'))), deployment, { options, code, noteBucket: aws.buckets.vault.name });
 // Included in the same reviewable assembly. CI cannot deploy its own IAM
 // foundation; permission updates still use the approved local SSO procedure.
-new GitHubTrustStack(app, 'ObsidianGitHubTrust', aws, github);
+new GitHubTrustStack(app, 'ObsidianGitHubTrust', aws, github, deployment);

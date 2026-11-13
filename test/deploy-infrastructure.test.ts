@@ -170,6 +170,12 @@ describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
     const result = execute(planScript, fixture);
     expect(result.status).not.toBe(0); expect(executions(result.calls)).toEqual([]);
   });
+  it('accepts a native output-only UPDATE while retaining artifact and source checks', () => {
+    const fixture = defaults(); fixture.cognito.plan.Changes = [];
+    const result = execute(applyScript, fixture);
+    expect(result.status, result.stderr).toBe(0);
+    expect(executions(result.calls)).toHaveLength(2);
+  });
   it('skips approval only when every native UPDATE is unchanged', () => {
     const fixture = defaults();
     fixture.cognito.stack = { Stacks: [{ StackStatus: 'UPDATE_COMPLETE' }] } as typeof fixture.cognito.stack;

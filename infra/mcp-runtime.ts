@@ -59,7 +59,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
     const route = new CfnRoute(scope, id!, { apiId: api.ref, routeKey: key!, authorizationType: 'NONE', target: `integrations/${integration.ref}` });
     route.overrideLogicalId(id!); return route;
   });
-  const stage = new CfnStage(scope, 'McpStage', { apiId: api.ref, stageName: '$default', autoDeploy: true, defaultRouteSettings: { throttlingBurstLimit: 5, throttlingRateLimit: 2 } });
+  const stage = new CfnStage(scope, 'McpStage', { apiId: api.ref, stageName: '$default', autoDeploy: true, tags: { Project: 'obsidian-mcp' }, defaultRouteSettings: { throttlingBurstLimit: 5, throttlingRateLimit: 2 } });
   stage.overrideLogicalId('McpStage'); routes.forEach(route => stage.addDependency(route));
   const permission = new CfnPermission(scope, 'ApiInvokePermission', { action: 'lambda:InvokeFunction', functionName: runtime.ref,
     principal: 'apigateway.amazonaws.com', sourceAccount: stack.account, sourceArn: `arn:${stack.partition}:execute-api:${stack.region}:${stack.account}:${api.ref}/*/*` });

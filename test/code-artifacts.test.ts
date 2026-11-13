@@ -1,3 +1,4 @@
+import { mcpResources } from '../infra/mcp-resources.js';
 import fs from 'node:fs';
 import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
@@ -12,7 +13,7 @@ const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json
 
 describe('private Lambda code-artifact storage', () => {
   it('adds only one private retained/versioned code bucket and its HTTPS-only policy', () => {
-    const stack = new CognitoStack(new App(), 'ObsidianMcp', aws, cognito, github.mcpRuntime);
+    const stack = new CognitoStack(new App(), 'ObsidianMcp', aws, cognito, mcpResources(aws, github.runtimeRoleName));
     const t = Template.fromStack(stack);
     t.resourceCountIs('AWS::S3::Bucket', 1);
     t.resourceCountIs('AWS::S3::BucketPolicy', 1);
@@ -21,7 +22,7 @@ describe('private Lambda code-artifact storage', () => {
     t.resourceCountIs('AWS::Cognito::UserPoolClient', 0);
     const bucket = t.toJSON().Resources.CodeArtifacts;
     expect(bucket).toMatchObject({ Type: 'AWS::S3::Bucket', DeletionPolicy: 'Retain', UpdateReplacePolicy: 'Retain', Properties: {
-      BucketName: github.mcpRuntime!.codeBucketName,
+      BucketName: mcpResources(aws, github.runtimeRoleName)!.codeBucketName,
       VersioningConfiguration: { Status: 'Enabled' },
       OwnershipControls: { Rules: [{ ObjectOwnership: 'BucketOwnerEnforced' }] },
       PublicAccessBlockConfiguration: { BlockPublicAcls: true, IgnorePublicAcls: true, BlockPublicPolicy: true, RestrictPublicBuckets: true },
@@ -38,7 +39,7 @@ describe('private Lambda code-artifact storage', () => {
   });
   it('preserves the native identity resources and original discovery outputs', () => {
     const before = Template.fromStack(new CognitoStack(new App(), 'ObsidianMcp', aws, cognito)).toJSON();
-    const after = Template.fromStack(new CognitoStack(new App(), 'ObsidianMcp', aws, cognito, github.mcpRuntime)).toJSON();
+    const after = Template.fromStack(new CognitoStack(new App(), 'ObsidianMcp', aws, cognito, mcpResources(aws, github.runtimeRoleName))).toJSON();
     for (const id of ['UserPool', 'UserPoolDomain']) expect(after.Resources[id]).toEqual(before.Resources[id]);
     for (const key of Object.keys(before.Outputs)) expect(after.Outputs[key]).toEqual(before.Outputs[key]);
     expect(after.Outputs.CodeArtifactBucketName.Value).toEqual({ Ref: 'CodeArtifacts' });
