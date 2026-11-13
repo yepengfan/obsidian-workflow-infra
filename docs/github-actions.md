@@ -2,7 +2,7 @@
 
 The repository uses two workflows. `validate` checks pull requests
 and main without AWS credentials. After a successful validation **push on main**,
-`Plan and deploy S3 storage`
+`plan and apply`
 automatically plans the exact verified commit, waits for the owner's native
 GitHub environment approval, then applies that same CloudFormation change set.
 There is no routine Run workflow action, operation input, ARN copy, or second
