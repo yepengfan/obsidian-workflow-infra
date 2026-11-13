@@ -32,12 +32,20 @@ export class StorageStack extends Stack {
         ...(settings.versioning === 'unversioned' ? {} : {
           versioningConfiguration: { status: settings.versioning === 'enabled' ? 'Enabled' : 'Suspended' },
         }),
+        ...(settings.noncurrentVersionRetentionDays === undefined ? {} : {
+          lifecycleConfiguration: { rules: [{
+            id: 'ExpireNoncurrentVersionsAfter90Days',
+            status: 'Enabled',
+            prefix: '',
+            noncurrentVersionExpiration: { noncurrentDays: settings.noncurrentVersionRetentionDays },
+          }] },
+        }),
       });
       // These IDs are part of the import mapping. Keep them stable after import.
       bucket.overrideLogicalId(logicalId);
       bucket.applyRemovalPolicy(RemovalPolicy.RETAIN, { applyToUpdateReplacePolicy: true });
     }
-    // Baseline deliberately has no BucketPolicy, Lifecycle, CORS, IAM or object
-    // operations. Add reviewed improvements only after successful import.
+    // Only noncurrent versions expire, including noncurrent delete markers.
+    // Current versions have no expiration action or expired-marker cleanup.
   }
 }
