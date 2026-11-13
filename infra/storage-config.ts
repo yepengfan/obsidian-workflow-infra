@@ -10,6 +10,7 @@ const bucketSchema = z.object({
   name: bucketName,
   // Unversioned means omit VersioningConfiguration, not set it to Suspended.
   versioning: z.enum(['unversioned', 'enabled', 'suspended']),
+  noncurrentVersionRetentionDays: z.literal(90).optional(),
   encryption: z.object({
     algorithm: z.literal('AES256'),
     bucketKeyEnabled: z.boolean(),
@@ -20,7 +21,8 @@ const bucketSchema = z.object({
     blockPublicPolicy: z.literal(true), restrictPublicBuckets: z.literal(true),
   }).strict(),
   objectOwnership: z.literal('BucketOwnerEnforced'),
-}).strict();
+}).strict().refine(settings => settings.noncurrentVersionRetentionDays === undefined || settings.versioning === 'enabled',
+  'Noncurrent-version retention requires enabled versioning');
 
 export const storageSchema = z.object({
   account: z.string().regex(/^\d{12}$/u),

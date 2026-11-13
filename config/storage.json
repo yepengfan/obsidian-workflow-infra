@@ -5,6 +5,7 @@
     "vault": {
       "name": "obsidian-vault-sync-391824190072",
       "versioning": "enabled",
+      "noncurrentVersionRetentionDays": 90,
       "encryption": {
         "algorithm": "AES256",
         "bucketKeyEnabled": true,
@@ -22,7 +23,8 @@
     },
     "library": {
       "name": "obsidian-ebook-library-391824190072",
-      "versioning": "unversioned",
+      "versioning": "enabled",
+      "noncurrentVersionRetentionDays": 90,
       "encryption": {
         "algorithm": "AES256",
         "bucketKeyEnabled": false,

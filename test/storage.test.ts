@@ -8,8 +8,8 @@ import { StorageStack } from '../infra/storage-stack.js';
 const baseline = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
 const synth = (config = baseline) => Template.fromStack(new StorageStack(new App(), 'Test', config)).toJSON();
 
-describe('existing storage import baseline', () => {
-  it('models both original buckets without creating policies or cleanup machinery', () => {
+describe('managed storage retention', () => {
+  it('retains both original buckets and expires only noncurrent versions after 90 days', () => {
     const template = synth();
     expect(Object.keys(template.Resources).sort()).toEqual(['Library', 'Vault']);
     for (const [id, settings] of [['Vault', baseline.buckets.vault], ['Library', baseline.buckets.library]] as const) {
@@ -23,7 +23,11 @@ describe('existing storage import baseline', () => {
           }] },
           PublicAccessBlockConfiguration: { BlockPublicAcls: true, IgnorePublicAcls: true, BlockPublicPolicy: true, RestrictPublicBuckets: true },
           OwnershipControls: { Rules: [{ ObjectOwnership: 'BucketOwnerEnforced' }] },
-          ...(id === 'Vault' ? { VersioningConfiguration: { Status: 'Enabled' } } : {}),
+          VersioningConfiguration: { Status: 'Enabled' },
+          LifecycleConfiguration: { Rules: [{
+            Id: 'ExpireNoncurrentVersionsAfter90Days', Status: 'Enabled', Prefix: '',
+            NoncurrentVersionExpiration: { NoncurrentDays: 90 },
+          }] },
         },
       });
     }
@@ -43,19 +47,47 @@ describe('existing storage import baseline', () => {
     }
   });
 
-  it('supports a later versioning change on the same physical bucket and logical ID', () => {
+  it('preserves physical and logical IDs when updating the imported baseline', () => {
     const config = structuredClone(baseline);
-    config.buckets.library.versioning = 'enabled';
-    const before = synth();
-    const after = synth(config);
+    delete config.buckets.vault.noncurrentVersionRetentionDays;
+    delete config.buckets.library.noncurrentVersionRetentionDays;
+    config.buckets.library.versioning = 'unversioned';
+    const before = synth(config);
+    const after = synth();
     expect(Object.keys(after.Resources)).toEqual(Object.keys(before.Resources));
     expect(after.Resources.Library.Properties.BucketName).toBe(before.Resources.Library.Properties.BucketName);
     expect(after.Resources.Library.Properties.VersioningConfiguration).toEqual({ Status: 'Enabled' });
     delete after.Resources.Library.Properties.VersioningConfiguration;
+    delete after.Resources.Library.Properties.LifecycleConfiguration;
+    delete after.Resources.Vault.Properties.LifecycleConfiguration;
     expect(after).toEqual(before);
   });
 
-  it('rejects unknown cleanup settings and unsafe public access in the import baseline', () => {
+  it.each([0, 1, 89, 91, 90.5, '90'])('rejects retention outside the selected 90-day policy: %s', days => {
+    expect(() => storageSchema.parse({ ...baseline, buckets: {
+      ...baseline.buckets, vault: { ...baseline.buckets.vault, noncurrentVersionRetentionDays: days },
+    } })).toThrow();
+  });
+
+  it.each(['unversioned', 'suspended'])('rejects active retention without enabled versioning: %s', versioning => {
+    expect(() => storageSchema.parse({ ...baseline, buckets: {
+      ...baseline.buckets, library: { ...baseline.buckets.library, versioning },
+    } })).toThrow();
+  });
+
+  it('allows lifecycle to be removed without changing versioning or other settings', () => {
+    const config = structuredClone(baseline);
+    for (const settings of Object.values(config.buckets)) delete settings.noncurrentVersionRetentionDays;
+    const withoutLifecycle = synth(storageSchema.parse(config));
+    const withLifecycle = synth();
+    for (const id of ['Vault', 'Library']) {
+      expect(withoutLifecycle.Resources[id].Properties.LifecycleConfiguration).toBeUndefined();
+      delete withLifecycle.Resources[id].Properties.LifecycleConfiguration;
+    }
+    expect(withoutLifecycle).toEqual(withLifecycle);
+  });
+
+  it('rejects unknown cleanup settings and unsafe public access', () => {
     const config = structuredClone(baseline);
     expect(() => storageSchema.parse({ ...config, lifecycle: { days: 1 } })).toThrow();
     expect(() => storageSchema.parse({ ...config, buckets: {

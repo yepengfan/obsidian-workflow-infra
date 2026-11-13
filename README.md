@@ -5,21 +5,22 @@ Native CloudFormation resource import binds these definitions to the existing
 buckets. Existing objects, version history, bucket names and Obsidian sync paths
 stay in place. Notes and credentials never belong in this repository.
 
-This repository defines the import baseline, scoped permission foundation and
-automatic GitHub Actions Plan/Apply workflow. Applying cloud changes requires
-separate review and approval; no object copy or cleanup is part of the baseline.
+This repository defines the managed storage configuration, scoped permission
+foundation and automatic GitHub Actions Plan/Apply workflow. Applying cloud
+changes requires separate review and approval; no object copy or cleanup was
+part of the initial import baseline.
 
 ## Resource definitions
 
 - `infra/storage-stack.ts` declares two managed `AWS::S3::Bucket` resources.
   These are not `fromBucketName` references.
 - `config/storage.json` contains the visible, editable account, region, names,
-  encryption, public-access, ownership and versioning settings.
+  encryption, public-access, ownership, versioning and retention settings.
 - `config/import-resources.json` maps the stable logical IDs `Vault` and
   `Library` to the original physical bucket names. It is the native
   CloudFormation `--resources-to-import` format, not CDK's mapping format.
 
-The baseline matches the read-only audit on 2026-11-13:
+The initial import baseline matched the read-only audit on 2026-11-13:
 
 | Resource | Existing bucket | Versioning | Encryption |
 | --- | --- | --- | --- |
@@ -27,7 +28,7 @@ The baseline matches the read-only audit on 2026-11-13:
 | Library | `obsidian-ebook-library-391824190072` | Never enabled | AES256, SSE-C blocked, BucketKeyEnabled false |
 
 Both have all four public-access blocks enabled and BucketOwnerEnforced
-ownership. Neither has a bucket policy, CORS, lifecycle rules, replication,
+ownership. At import, neither had a bucket policy, CORS, lifecycle rules, replication,
 notifications, access logging, website hosting or Object Lock configured.
 The observed BucketKeyEnabled values are preserved; Bucket Keys apply to
 SSE-KMS, and these buckets currently use AES256.
@@ -51,8 +52,9 @@ npm run synth
 
 These commands validate types, lint, test the synthesized resource semantics,
 and produce `cdk.out/ObsidianWorkflowStorage.template.json`. They do not deploy.
-The tests also demonstrate that changing Library versioning produces an update
-to the same logical and physical resource definitions.
+The tests cover enabling Library versioning, expiring only noncurrent versions,
+rejecting unsupported retention settings, removing lifecycle without changing
+versioning, and preserving the original logical/physical resource definitions.
 
 Do not hand-edit synthesized files. Edit TypeScript/configuration and synthesize
 again. Review [the import procedure](docs/github-actions.md) before any AWS write.
@@ -69,15 +71,15 @@ boundaries and the required local SSO update procedure.
 
 ## Changes after import
 
-After import succeeds and drift is checked, modify the same managed definitions
-through a reviewed PR and the Actions deployment workflow. For example,
-`buckets.library.versioning` can change from `unversioned` to `enabled`.
+The desired configuration now enables Library versioning and requests 90-day
+noncurrent-version retention on both original buckets. These settings take
+effect only after the separate IAM permission update and approved storage Apply.
+Current files have no expiry action. Read the [activation, impact review and
+verification procedure](docs/retention.md) before approving the change.
 Bucket names and Region cannot change in place. Keep logical IDs stable.
 
-Import is a separate operation from improvements. The baseline deliberately
-does not enable HTTPS policies, library versioning, lifecycle expiry or IAM
-changes. See [the post-import plan](docs/post-import-plan.md) for the selected
-retention policy and required historical-impact review before activation.
+Import was a separate operation from these improvements. No HTTPS bucket policy
+or replication is introduced.
 
 ## GitHub identity
 

@@ -133,7 +133,7 @@ directly read/write/delete object bodies or versions, create/delete buckets,
 manage IAM, or change bucket policies. Lifecycle permission is limited to the
 same two bucket ARNs, but can indirectly cause permanent historical-version
 deletion by S3. IAM does not constrain lifecycle rules to the
-[selected retention policy](post-import-plan.md); the separate resource update
+[selected retention policy](retention.md); the separate resource update
 must encode that policy in the bucket template. No lifecycle rule is enabled by
 the IAM-only permission update. Read actions follow the Sydney CloudFormation
 registry schema checked on 2026-11-13, excluding its unrecognized
@@ -252,7 +252,7 @@ create canary notes or activate sync as an implicit test.
 
 Keep bucket names, Region and logical IDs stable. Later configuration changes use
 reviewed PRs and the same automatic Plan / approved Apply flow. See
-[the post-import plan](post-import-plan.md) for the selected, not-yet-enabled
+[the retention procedure](retention.md) for the selected, not-yet-enabled
 historical retention policy and its separate impact review.
 
 References: [IAM role names and replacement](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-role.html#cfn-iam-role-rolename),
