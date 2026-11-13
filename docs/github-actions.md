@@ -20,8 +20,9 @@ Download `cloudformation-review` for the full templates and diff files.
 Artifacts are retained for seven days.
 
 This is an **offline first-adoption preview**, not a live AWS plan or a diff
-against the PR's base commit. Added bucket definitions mean definitions to
-import, not permission to create replacement buckets. CI has only Contents read,
+against the PR's base commit. The original note-bucket definitions are for
+import, never replacement. The separate [code-storage stage](mcp-rollout.md#code-storage-stage) creates new
+deployment storage only after approval. CI has only Contents read,
 no AWS OIDC permission and no App private key. Type checking, lint, tests,
 actionlint and dependency audit remain in Verify; see README for the known
 moderate CDK-bundled dependency findings.
@@ -40,7 +41,7 @@ policy attached.
 
 The deployment workflow handles the infrastructure as one unit: one CDK app,
 one synthesis, one combined Plan, and one native production approval/Apply.
-`bin/infrastructure.ts` synthesizes storage, the Cognito probe and the IAM
+`bin/infrastructure.ts` synthesizes storage, the MCP business stack and the IAM
 foundation into `cdk.out`. Native stack IDs and scoped CloudFormation service
 roles remain stable, so no existing resources need to move between stacks.
 The foundation is part of the shared review preview; its permissions remain
@@ -214,8 +215,9 @@ repository/environment subjects and `sts.amazonaws.com` audience. PlanRole can
 create an unexecuted storage change set and pass its dedicated execution role.
 Separate statements permit `ObsidianMcp` change sets with the dedicated MCP
 role and the [reviewed application scope](mcp-rollout.md#permission-scope).
-The current shared Plan/Apply scripts still accept only the Cognito probe
-resources; expanding IAM does not expand those script checks or deploy resources.
+The current shared Plan/Apply resource boundary is documented in the
+[code-storage stage](mcp-rollout.md#code-storage-stage); expanding IAM alone
+does not expand those script checks or deploy resources.
 The storage execution role and its resource checks remain unchanged.
 DeployRole can execute reviewed change sets but cannot create substitute plans
 or pass roles. Neither GitHub role has direct GetObject, PutObject or DeleteObject
@@ -239,8 +241,9 @@ entire CDK app once, then runs `bin/plan-infrastructure.sh`:
    placeholder; stable storage must match the original two bucket physical IDs.
    Cognito stops on that same absence/placeholder condition; never silently
    recreate retained identity resources. A future new-account bootstrap requires
-   separately reviewed authorization. Stable Cognito must contain exactly the
-   expected pool/domain logical IDs and resource types.
+   separately reviewed authorization. Stable Cognito must contain the expected
+   pool/domain logical IDs and resource types, allowing only the additional
+   [code-storage bindings](mcp-rollout.md#code-storage-stage).
    Other errors and unsupported states fail the entire Plan.
 2. Prepare native source-bound change sets for both stacks using their dedicated
    service roles and reviewed resource-type scopes. The IAM foundation is never
@@ -266,9 +269,10 @@ Region and exact deployment stack set. It inspects **every changed native plan
 before executing any**. Each must be available, bound to the expected stack and
 source, and pass its existing resource checks: storage IMPORT is exactly Vault /
 Library; storage UPDATE permits original bucket modifications or reviewed later
-BucketPolicy changes; Cognito accepts only UPDATE and only modifies its existing
-pool/domain. An UPDATE with no resource actions is allowed for native
-metadata/output changes. Removals and replacements are rejected.
+BucketPolicy changes. MCP accepts only UPDATE and follows the
+[code-storage contract](mcp-rollout.md#code-storage-stage). An UPDATE with no
+resource actions is allowed for native metadata/output changes. Removals and
+replacements are rejected.
 
 Apply rechecks live main immediately before each execution, enables termination
 protection, executes the exact approved ARN and waits for the correct import

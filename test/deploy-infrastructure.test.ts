@@ -3,6 +3,11 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
+import { App } from 'aws-cdk-lib';
+import { Template } from 'aws-cdk-lib/assertions';
+import { CognitoStack, cognitoSchema } from '../infra/cognito-stack.js';
+import { mcpResources } from '../infra/mcp-resources.js';
+import { githubSchema } from '../infra/github-stack.js';
 
 type Step = { name?: string; run?: string; uses?: string; with?: Record<string, unknown> };
 type Job = { needs?: string; if?: string; environment: string; permissions: Record<string, string>; steps: Step[] };
@@ -11,6 +16,9 @@ const workflow = parse(fs.readFileSync('.github/workflows/plan-and-apply.yml', '
 };
 const source = 'a'.repeat(40), account = '391824190072', region = 'ap-southeast-2';
 const storage = 'ObsidianWorkflowStorage', cognito = 'ObsidianMcp';
+const deployment = mcpResources({ account, region }, githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8'))).runtimeRoleName);
+const nativeTemplate = Template.fromStack(new CognitoStack(new App(), cognito, { account, region },
+  cognitoSchema.parse(JSON.parse(fs.readFileSync('config/cognito.json', 'utf8'))), deployment)).toJSON();
 const arn = (stack: string, operation: string) => `arn:aws:cloudformation:${region}:${account}:changeSet/${stack === storage ? 'obsidian-storage' : 'obsidian-mcp'}-${operation}-456-1/example`;
 const resources = {
   storage: JSON.parse(fs.readFileSync('config/import-resources.json', 'utf8')).map((r: { LogicalResourceId: string; ResourceType: string; ResourceIdentifier: { BucketName: string } }) => ({ LogicalResourceId: r.LogicalResourceId, ResourceType: r.ResourceType, PhysicalResourceId: r.ResourceIdentifier.BucketName })),
@@ -40,7 +48,18 @@ function execute(script: string, fixture: Record<string, unknown> = {}, plan = m
   try {
     fs.mkdirSync(path.join(dir, 'config'));
     for (const file of ['storage.json', 'github.json', 'import-resources.json']) fs.copyFileSync(`config/${file}`, path.join(dir, 'config', file));
-    fs.writeFileSync(path.join(dir, 'fixture.json'), JSON.stringify({ ...defaults(), ...fixture }));
+    fs.mkdirSync(path.join(dir, 'infra'));
+    fs.copyFileSync('infra/mcp-resources.ts', path.join(dir, 'infra', 'mcp-resources.ts'));
+    fs.mkdirSync(path.join(dir, 'cdk.out'));
+    const template = structuredClone(nativeTemplate);
+    if (fixture.artifactConfig === false) {
+      delete template.Resources.CodeArtifacts;
+      delete template.Resources.CodeArtifactsPolicy;
+    }
+    fs.writeFileSync(path.join(dir, 'cdk.out', 'ObsidianMcp.template.json'), JSON.stringify(template));
+    if (fixture.wrongCodeBucket) template.Resources.CodeArtifacts.Properties.BucketName = 'other-code-bucket';
+    if (fixture.wrongCodePolicy) template.Resources.CodeArtifactsPolicy.Properties.Bucket = { Ref: 'Vault' };
+    fs.writeFileSync(path.join(dir, 'fixture.json'), JSON.stringify({ ...defaults(), ...fixture, template }));
     fs.writeFileSync(path.join(dir, 'infrastructure-plan.json'), JSON.stringify(plan));
     for (const tool of ['aws', 'gh', 'git', 'npm', 'sleep']) fs.writeFileSync(path.join(dir, tool), `#!/usr/bin/env node
 import fs from 'node:fs';
@@ -70,6 +89,7 @@ switch(args[1]) {
   case 'describe-stack-resources':respond(item.resources);break;
   case 'create-change-set':console.log('arn:aws:cloudformation:ap-southeast-2:391824190072:changeSet/'+value('--change-set-name')+'/example');break;
   case 'describe-change-set':respond(item.plan);break;
+  case 'get-template':respond(fixture.templateAsString ? JSON.stringify(fixture.template) : fixture.template);break;
   case 'wait':process.exit(args[2]==='change-set-create-complete'?(item.waitExit??0):(item.applyWaitExit??0));break;
   case 'execute-change-set':case 'update-termination-protection':break;
   case 'detect-stack-drift':console.log('drift-id');break;
@@ -209,6 +229,39 @@ describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
     if (kind === 'IAM stack') plan.stacks[1]!.name = 'ObsidianGitHubTrust';
     if (kind === 'wrong ARN') plan.stacks[1]!.arn = arn(cognito, 'create').replace(account, '111122223333');
     const result = execute(applyScript, {}, plan); expect(result.status).not.toBe(0); expect(executions(result.calls)).toEqual([]);
+  });
+  it.each([false, true])('can add the approved code bucket and policy with a native template (string: %s)', templateAsString => {
+    const fixture = defaults();
+    fixture.cognito.stack = { Stacks: [{ StackStatus: 'UPDATE_COMPLETE', EnableTerminationProtection: true }] };
+    fixture.cognito.plan = nativePlan(cognito, 'update');
+    for (const [LogicalResourceId, ResourceType] of [['CodeArtifacts', 'AWS::S3::Bucket'], ['CodeArtifactsPolicy', 'AWS::S3::BucketPolicy']]) {
+      fixture.cognito.plan.Changes.push({ ResourceChange: { Action: 'Add', LogicalResourceId: LogicalResourceId!, ResourceType: ResourceType!, Replacement: 'False' } });
+    }
+    const plan = manifest(); plan.stacks[1]!.operation = 'update'; plan.stacks[1]!.arn = arn(cognito, 'update');
+    const result = execute(applyScript, { ...fixture, artifactConfig: true, templateAsString }, plan);
+    expect(result.status, result.stderr).toBe(0);
+    expect(executions(result.calls)).toHaveLength(2);
+    expect(result.calls.find(c => c.args[1] === 'get-template')!.args).toEqual(['cloudformation', 'get-template', '--change-set-name', arn(cognito, 'update'), '--query', 'TemplateBody', '--output', 'json']);
+  });
+  it.each(['unconfigured', 'wrong binding', 'wrong policy', 'other bucket', 'removal'])('refuses an unreviewed code-storage change: %s', mode => {
+    const fixture = defaults(); fixture.cognito.plan = nativePlan(cognito, 'update');
+    fixture.cognito.plan.Changes.push({ ResourceChange: { Action: mode === 'removal' ? 'Remove' : 'Add', LogicalResourceId: mode === 'other bucket' ? 'OtherBucket' : 'CodeArtifacts', ResourceType: 'AWS::S3::Bucket', Replacement: 'False' } });
+    const plan = manifest(); plan.stacks[1]!.operation = 'update'; plan.stacks[1]!.arn = arn(cognito, 'update');
+    const result = execute(applyScript, { ...fixture, artifactConfig: mode !== 'unconfigured', wrongCodeBucket: mode === 'wrong binding', wrongCodePolicy: mode === 'wrong policy' }, plan);
+    expect(result.status).not.toBe(0); expect(executions(result.calls)).toEqual([]);
+  });
+  it.each([false, true])('validates existing code bucket identity before planning (wrong: %s)', wrong => {
+    const fixture = defaults(); fixture.cognito.stack = { Stacks: [{ StackStatus: 'UPDATE_COMPLETE' }] };
+    const configured = nativeTemplate.Resources.CodeArtifacts.Properties.BucketName;
+    fixture.cognito.resources.StackResources.push({ LogicalResourceId: 'CodeArtifacts', ResourceType: 'AWS::S3::Bucket', PhysicalResourceId: wrong ? 'other-code-bucket' : configured });
+    const result = execute(planScript, { ...fixture, artifactConfig: true });
+    expect(result.status === 0, result.stderr).toBe(!wrong);
+    expect(executions(result.calls)).toEqual([]);
+  });
+  it('refuses CREATE for the managed identity stack before any execution', () => {
+    const plan = manifest(); plan.stacks[1]!.operation = 'create'; plan.stacks[1]!.arn = arn(cognito, 'create');
+    const result = execute(applyScript, {}, plan);
+    expect(result.status).not.toBe(0); expect(executions(result.calls)).toEqual([]);
   });
   it('executes only changed stacks from the full plan', () => {
     const plan = manifest(); plan.stacks[0]!.hasChanges = false;
