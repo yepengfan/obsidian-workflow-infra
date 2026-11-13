@@ -73,11 +73,8 @@ boundaries and the required local SSO update procedure.
 
 ## Changes after import
 
-The desired configuration now enables Library versioning and requests 90-day
-noncurrent-version retention on both original buckets. These settings take
-effect only after the separate IAM permission update and approved storage Apply.
-Current files have no expiry action. Read the [activation, impact review and
-verification procedure](docs/retention.md) before approving the change.
+See the [retention procedure](docs/retention.md) for the deployed policy,
+initial activation safeguards, impact review and verification limits.
 Bucket names and Region cannot change in place. Keep logical IDs stable.
 
 Import was a separate operation from these improvements. No HTTPS bucket policy

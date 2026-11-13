@@ -49,14 +49,9 @@ types, and match the pinned pool ID when one is configured. Other failures and
 in-progress/failed stack states stop the workflow. A pinned pool with an absent
 stack never defaults to creating a replacement.
 
-No AWS Repository variables, static keys, standard CDK bootstrap or IAM update
-capability are added. The existing fixed Plan/Deploy role configuration and
-GitHub OIDC environments are reused. The shared `apply` job validates every changed plan's
-account, Region, stack, source binding, available status and resource actions.
-CREATE must add exactly `UserPool` and `UserPoolDomain`; UPDATE allows only
-modification of those resources, with no replacements or removals. It rechecks
-live main immediately before execution, enables termination protection,
-executes the same ARN without resynthesis, and waits for the correct operation.
+See the [infrastructure deployment procedure](github-actions.md#automatic-deployment-run)
+for the shared Plan/Apply identity, source and resource-action guards, native
+approval, exact-ARN execution and completion checks.
 
 The shared pipeline coordinates the existing native stacks without moving
 resources or broadening IAM. It is not an atomic transaction across stacks;
@@ -87,14 +82,15 @@ separately approved resource deployment.
 
 After successful Apply, the workflow reads the stack's non-secret outputs and
 runs `npm run check:cognito -- infrastructure-apply/ObsidianMcp.stack.json`. It uses at most six attempts
-with ten-second gaps for propagation. Each attempt tries standard OAuth
+with ten-second gaps for propagation when Cognito changed; otherwise it makes
+one attempt. Each attempt tries standard OAuth
 authorization-server metadata, falling back to OIDC discovery if needed, with
-five-second request timeouts, no redirects and a 64 KiB response limit. It requires the expected
+five-second timeouts per HTTP request, no redirects and a 64 KiB limit per response.
+The fallback can make a second request within an attempt. It requires the expected
 issuer/JWKS, exact AWS-domain authorize/token endpoints, authorization-code
 support, `S256` and supported confidential-client authentication. It never
 registers a client or requests tokens, and errors omit remote bodies.
-When the entire infrastructure is unchanged, Plan runs discovery once. After
-Apply, propagation retries are used only if Cognito changed.
+When the entire infrastructure is unchanged, Plan runs discovery once.
 
 To repeat the check locally after an approved deployment:
 

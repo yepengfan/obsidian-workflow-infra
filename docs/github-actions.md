@@ -111,6 +111,9 @@ administrator-role proposal.
 
 ### Migrate the existing automatically named CI roles
 
+This procedure applies only to installations still using generated CI role
+names. The current foundation already uses the configured stable names.
+
 The first foundation deployment created PlanRole and DeployRole with generated
 names. Adopting the configured stable names replaces **those two IAM roles**.
 Their policy attachments follow the replacements. The storage execution role,
@@ -118,8 +121,8 @@ OIDC provider, permission documents and existing S3 resources do not need change
 Review the actual foundation diff before applying this migration. Avoid an
 active Plan or Apply run during role replacement.
 
-After this PR is reviewed and merged, synthesize the exact merged revision and
-follow the local SSO foundation UPDATE procedure above, including inspection,
+After the role-name migration PR is reviewed and merged, synthesize the exact
+merged revision and follow the local SSO foundation UPDATE procedure above, including inspection,
 user confirmation, execution and the completion waiter. Verify that PlanRoleArn / DeployRoleArn use
 the configured names and that execution permissions have not broadened.
 
@@ -194,8 +197,8 @@ not a substitute for the native environment approval itself.
 repository/environment subjects and `sts.amazonaws.com` audience. PlanRole can
 create an unexecuted storage change set and pass its dedicated execution role.
 Separate statements permit an `ObsidianMcp` Cognito-only change set with the
-dedicated MCP role; the Cognito jobs use that grant without changing the storage
-execution role or its resource checks.
+dedicated MCP role; the shared Plan/Apply jobs use that grant without changing
+the storage execution role or its resource checks.
 DeployRole can execute reviewed change sets but cannot create substitute plans
 or pass roles. Neither GitHub role has direct GetObject, PutObject or DeleteObject
 permissions on the note buckets.
@@ -275,8 +278,8 @@ create canary notes or activate sync as an implicit test.
 
 Keep bucket names, Region and logical IDs stable. Later configuration changes use
 reviewed PRs and the same automatic Plan / approved Apply flow. See
-[the retention procedure](retention.md) for the selected, not-yet-enabled
-historical retention policy and its separate impact review.
+[the retention procedure](retention.md) for policy status, historical-version
+impact review and verification limits.
 
 References: [IAM role names and replacement](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-role.html#cfn-iam-role-rolename),
 [CloudFormation service roles](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/using-iam-servicerole.html),
