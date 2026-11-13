@@ -33,14 +33,50 @@ can have a different PATH from an interactive terminal. The adapter adds the
 directory containing its current Node executable for `gh-axi`'s shebang; it does
 not guess a Homebrew or other GitHub CLI installation directory.
 
+### Persistent Automic authorization
+
+For unattended GitHub operations, use environment-mode injection with an exact
+Direct Secret Access rule. In Automic Vault, open Secrets, select the dedicated
+App key, choose Allow Verified Launcher, and review the actual agent executable
+shown as the Verified Launcher in its requests. For Codex, select that signed
+`codex` executable, not the Node interpreter or a shell. Approve the policy change
+once. Other launchers retain their existing policy.
+
+Direct Access is broad: that Launcher can apply the selected App key to any
+Target and arguments through direct injection. It is not restricted to this
+adapter or its repository configuration. The adapter still verifies App identity,
+issues a token for exactly one repository and revokes it after the command.
+These adapter controls do not narrow the underlying Direct Access grant.
+
+```sh
+av inject --mode=env +GITHUB_APP_YOUR_APP_PRIVATE_KEY -- \
+  /absolute/path/to/node bin/github-app-session.ts \
+  --key-env GITHUB_APP_YOUR_APP_PRIVATE_KEY \
+  /absolute/path/to/non-secret-config.json --check
+```
+
+Use this route for pushes, PR creation and replies once its matching rule has
+been reviewed and a real `--check` succeeds without prompting. The adapter
+removes the selected environment variable before any subprocess starts; the
+child receives only the repository-scoped installation token. Environment
+delivery exposes the raw key to the adapter process, so it is a deliberate
+custody choice. A missing or empty selected key fails closed without falling
+back to FD input or personal credentials. AV may still require review if live
+identity, runtime protections or other policy checks fail.
+
+Local commits do not need the App key or an installation token. Use the already
+verified bot Author and Committer through process-local Git settings. Keep
+personal Git configuration unchanged and batch related authenticated GitHub
+operations within one App session.
+
+### Per-invocation human approval
+
+Keep FD delivery when a fresh human decision is desired for every session:
+
 ```sh
 av inject --mode=fd +YOUR_APP_KEY_SECRET:3 -- \
   /absolute/path/to/node bin/github-app-session.ts \
   /absolute/path/to/non-secret-config.json --check
-
-av inject --mode=fd +YOUR_APP_KEY_SECRET:3 -- \
-  /absolute/path/to/node bin/github-app-session.ts \
-  /absolute/path/to/non-secret-config.json -- git commit -m 'Describe the change'
 
 av inject --mode=fd +YOUR_APP_KEY_SECRET:3 -- \
   /absolute/path/to/node bin/github-app-session.ts \
@@ -51,7 +87,8 @@ av inject --mode=fd +YOUR_APP_KEY_SECRET:3 -- \
   /absolute/path/to/non-secret-config.json -- gh-axi pr create --help
 ```
 
-The FD route requires fresh Automic Approval for each invocation. The adapter:
+The FD route requires fresh Automic Approval for each invocation, even with a
+Direct Access rule or Blessed Script. Both delivery routes use the same adapter:
 
 1. Signs a bounded App JWT and verifies the App and repository installation.
 2. Requests a token restricted to exactly the configured repository ID.
@@ -138,8 +175,8 @@ and publication actors. Environment markers alone are not proof of identity.
 Do not claim worker coverage until that end-to-end validation passes.
 
 Foreground sessions have the same 45-minute limit. Tokens are revoked when the
-foreground command exits; a stopped or expired session requires a fresh Vault
-approval and a new daemon session. This is an attended MVP, not a permanent
+foreground command exits; a stopped or expired session requires a new App
+session, authorized by the selected Vault delivery route. There is no permanent
 refresh service. At a pipeline gate, follow no-mistakes custody and recovery
 instructions rather than editing its active worktree or bypassing a finding.
 Long commands run asynchronously so the parent's network handling remains
@@ -152,4 +189,5 @@ does not need the App key. Do not expose it to untrusted PR code.
 
 References: [App installation authentication](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation),
 [private-key management](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/managing-private-keys-for-github-apps),
-[Automic FD delivery](https://www.automicvault.com/docs/cli/#file-descriptor-delivery).
+[Automic FD delivery](https://www.automicvault.com/docs/cli/#file-descriptor-delivery),
+[Direct Secret Access](https://www.automicvault.com/docs/authority/#direct-secret-access).

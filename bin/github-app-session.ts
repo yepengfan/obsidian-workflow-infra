@@ -1,5 +1,6 @@
 // Run with Node 22.18+ native TypeScript support. Only built-in modules are used
-// while the private key is present. Automic Vault supplies the key on FD 3.
+// while the private key is present. Automic Vault supplies FD 3 by default,
+// or an explicitly named environment variable authorized by Direct Access.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,6 +18,15 @@ export type AppConfig = {
 };
 type Installation = { id: number; app_id: number; account?: { login: string }; suspended_at: unknown; permissions: Record<string, string>; repository_selection: string };
 type Token = { token: string; expires_at: string; permissions: Record<string, string> };
+
+export function consumeAppKeyEnvironment(name: string, env: NodeJS.ProcessEnv = process.env): Buffer {
+  if (!/^GITHUB_APP_[A-Z0-9_]+_PRIVATE_KEY$/u.test(name)) throw new AppSessionError('Use a dedicated GITHUB_APP_*_PRIVATE_KEY Secret');
+  const value = env[name];
+  // Remove before any subprocess, including validation/version commands.
+  delete env[name];
+  if (!value) throw new AppSessionError('The requested App key environment variable is missing or empty');
+  return Buffer.from(value, 'utf8');
+}
 
 export function runAppCommand(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -56,8 +66,9 @@ export function parseAppConfig(value: unknown): AppConfig {
 }
 
 export async function openAppSession(pem: Buffer, config: AppConfig, request: typeof fetch = fetch) {
-  const key = crypto.createPrivateKey(pem);
-  pem.fill(0);
+  let key: crypto.KeyObject;
+  try { key = crypto.createPrivateKey(pem); }
+  finally { pem.fill(0); }
   const encode = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
   const now = Math.floor(Date.now() / 1000);
   const payload = `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode({ iat: now - 60, exp: now + 540, iss: config.clientId })}`;
@@ -141,8 +152,14 @@ export function appEnvironment(base: NodeJS.ProcessEnv, config: AppConfig, token
 }
 
 async function main() {
-  const [configPath, mode, ...args] = process.argv.slice(2);
-  if (!configPath || (mode !== '--check' && mode !== '--') || (mode === '--' && args.length === 0)) throw new AppSessionError('Usage: node bin/github-app-session.ts CONFIG.json --check | -- git/gh/gh-axi/no-mistakes ARGS');
+  const argv = process.argv.slice(2);
+  let environmentPem: Buffer | undefined;
+  if (argv[0] === '--key-env') {
+    argv.shift();
+    environmentPem = consumeAppKeyEnvironment(argv.shift() ?? '');
+  }
+  const [configPath, mode, ...args] = argv;
+  if (!configPath || (mode !== '--check' && mode !== '--') || (mode === '--' && args.length === 0)) throw new AppSessionError('Usage: node bin/github-app-session.ts [--key-env GITHUB_APP_NAME_PRIVATE_KEY] CONFIG.json --check | -- git/gh/gh-axi/no-mistakes ARGS');
   if (mode === '--' && !['git', 'gh', 'gh-axi', 'no-mistakes'].includes(path.basename(args[0]!))) throw new AppSessionError('Only Git, GitHub CLI and an isolated no-mistakes instance are supported');
   const noMistakes = mode === '--' && path.basename(args[0]!) === 'no-mistakes';
   if (noMistakes) {
@@ -154,8 +171,8 @@ async function main() {
     if (version.status !== 0 || !/\bg7a0fdc7\b/u.test(version.stdout)) throw new AppSessionError('Review no-mistakes startup compatibility before using a build other than g7a0fdc7');
   }
   const config = parseAppConfig(JSON.parse(fs.readFileSync(configPath, 'utf8')));
-  const pem = fs.readFileSync(3);
-  fs.closeSync(3);
+  const pem = environmentPem ?? fs.readFileSync(3);
+  if (!environmentPem) fs.closeSync(3);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'github-app-session-'));
   fs.chmodSync(dir, 0o700);
   let session: Awaited<ReturnType<typeof openAppSession>> | undefined;
