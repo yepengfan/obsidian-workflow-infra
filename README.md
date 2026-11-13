@@ -88,13 +88,9 @@ See [Cognito compatibility and deployment order](docs/cognito-preflight.md).
 
 ## GitHub identity
 
-All AI commits, pushes and new PRs use `yepeng-developer[bot]` and the scoped
-GitHub App installation token. The user reviews and merges PRs. Follow
-[the identity guide](docs/github-app-identity.md); never fall back to personal
-credentials. No App key or AWS credential belongs in Git or CI logs.
-
-MCP and Cognito work remains on its existing branch and follows after storage
-adoption. This storage baseline deploys no Lambda or public endpoint.
+Follow [the identity guide](docs/github-app-identity.md) for the required GitHub
+App identity, scoped credentials and PR review rules. No App key or AWS credential
+belongs in Git or CI logs.
 
 ## Dependency audit
 

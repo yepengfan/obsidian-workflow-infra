@@ -21,8 +21,8 @@ It creates no Cognito resources and changes no bucket settings or note objects.
    Stop if the metadata fails; do not fake discovery, disable authentication or
    relax token audience checks to work around incompatibility.
 4. Add the actual pool ID as `mcpUserPoolId` in `config/github.json` through a
-   reviewed IAM PR and local SSO update. This removes bootstrap pool creation
-   and tagging permission and pins subsequent pool operations to that ARN.
+   reviewed IAM PR and local SSO update. This removes pool creation and initial
+   tagging permission and pins subsequent pool operations to that ARN.
    Do this before enabling OAuth or private-note access.
 5. Integrate the authenticated MCP application, with reviewed Lambda/API/asset
    IAM scope added separately. The owner creates their Cognito user in the
@@ -58,8 +58,9 @@ It can also label another unowned pool in that account/Region, so it is a bootst
 capability, not proof of exclusive ownership. All pool configuration operations
 require the matching resource tag. An explicit deny blocks changing the project
 tag to a different value or claiming a pool tagged for another project.
-Pinning the pool ID removes that initial tagging
-grant and pool creation. `DescribeUserPoolDomain` remains Region-scoped with a
+Pinning the pool ID removes that initial tagging grant and pool creation;
+tagging the pinned, already-owned pool remains allowed subject to the project-tag
+denies. `DescribeUserPoolDomain` remains Region-scoped with a
 wildcard resource because AWS does not support resource-level authorization for
 that read-only operation. IAM validation cannot prove the actual deployment;
 the resource PR must verify the real CloudFormation handler path.

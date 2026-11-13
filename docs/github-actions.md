@@ -31,8 +31,8 @@ moderate CDK-bundled dependency findings.
 The permission foundation is `ObsidianGitHubTrust`, defined in
 `infra/github-stack.ts`. It contains the native GitHub OIDC provider, PlanRole,
 DeployRole, a dedicated CloudFormation storage execution role, and a separate
-Cognito-only MCP execution role. All
-role names are versioned in `config/github.json`; account and Region are in
+Cognito-only MCP execution role. All role names are versioned in
+`config/github.json`; account and Region are in
 `config/storage.json`. CDK and CI use the same role names. No role has a managed
 policy attached.
 
@@ -129,7 +129,7 @@ Subsequent normal deployments remain automatic Plan, approval, automatic Apply.
 
 ### Permission scope and future changes
 
-The execution role grants bucket metadata reads required by the native
+The storage execution role grants bucket metadata reads required by the native
 `AWS::S3::Bucket` read handler and five writes on **only the two configured
 bucket ARNs**: encryption, public-access blocks, ownership controls,
 versioning, and lifecycle configuration. `ListBucket` supports HeadBucket and
@@ -166,8 +166,8 @@ updater or long-lived AWS key is introduced. A future stack or resource type
 also needs corresponding reviewed workflow/IAM scope changes: the current
 storage workflow intentionally accepts only the original two buckets and a
 reviewed later BucketPolicy, whose write permission must first be added here.
-Future Lambda/MCP deployment should have its own scoped execution role rather
-than giving this storage role unrelated service access.
+For the separate MCP execution role and its staged permission expansion, see
+[Cognito preflight](cognito-preflight.md).
 
 Configure repository Settings > Environments:
 
