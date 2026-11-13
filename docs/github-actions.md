@@ -123,12 +123,16 @@ Subsequent normal deployments remain automatic Plan, approval, automatic Apply.
 ### Permission scope and future changes
 
 The execution role grants bucket metadata reads required by the native
-`AWS::S3::Bucket` read handler and four writes on **only the two configured
-bucket ARNs**: encryption, public-access blocks, ownership controls, and
-versioning. `ListBucket` supports HeadBucket and can also enumerate keys; it
-does not grant object-body access. The role cannot read/write/delete object
-bodies or versions, create/delete buckets, manage IAM, change bucket policies,
-or change lifecycle rules. Read actions follow the Sydney CloudFormation
+`AWS::S3::Bucket` read handler and five writes on **only the two configured
+bucket ARNs**: encryption, public-access blocks, ownership controls,
+versioning, and lifecycle configuration. `ListBucket` supports HeadBucket and
+can also enumerate keys; it does not grant object-body access. The role cannot
+directly read/write/delete object bodies or versions, create/delete buckets,
+manage IAM, or change bucket policies. Lifecycle permission is limited to the
+same two bucket ARNs, but can indirectly cause permanent historical-version
+deletion by S3. The selected 90-day window is enforced by the reviewed bucket
+template, not by an IAM condition. No lifecycle rule is enabled by the IAM-only
+permission update. Read actions follow the Sydney CloudFormation
 registry schema checked on 2026-11-13, excluding its unrecognized
 `GetBucketDefaultStorageClass` action (AWS Access Analyzer reports INVALID_ACTION;
 that property is not modeled here). Granting every advertised create/update

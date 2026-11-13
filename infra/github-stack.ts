@@ -64,6 +64,9 @@ export class GitHubTrustStack extends Stack {
       actions: [
         's3:PutEncryptionConfiguration', 's3:PutBucketPublicAccessBlock',
         's3:PutBucketOwnershipControls', 's3:PutBucketVersioning',
+        // S3 lifecycle expiry can delete history without DeleteObject permission.
+        // Activation belongs to a separate, reviewed bucket-resource change.
+        's3:PutLifecycleConfiguration',
       ],
       resources: bucketArns,
     }));

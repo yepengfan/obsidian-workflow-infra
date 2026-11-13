@@ -65,7 +65,7 @@ describe('GitHub OIDC foundation', () => {
     }
   });
 
-  it('limits CloudFormation to bucket metadata and the four modeled configuration writes', () => {
+  it('limits CloudFormation to bucket metadata and five reviewed configuration writes', () => {
     const stack = new GitHubTrustStack(new App(), 'Trust', storage, github);
     const template = Template.fromStack(stack);
     const [id, role] = Object.entries(template.findResources('AWS::IAM::Role'))
@@ -87,9 +87,10 @@ describe('GitHub OIDC foundation', () => {
     expect(actions.filter(action => !action.startsWith('s3:Get') && !action.startsWith('s3:List')).sort()).toEqual([
       's3:PutBucketOwnershipControls', 's3:PutBucketPublicAccessBlock',
       's3:PutBucketVersioning', 's3:PutEncryptionConfiguration',
+      's3:PutLifecycleConfiguration',
     ]);
     for (const forbidden of ['s3:GetObject', 's3:PutObject', 's3:DeleteObject', 's3:DeleteObjectVersion',
-      's3:CreateBucket', 's3:DeleteBucket', 's3:PutBucketPolicy', 's3:PutLifecycleConfiguration']) {
+      's3:CreateBucket', 's3:DeleteBucket', 's3:PutBucketPolicy']) {
       expect(actions).not.toContain(forbidden);
     }
     expect(actions.every(action => action.startsWith('s3:') && !action.includes('*'))).toBe(true);
