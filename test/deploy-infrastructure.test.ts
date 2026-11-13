@@ -28,7 +28,7 @@ const nativePlan = (stack: string, operation: string) => ({
     Action: operation === 'import' ? 'Import' : operation === 'create' ? 'Add' : 'Modify', LogicalResourceId, ResourceType, Replacement: 'False',
   } })),
 });
-const manifest = () => ({ schemaVersion: 1, sourceSha: source, repositoryId: '123', account, region, code, stacks: [
+const manifest = () => ({ schemaVersion: 1, sourceSha: source, repositoryId: '123', account, region, mcpStage: 'runtime', code, stacks: [
   { name: storage, operation: 'update', arn: arn(storage, 'update'), hasChanges: true },
   { name: cognito, operation: 'update', arn: arn(cognito, 'update'), hasChanges: true },
 ] });
@@ -45,13 +45,20 @@ function execute(script: string, fixture: Record<string, unknown> = {}, plan = m
     fs.mkdirSync(path.join(dir, 'config'));
     for (const file of ['storage.json', 'github.json', 'import-resources.json']) fs.copyFileSync(`config/${file}`, path.join(dir, 'config', file));
     fs.mkdirSync(path.join(dir, 'cdk.out'));
-    const modeled = Object.fromEntries(resources.cognito.map(resource => [resource.LogicalResourceId, { Type: resource.ResourceType }]));
-    const template = { Resources: { ...modeled,
+    const stage = fixture.rolloutStage ?? 'runtime';
+    const modeled = Object.fromEntries(resources.cognito.filter(resource => stage !== 'identity' || !resource.LogicalResourceId.startsWith('CodeArtifacts')).map(resource => [resource.LogicalResourceId, { Type: resource.ResourceType }]));
+    const template = { Metadata: { McpDeploymentStage: stage }, Resources: { ...modeled,
+      ...(stage !== 'identity' ? {
       CodeArtifacts: { Type: 'AWS::S3::Bucket', Properties: { BucketName: codeBucketName } },
+      } : {}),
+      ...(stage === 'runtime' ? {
       McpFunction: { Type: 'AWS::Lambda::Function', Properties: { FunctionName: 'obsidian-mcp-server', Code: { S3Key: code.key } } },
+      } : {}),
     } };
     fs.writeFileSync(path.join(dir, 'cdk.out/ObsidianMcp.template.json'), JSON.stringify(template));
-    fs.writeFileSync(path.join(dir, 'cdk.out/CodeBundle.json'), JSON.stringify(code));
+    if (stage === 'runtime') fs.writeFileSync(path.join(dir, 'cdk.out/CodeBundle.json'), JSON.stringify(code));
+    else { plan.mcpStage = String(stage); delete (plan as { code?: unknown }).code; }
+    if (fixture.manifestStage) plan.mcpStage = String(fixture.manifestStage);
     if (fixture.wrongCode) plan.code = { ...plan.code, sha256: '0'.repeat(64) };
     fs.writeFileSync(path.join(dir, 'fixture.json'), JSON.stringify({ ...defaults(), ...fixture }));
     fs.writeFileSync(path.join(dir, 'infrastructure-plan.json'), JSON.stringify(plan));
@@ -76,7 +83,7 @@ if('${tool}'==='gh') {
 const target = (value('--stack-name') ?? value('--change-set-name') ?? '').includes('ObsidianMcp') || args.join(' ').includes('obsidian-mcp-') ? 'cognito' : 'storage';
 const item=fixture[target];
 switch(args[1]) {
-  case 'get-template': { const model=JSON.parse(fs.readFileSync('cdk.out/ObsidianMcp.template.json','utf8')); if(fixture.wrongNativeTemplate) model.Resources.CodeArtifacts.Properties.BucketName='other-bucket'; console.log(JSON.stringify(fixture.stringTemplate?JSON.stringify(model):model));break;}
+  case 'get-template': { const model=JSON.parse(fs.readFileSync('cdk.out/ObsidianMcp.template.json','utf8')); if(fixture.wrongNativeTemplate) model.Metadata.McpDeploymentStage='tampered'; console.log(JSON.stringify(fixture.stringTemplate?JSON.stringify(model):model));break;}
   case 'get-function-configuration':respond({CodeSha256:fixture.wrongLambdaHash?'wrong':${JSON.stringify(code.sha256Base64)},State:'Active',LastUpdateStatus:'Successful'});break;
   case 'describe-stacks': {
     const executed=calls.some(c=>c.tool==='aws' && c.args[1]==='execute-change-set' && c.args.join(' ').includes(target==='cognito'?'obsidian-mcp-':'obsidian-storage-'));
@@ -170,6 +177,40 @@ describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
     const fixture = defaults(); fixture.cognito.resources.StackResources = fixture.cognito.resources.StackResources.filter(r => !r.LogicalResourceId.startsWith('CodeArtifacts'));
     const result = execute(planScript, fixture);
     expect(result.status).not.toBe(0); expect(executions(result.calls)).toEqual([]);
+  });
+  it.each(['identity', 'code-storage'])('plans and applies the %s prerequisite without runtime code or previously deployed code storage', rolloutStage => {
+    const fixture = defaults();
+    fixture.cognito.resources.StackResources = fixture.cognito.resources.StackResources.filter(r => !r.LogicalResourceId.startsWith('CodeArtifacts'));
+    fixture.cognito.plan.Changes = fixture.cognito.plan.Changes.filter((c: { ResourceChange: { LogicalResourceId: string } }) => !c.ResourceChange.LogicalResourceId.startsWith('CodeArtifacts'));
+    const options = { ...fixture, rolloutStage };
+    const planned = execute(planScript, options);
+    expect(planned.status, planned.stderr).toBe(0);
+    expect(planned.plan.mcpStage).toBe(rolloutStage);
+    expect(planned.plan).not.toHaveProperty('code');
+    expect(executions(planned.calls)).toEqual([]);
+    const creation = planned.calls.find(c => c.args[1] === 'create-change-set' && c.args.includes('ObsidianMcp'))!;
+    expect(creation.args).not.toContain('AWS::Lambda::Function');
+    if (rolloutStage === 'identity') expect(creation.args).not.toContain('AWS::S3::Bucket');
+    else {
+      expect(creation.args).toContain('AWS::S3::Bucket');
+      for (const resource of resources.cognito.filter(r => r.LogicalResourceId.startsWith('CodeArtifacts'))) fixture.cognito.plan.Changes.push({ ResourceChange: {
+        Action: 'Add', LogicalResourceId: resource.LogicalResourceId, ResourceType: resource.ResourceType, Replacement: 'False',
+      } });
+    }
+    const applied = execute(applyScript, { ...fixture, rolloutStage });
+    expect(applied.status, applied.stderr).toBe(0);
+    expect(executions(applied.calls)).toHaveLength(2);
+    expect(applied.calls.some(c => c.tool === 'npm' || c.args[1] === 'get-function-configuration')).toBe(false);
+    expect(applied.calls.filter(c => c.args[1] === 'get-template')).toHaveLength(1);
+  });
+  it('refuses a stage downgrade that would omit already deployed code storage', () => {
+    const result = execute(planScript, { rolloutStage: 'identity' });
+    expect(result.status).not.toBe(0); expect(executions(result.calls)).toHaveLength(0);
+  });
+  it('rejects a manifest stage that differs from its reviewed template before AWS or upload', () => {
+    const result = execute(applyScript, { manifestStage: 'identity' });
+    expect(result.status).not.toBe(0);
+    expect(result.calls.some(c => c.tool === 'aws' || c.tool === 'npm')).toBe(false);
   });
   it('accepts a native output-only UPDATE while retaining artifact and source checks', () => {
     const fixture = defaults(); fixture.cognito.plan.Changes = [];

@@ -35,7 +35,11 @@ ChatGPT browses one folder page, chooses note paths, then retrieves or searches
 only those notes. There is no whole-vault scan, recursive traversal or index.
 The ebook library is outside the MCP reader's scope.
 
-The deployed storage and identity foundation precede this runtime delivery.
+The diagram shows the complete architecture. Deployment advances through the
+reviewed stage in [config/mcp-deployment.json](config/mcp-deployment.json):
+`identity` publishes the pool ARN export, `code-storage` creates deployment
+storage, and `runtime` adds the endpoint. Complete each stage's approved Apply
+before advancing, with the separate IAM update after the identity export.
 Local SDK, JWT and packaging tests do not establish live ChatGPT compatibility.
 The committed runtime configuration denies all note access until an owner is
 allowlisted; OAuth remains disabled until the exact ChatGPT callback is reviewed.
@@ -55,17 +59,19 @@ flowchart TD
     PR["Bot PR"] --> Verify["validate: tests, lint, synth and offline preview"]
     Verify --> Review["Owner reviews and merges"]
     Review --> Main["validate on main"]
-    Main --> Plan["plan and apply: synth once, build deterministic ZIP and native plans"]
-    Plan --> Artifact["Retain exact templates, ZIP and SHA-256 as a run artifact"]
+    Main --> Plan["plan and apply: synth once for reviewed rollout stage"]
+    Plan --> Artifact["Retain exact templates and native plans; ZIP and digest in runtime stage"]
     Plan --> Changed{"Any infrastructure changes?"}
     Changed -->|No| Unchanged["Discovery check; skip Apply"]
     Changed -->|Yes| Approval["Owner approves production"]
     Artifact --> Download["Download this run's reviewed artifact"]
     Approval --> Download
     Download --> Guard["Validate every exact native plan and source revision"]
-    Guard --> Upload["Conditionally upload immutable ZIP to private code storage"]
-    Upload --> Apply["Execute approved change-set ARNs without resynthesis"]
-    Apply --> Check["Code checksum, storage drift and public discovery/auth checks"]
+    Guard --> Runtime{"Runtime stage?"}
+    Runtime -->|Yes| Upload["Conditionally upload immutable ZIP to deployed code storage"]
+    Runtime -->|No| Apply["Execute approved change-set ARNs without resynthesis"]
+    Upload --> Apply
+    Apply --> Check["Storage drift and discovery; runtime adds code checksum/auth checks"]
 ```
 
 CI authenticates to AWS through GitHub OIDC. One combined Plan and one production
