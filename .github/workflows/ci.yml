@@ -1,4 +1,4 @@
-name: CI
+name: Validate infrastructure
 on:
   pull_request:
   push:
@@ -44,7 +44,7 @@ jobs:
           for (const [label, file] of [['GitHub OIDC / IAM diff', 'github-trust.diff.txt'], ['Existing bucket definitions', 'storage.diff.txt']]) {
             summary += '<details><summary>' + label + '</summary><pre>' + escape(fs.readFileSync('cdk.review.out/' + file, 'utf8')) + '</pre></details>\n\n';
           }
-          summary += 'After the AWS foundation is configured, successful CI pushes on main automatically start Deploy storage: Plan, production approval, then Apply of the same ChangeSet ARN.\n';
+          summary += 'After the AWS foundation is configured, successful Validate infrastructure pushes on main automatically start Plan and deploy S3 storage: Plan, production approval, then Apply of the same ChangeSet ARN.\n';
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
           NODE
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

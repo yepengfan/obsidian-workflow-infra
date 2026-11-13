@@ -1,7 +1,8 @@
 # GitHub Actions: automatic Plan, approval, Apply
 
-The repository uses two workflows. `CI` checks pull requests and main without
-AWS credentials. After a successful CI **push on main**, `Deploy storage`
+The repository uses two workflows. `Validate infrastructure` checks pull requests
+and main without AWS credentials. After a successful validation **push on main**,
+`Plan and deploy S3 storage`
 automatically plans the exact verified commit, waits for the owner's native
 GitHub environment approval, then applies that same CloudFormation change set.
 There is no routine Run workflow action, operation input, ARN copy, or second
@@ -13,7 +14,7 @@ import existing buckets, copy objects or activate lifecycle cleanup.
 
 ## What to review in CI
 
-Open a CI run's Summary. It includes the synthesized storage definitions and
+Open a `Validate infrastructure` run's Summary. It includes the synthesized storage definitions and
 GitHub OIDC / IAM diff against `config/empty-template.json`, including the
 dedicated storage execution role and its bucket-scoped policy. Download `cloudformation-review` for the full templates and diff files.
 Artifacts are retained for seven days.
@@ -187,7 +188,7 @@ permissions on the note buckets.
 
 ## Automatic deployment run
 
-`deploy-storage.yml` listens to successful completed `CI` runs. It accepts only
+`deploy-storage.yml` listens to successful completed `Validate infrastructure` runs. It accepts only
 pushes to main in this repository, never PR or fork runs. It checks out the
 upstream run's exact `head_sha`, rejects a superseded main revision before AWS
 authentication, and binds that SHA into the native change-set description.

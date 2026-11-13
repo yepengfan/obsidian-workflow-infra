@@ -6,6 +6,7 @@ import { parse } from 'yaml';
 
 type Step = { name?: string; id?: string; run?: string; uses?: string; with?: Record<string, string> };
 const workflow = parse(fs.readFileSync('.github/workflows/deploy-storage.yml', 'utf8')) as {
+  name: string;
   on: { workflow_run: { workflows: string[]; branches: string[]; types: string[] } };
   jobs: { plan: { steps: Step[] }; apply: { needs: string; environment: string; steps: Step[] } };
 };
@@ -63,7 +64,10 @@ const resources = { StackResources: mapping.map(r => ({
 
 describe('automatic storage deployment', () => {
   it('uses completed main CI and native production approval, connecting Apply to Plan', () => {
-    expect(workflow.on.workflow_run).toEqual({ workflows: ['CI'], branches: ['main'], types: ['completed'] });
+    const validation = parse(fs.readFileSync('.github/workflows/ci.yml', 'utf8')) as { name: string };
+    expect(validation.name).toBe('Validate infrastructure');
+    expect(workflow.name).toBe('Plan and deploy S3 storage');
+    expect(workflow.on.workflow_run).toEqual({ workflows: [validation.name], branches: ['main'], types: ['completed'] });
     expect(workflow.jobs.apply.needs).toBe('plan');
     expect(workflow.jobs.apply.environment).toBe('production');
   });

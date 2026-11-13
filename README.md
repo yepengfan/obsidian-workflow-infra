@@ -56,9 +56,9 @@ to the same logical and physical resource definitions.
 
 Do not hand-edit synthesized files. Edit TypeScript/configuration and synthesize
 again. Review [the import procedure](docs/github-actions.md) before any AWS write.
-PR CI runs without AWS credentials and publishes an offline infrastructure
+`Validate infrastructure` runs without AWS credentials and publishes an offline infrastructure
 preview, including OIDC and all three scoped role definitions, in its Summary and
-artifact. Successful main CI automatically starts one deployment run: Plan
+artifact. Successful main validation automatically starts `Plan and deploy S3 storage`: Plan
 selects first import or later update, publishes the actual native change set,
 and Apply waits for the owner's production environment approval before
 automatically executing that exact ARN. See [setup and review steps](docs/github-actions.md).
