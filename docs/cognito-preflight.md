@@ -55,7 +55,8 @@ separately approved resource deployment.
 
 After successful Apply, the workflow reads the stack's non-secret outputs and
 runs `npm run check:cognito -- infrastructure-apply/ObsidianMcp.stack.json`. It uses at most six attempts
-with ten-second gaps for propagation when Cognito changed; otherwise it makes
+with ten-second gaps for propagation when `ObsidianMcp` has changes, including
+code-storage or metadata/output changes; otherwise it makes
 one attempt. Each attempt tries standard OAuth
 authorization-server metadata, falling back to OIDC discovery if needed, with
 five-second timeouts per HTTP request, no redirects and a 64 KiB limit per response.

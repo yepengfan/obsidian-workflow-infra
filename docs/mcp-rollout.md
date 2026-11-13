@@ -102,12 +102,13 @@ This stage adds only `CodeArtifacts` and `CodeArtifactsPolicy`; it preserves
 `UserPool`, `UserPoolDomain` and all original storage identities. Plan recognizes
 only these named native resource bindings, with the code bucket and policy
 bound to the shared IaC bucket name. The pool retains its native ARN export and
-permission-binding metadata; publish that export before applying the narrowed
-SSO-managed IAM foundation. Plan refuses an absent identity stack, and application
+permission-binding metadata; follow the
+[foundation and export procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
+for prerequisite ordering. Plan refuses an absent identity stack, and application
 deployment is UPDATE-only. Apply permits pool/domain modifications and code-resource
-additions or modifications only when the native change-set template binds the
-bucket to the shared name and its policy to that bucket, while
-continuing to reject note-bucket creation, other S3 resources, removals and
+additions or modifications. When code resources change, it requires the native
+change-set template to bind the bucket to the shared name and its policy to that
+bucket. It continues to reject note-bucket creation, other S3 resources, removals and
 replacements. After PR1's separately approved IAM deployment, review PR2's actual
 CI plan and approve production to create code storage. This stage uploads no ZIP.
 Offline synthesis and fake-AWS CLI checks do not establish native bucket/policy
