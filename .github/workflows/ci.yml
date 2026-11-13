@@ -23,7 +23,7 @@ jobs:
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Audit build dependencies (known CDK bundled moderate finding documented)
         run: npm audit --audit-level=high
-      - name: Synthesize the unchanged bucket import without AWS credentials
+      - name: Synthesize desired S3 storage without AWS credentials
         run: npm run synth
       - name: Synthesize CI trust without AWS credentials
         run: npx --no-install cdk synth ObsidianGitHubTrust --app 'npx --no-install tsx bin/github.ts' --no-lookups --output cdk.github.out
@@ -39,7 +39,7 @@ jobs:
           import fs from 'node:fs';
           const escape = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
           let summary = '## Offline infrastructure preview\n\nCommit: ' + process.env.GITHUB_SHA + '\n\n';
-          summary += 'These definitions are compared with the empty baseline in config/empty-template.json. This is not a live AWS change set or a PR-base diff. The existing note buckets require IMPORT, not creation. No AWS credentials are used.\n\n';
+          summary += 'These definitions are compared with the empty baseline in config/empty-template.json. This offline preview is not a live AWS change set or a PR-base diff. First adoption uses IMPORT; subsequent configuration changes use UPDATE. Existing note buckets must never be recreated. The deployment Plan selects the actual operation from live stack state. No AWS credentials are used.\n\n';
           summary += '**Permission foundation:** no standard CDK bootstrap or administrator execution role. Review the named Plan / Deploy roles and dedicated storage execution role in the IAM diff. No AWS repository variables or static keys are required. Apply permission changes from a reviewed revision via local SSO before CI deploys resources needing them.\n\n';
           for (const [label, file] of [['GitHub OIDC / IAM diff', 'github-trust.diff.txt'], ['Existing bucket definitions', 'storage.diff.txt']]) {
             summary += '<details><summary>' + label + '</summary><pre>' + escape(fs.readFileSync('cdk.review.out/' + file, 'utf8')) + '</pre></details>\n\n';
