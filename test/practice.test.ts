@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { parse } from 'yaml';
 import { z } from 'zod';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import bundle from '../workflows/practice.json' with { type: 'json' };
 import { calendarDay, nextSchedule, Practice, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
 import { NoteError } from '../src/paths.js';
@@ -172,6 +172,49 @@ describe('practice storage behavior', () => {
     expect(result.files.map(file => file.status)).toEqual(['existing', 'created']);
     const progress = store.files.get(root + result.files[0]!.path)!;
     const metadata = parse(progress.split('---\n')[1]!); expect(metadata.mcp_session_id).toBe(input.session_id);
+  });
+  it.each([
+    { name: 'timeout', failure: new NoteError('timeout'), code: 'timeout' },
+    { name: 'read failure', failure: new NoteError('note_unavailable'), code: 'note_unavailable' },
+    { name: 'unexpected read failure', failure: new Error('private diagnostic'), code: 'note_unavailable' },
+    { name: 'oversized canvas', content: 'x'.repeat(65537), code: 'practice_note_too_large' },
+    { name: 'missing frontmatter', content: 'Private canvas without frontmatter', code: 'invalid_practice_note' },
+    { name: 'invalid frontmatter', content: '---\nmcp_session_id: [\n---\nPrivate canvas', code: 'invalid_practice_note' },
+  ])('preserves partial statuses after recovery encounters $name', async ({ failure, content, code }) => {
+    const { store, practice } = setup();
+    const input = { topic: 'YouTube', started_on: '2026-11-14', session_id: 'recovery-failure' };
+    const folder = 'Learning/Practice/System-Design/Solutions/YouTube-2026-11-14/';
+    const progressPath = folder + 'progress.md', canvasPath = folder + 'YouTube.excalidraw.md';
+    const originalRead = store.read.bind(store);
+    const read = vi.spyOn(store, 'read').mockImplementation(async (...args) => {
+      if (args[0] === root + canvasPath && failure) throw failure;
+      return originalRead(...args);
+    });
+    let originalCanvas = '';
+    store.beforePut = key => {
+      if (key !== root + canvasPath) return;
+      originalCanvas = store.files.get(key) ?? '---\nmcp_session_id: recovery-failure\n---\nHuman canvas edit';
+      store.files.set(key, content ?? originalCanvas);
+    };
+    const partial = await practice.createDesignSession(input);
+    expect(partial).toMatchObject({ complete: false, files: [
+      { path: progressPath, status: 'created' }, { path: canvasPath, status: 'failed', error: code },
+    ] });
+    const editedProgress = store.files.get(root + progressPath)! + '\nHuman progress edit';
+    store.files.set(root + progressPath, editedProgress);
+    expect(await practice.createDesignSession(input)).toMatchObject({ complete: false, files: [
+      { path: progressPath, status: 'existing' }, { path: canvasPath, status: 'failed', error: code },
+    ] });
+    expect(store.files.get(root + progressPath)).toBe(editedProgress);
+    expect(store.files.get(root + canvasPath)).toBe(content ?? originalCanvas);
+    read.mockRestore(); store.beforePut = undefined;
+    store.files.set(root + canvasPath, originalCanvas);
+    expect(await practice.createDesignSession(input)).toMatchObject({ complete: true, files: [
+      { path: progressPath, status: 'existing' }, { path: canvasPath, status: 'existing' },
+    ] });
+    expect(store.files.get(root + progressPath)).toBe(editedProgress);
+    expect(store.files.get(root + canvasPath)).toBe(originalCanvas);
+    expect(store.writes).toEqual([root + progressPath]);
   });
 });
 

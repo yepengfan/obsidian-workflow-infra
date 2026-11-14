@@ -189,12 +189,16 @@ export class Practice {
     const files: { path: string; status: string; error?: string }[] = [];
     for (const [name, text] of [['progress.md', progress], [canvasName, canvas]]) {
       const path = folder + name;
-      try { await this.put(path, text!); files.push({ path, status: 'created' }); }
-      catch (error) {
-        if (error instanceof NoteError && error.code === 'revision_conflict') {
+      try {
+        try { await this.put(path, text!); }
+        catch (error) {
+          if (!(error instanceof NoteError) || error.code !== 'revision_conflict') throw error;
           const existing = parseNote((await this.read(path)).text);
           if (existing.metadata.mcp_session_id === input.session_id) { files.push({ path, status: 'existing' }); continue; }
+          throw error;
         }
+        files.push({ path, status: 'created' });
+      } catch (error) {
         files.push({ path, status: 'failed', error: error instanceof NoteError || error instanceof PracticeError ? error.code : 'note_unavailable' });
         break;
       }
