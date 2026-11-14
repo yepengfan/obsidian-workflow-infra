@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { checkCognitoDiscovery } from '../infra/cognito-discovery.js';
+import { checkCognitoDiscovery, checkCognitoResourceBinding } from '../infra/cognito-discovery.js';
 
 const issuer = 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_Example';
 const domain = 'https://example.auth.ap-southeast-2.amazoncognito.com';
@@ -9,6 +9,44 @@ const metadata = {
   code_challenge_methods_supported: ['S256'], response_types_supported: ['code'],
   token_endpoint_auth_methods_supported: ['client_secret_basic'],
 };
+
+describe('anonymous authorization response contract', () => {
+  const callback = 'https://chatgpt.com/connector/oauth/example';
+  const resource = 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp';
+  const probe = (mutate: (params: URLSearchParams) => void) => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async input => {
+      const request = new URL(String(input));
+      const redirect = new URL(callback);
+      redirect.searchParams.set('error', 'login_required');
+      redirect.searchParams.set('state', request.searchParams.get('state')!);
+      mutate(redirect.searchParams);
+      return new Response(null, { status: 302, headers: { Location: redirect.href } });
+    });
+    return checkCognitoResourceBinding(domain, resource, `${resource}/read`, 'client', callback, fetcher);
+  };
+
+  it('accepts one optional error description', async () => {
+    await expect(probe(params => params.set('error_description', 'Login required'))).resolves.toBeUndefined();
+  });
+
+  it.each([
+    ['error', 'invalid_request'], ['error', 'login_required'],
+    ['state', 'wrong'], ['unexpected', 'value'],
+  ])('rejects an extra %s response parameter', async (key, value) => {
+    await expect(probe(params => params.append(key, value))).rejects.toThrow('Cognito rejected resource-bound authorization');
+  });
+
+  it('rejects a duplicate matching state', async () => {
+    await expect(probe(params => params.append('state', params.get('state')!))).rejects.toThrow('Cognito rejected resource-bound authorization');
+  });
+
+  it('rejects duplicate error descriptions', async () => {
+    await expect(probe(params => {
+      params.append('error_description', 'Login required');
+      params.append('error_description', 'conflicting description');
+    })).rejects.toThrow('Cognito rejected resource-bound authorization');
+  });
+});
 
 describe('live Cognito discovery contract', () => {
   it('accepts real advertised capabilities through the standard OIDC fallback', async () => {

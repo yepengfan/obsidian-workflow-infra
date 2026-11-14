@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 const metadataSchema = z.object({
   issuer: z.string(), jwks_uri: z.string(),
@@ -43,4 +44,30 @@ export async function checkCognitoDiscovery(issuer: string, domain: string, fetc
     } catch { /* Bounded standards-based fallback; never print remote bodies. */ }
   }
   throw new Error('Cognito discovery failed: require matching issuer/JWKS/domain endpoints, authorization code, S256 and confidential-client authentication. OAuth and note access must remain disabled.');
+}
+
+/** Validate resource/scopes before login. Never follow the callback or exchange a code. */
+export async function checkCognitoResourceBinding(domain: string, resource: string, scope: string, clientId: string, callback: string, fetcher: typeof fetch = fetch): Promise<void> {
+  const state = randomUUID();
+  const authorization = new URL(`${domain}/oauth2/authorize`);
+  authorization.search = new URLSearchParams({
+    response_type: 'code', client_id: clientId, redirect_uri: callback, resource,
+    scope: `openid email phone profile ${scope}`, prompt: 'none', state,
+    code_challenge_method: 'S256', code_challenge: createHash('sha256').update(randomBytes(32).toString('base64url')).digest('base64url'),
+  }).toString();
+  const response = await fetcher(authorization.href, { redirect: 'manual', credentials: 'omit', signal: AbortSignal.timeout(5000) });
+  await response.body?.cancel();
+  const location = response.headers.get('Location');
+  if (![302, 303].includes(response.status) || !location) throw new Error('Cognito anonymous authorization check failed');
+  let target: URL;
+  try { target = new URL(location); } catch { throw new Error('Cognito returned an invalid authorization redirect'); }
+  const expected = new URL(callback);
+  const params = target.searchParams;
+  if (target.origin !== expected.origin || target.pathname !== expected.pathname || target.hash || target.username || target.password ||
+      params.getAll('error').length !== 1 || params.get('error') !== 'login_required' ||
+      params.getAll('state').length !== 1 || params.get('state') !== state ||
+      params.getAll('error_description').length > 1 ||
+      [...params.keys()].some(key => !['error', 'state', 'error_description'].includes(key))) {
+    throw new Error('Cognito rejected resource-bound authorization parameters or returned an unexpected grant');
+  }
 }

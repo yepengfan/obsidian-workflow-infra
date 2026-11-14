@@ -26,10 +26,12 @@ export type Settings = RuntimeOptions & { bucket: string; prefix: string; region
 export function environmentSettings(env: NodeJS.ProcessEnv): Settings {
   const required = (name: string) => { const value = env[name]; if (!value) throw Error('Missing runtime configuration'); return value; };
   const resource = required('MCP_RESOURCE');
+  const scope = required('OAUTH_SCOPE');
   const issuer = required('OAUTH_ISSUER');
   if (!/^https:\/\/[a-z0-9]+\.execute-api\.[a-z0-9-]+\.amazonaws\.com\/mcp$/u.test(resource) ||
       !/^https:\/\/cognito-idp\.[a-z0-9-]+\.amazonaws\.com\/[a-z0-9-]+_[A-Za-z0-9]+$/u.test(issuer)) throw Error('Invalid runtime origin');
+  if (scope !== `${resource}/read`) throw Error('Invalid resource-bound read scope');
   return { ...runtimeOptionsSchema.parse(JSON.parse(required('MCP_OPTIONS'))), bucket: required('NOTE_BUCKET'),
     prefix: env.NOTE_PREFIX ?? '', region: required('AWS_REGION'), issuer, clientId: required('OAUTH_CLIENT_ID'),
-    resource, scope: required('OAUTH_SCOPE') };
+    resource, scope };
 }

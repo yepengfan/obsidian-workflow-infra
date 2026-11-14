@@ -26,12 +26,16 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   // Preserve externally managed membership, but remove an empty group when its
   // first creation rolls back. No AWS role is assigned to group members.
   ownerGroup.applyRemovalPolicy(RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE);
-  const scopeName = 'obsidian.notes/read';
+  const api = new CfnApi(scope, 'McpApi', { name: deployment.apiName, protocolType: 'HTTP', tags: { Project: 'obsidian-mcp' } });
+  api.overrideLogicalId('McpApi');
+  const endpoint = `${api.attrApiEndpoint}/mcp`;
   const resourceServer = new CfnUserPoolResourceServer(scope, 'NotesResourceServer', {
-    userPoolId: pool.ref, identifier: 'obsidian.notes', name: 'Private Obsidian notes',
+    userPoolId: pool.ref, identifier: endpoint, name: 'Private Obsidian notes',
     scopes: [{ scopeName: 'read', scopeDescription: 'Read explicitly selected private Markdown notes' }],
   });
   resourceServer.overrideLogicalId('NotesResourceServer');
+  // Cognito binds custom scopes to the requested resource-server identifier.
+  const scopeName = `${resourceServer.ref}/read`;
   const oauthEnabled = options.callbackUrls.length > 0;
   const client = new CfnUserPoolClient(scope, 'ChatGptClient', {
     userPoolId: pool.ref, clientName: 'obsidian-chatgpt', generateSecret: true,
@@ -46,9 +50,6 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   client.overrideLogicalId('ChatGptClient'); client.addResourceDependency(resourceServer);
   const branding = new CfnManagedLoginBranding(scope, 'ChatGptLoginBranding', { userPoolId: pool.ref, clientId: client.ref, useCognitoProvidedValues: true });
   branding.overrideLogicalId('ChatGptLoginBranding'); branding.addResourceDependency(domain);
-  const api = new CfnApi(scope, 'McpApi', { name: deployment.apiName, protocolType: 'HTTP', tags: { Project: 'obsidian-mcp' } });
-  api.overrideLogicalId('McpApi');
-  const endpoint = `${api.attrApiEndpoint}/mcp`;
   const logs = new CfnLogGroup(scope, 'RuntimeLogs', { logGroupName: `/aws/lambda/${deployment.functionName}`, retentionInDays: logDays });
   logs.overrideLogicalId('RuntimeLogs');
   const runtime = new CfnFunction(scope, 'McpFunction', { functionName: deployment.functionName,

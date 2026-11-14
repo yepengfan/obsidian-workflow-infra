@@ -23,8 +23,13 @@ while IFS= read -r entry; do
   file="infrastructure-apply/${stack}.reviewed-plan.json"
   aws cloudformation describe-change-set --change-set-name "$arn" > "$file"
   expected="repo=${GITHUB_REPOSITORY_ID} sha=${SOURCE_SHA} operation=${operation}"
-  jq -e --arg description "$expected" --arg stack "arn:aws:cloudformation:${REGION}:${ACCOUNT}:stack/${stack}/" \
-    '.Status == "CREATE_COMPLETE" and .ExecutionStatus == "AVAILABLE" and .Description == $description and (.StackId | startswith($stack)) and ([.Changes[].ResourceChange] | all(.Replacement == null or .Replacement == "False"))' "$file"
+  # The scope registry's identifier is immutable in Cognito. Its reviewed
+  # replacement is the only exception; data, identity and group replacements stay blocked.
+  jq -e --arg description "$expected" --arg stackName "$stack" --arg stack "arn:aws:cloudformation:${REGION}:${ACCOUNT}:stack/${stack}/" \
+    '.Status == "CREATE_COMPLETE" and .ExecutionStatus == "AVAILABLE" and .Description == $description and (.StackId | startswith($stack)) and
+      ([.Changes[].ResourceChange] | all(.Replacement == null or .Replacement == "False" or
+        ($stackName == "ObsidianMcp" and .Action == "Modify" and .LogicalResourceId == "NotesResourceServer" and
+          .ResourceType == "AWS::Cognito::UserPoolResourceServer" and (.Replacement == "True" or .Replacement == "Conditional"))))' "$file"
   case "$stack:$operation" in
     ObsidianWorkflowStorage:import)
       jq -e '[.Changes[].ResourceChange] | length == 2 and all(.Action == "Import" and .ResourceType == "AWS::S3::Bucket") and ([.[].LogicalResourceId] | sort == ["Library","Vault"])' "$file" ;;
@@ -39,7 +44,11 @@ while IFS= read -r entry; do
       jq -e --slurpfile model "$artifacts/ObsidianMcp.template.json" '
         $model[0].Resources as $expected | [.Changes[].ResourceChange] |
         all(. as $r | ($r.Action == "Add" or $r.Action == "Modify") and $expected[$r.LogicalResourceId].Type == $r.ResourceType and
-          ($r.ResourceType != "AWS::IAM::Role" and $r.ResourceType != "AWS::IAM::Policy"))' "$file" ;;
+          ($r.ResourceType != "AWS::IAM::Role" and $r.ResourceType != "AWS::IAM::Policy") and
+          (if $r.Replacement == "True" or $r.Replacement == "Conditional" then
+            $expected.NotesResourceServer.Properties.Identifier == $expected.McpFunction.Properties.Environment.Variables.MCP_RESOURCE and
+            $expected.NotesResourceServer.Properties.UserPoolId == {"Ref":"UserPool"}
+          else true end))' "$file" ;;
 
   esac
 done < <(jq -c '.stacks[] | select(.hasChanges)' "$manifest")

@@ -28,7 +28,8 @@ is retained in the template and manifest; Apply rejects a mismatch.
 
 The stage has no environment-variable or GitHub-variable override. Invalid
 configuration fails synthesis. Stage rollback cannot omit live resources: the
-native identity/binding guards and no-removal/no-replacement guards still apply.
+native identity/binding and [Apply guards](github-actions.md#one-approval-and-infrastructure-apply)
+still apply.
 Do not advance the stage while an earlier Apply is awaiting approval. New merges
 make older plans stale; rerunning an old revision cannot deploy it. If only the
 latest revision's CI needs retrying, rerun its `validate` workflow to generate a
@@ -165,8 +166,9 @@ The full runtime template models the Lambda function, API Gateway HTTP
 API/integration/routes/stage, invoke permission, 14-day log group, Cognito read
 resource server, confidential ChatGPT client, owners group and managed-login
 branding. The application template preserves the existing pool/domain and code bucket; the
-separate foundation owns IAM. Existing note buckets remain unchanged. Reject
-resource removals, replacements, unexpected IAM changes or a new note bucket.
+separate foundation owns IAM. Existing note buckets remain unchanged. Follow the
+[Apply guards](github-actions.md#one-approval-and-infrastructure-apply) for allowed
+resource changes; reject unexpected IAM changes or a new note bucket.
 
 The deployment builds a source-bound, deterministic ZIP and conditionally uploads
 it to the existing private code bucket only after approval. Publication tags
@@ -185,23 +187,16 @@ by the runtime deletion policy. See
 The owners-group name and exact ChatGPT callback are configured in
 [`config/mcp-runtime.json`](../config/mcp-runtime.json); no individual user
 identifiers or memberships belong in that configuration or Lambda configuration.
-The local-SSO IAM prerequisite adds only the group grants described in
-[Permission scope](#permission-scope) to the application CloudFormation role,
-plus `AWS::Cognito::UserPoolGroup` to Plan's existing change-set allowlist.
-Lambda needs no additional IAM.
-
-Apply that separately approved IAM foundation through the
-[local SSO procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
-before merging/starting the ordinary CI Plan for this change.
-The application plan adds one `OwnersGroup` and updates
-the existing `ChatGptClient` OAuth settings and `McpFunction` environment/code
-and dependency on group creation. It exports `OwnerGroupName` for Console setup.
-There are no storage changes or resource replacements. The group uses
-`RetainExceptOnCreate` with replacement retention: a failed first creation removes
-the empty group, while later stack deletion or replacement preserves externally
-managed membership. It has no associated IAM role. After successful Apply, add
-the owner user to this group in Cognito. Live authorization-code/PKCE/refresh and
-actual ChatGPT interoperability remain pending until Apply and owner sign-in.
+The deployed owners-group setup used the separately approved
+[local SSO IAM prerequisite](github-actions.md#one-time-foundation-and-github-environment-setup)
+for the group grants described in [Permission scope](#permission-scope).
+The group uses `RetainExceptOnCreate` with replacement retention: a failed first
+creation removes the empty group, while later stack deletion or replacement
+preserves externally managed membership. It has no associated IAM role.
+See the [connection guide](mcp-server.md#owner-setup-and-chatgpt-connection) for
+owner setup; the scope migration below requires no membership changes or IAM
+expansion. Live authorization-code/PKCE/refresh and actual ChatGPT
+interoperability remain pending until approved Apply and owner sign-in.
 
 After approved Apply, check the deployed code checksum, public resource metadata,
 anonymous 401 challenge and 14-day log retention. Those checks do not access notes
@@ -209,6 +204,27 @@ or establish a completed ChatGPT OAuth exchange. Complete the
 [owner setup and connection checks](mcp-server.md#owner-setup-and-chatgpt-connection)
 after activation. Keep passwords, MFA secrets and the app-client
 secret out of Git, logs and chat.
+
+## Resource-bound read-scope migration
+
+The migration applies the [resource-bound read-scope contract](mcp-server.md#configuration-and-bounds)
+to the existing connection. Cognito's resource-server identifier is immutable,
+so the native plan replaces the metadata-only `NotesResourceServer` registry and
+updates the existing client scopes and Lambda environment/code. Review this
+replacement explicitly before approving Apply. The pool, users, owners-group
+membership, client identity, API, private storage and log retention remain in
+place. Existing pool-scoped resource-server permissions cover this change;
+no IAM expansion is needed.
+
+The [Apply replacement guard](github-actions.md#one-approval-and-infrastructure-apply)
+owns the narrow exception for this migration. The
+[post-Apply public checker](cognito-preflight.md#local-checks-and-post-deployment-discovery)
+checks parameter acceptance; real owner login and note retrieval remain separate
+checks in the connection guide.
+
+After successful approved Apply, follow the [connection guide](mcp-server.md#owner-setup-and-chatgpt-connection)
+to refresh metadata, update any manually saved legacy scope and reconnect. Do not
+manually change Cognito or disable audience/group checks to bypass the mismatch.
 
 ## Recovering the first runtime Apply
 
