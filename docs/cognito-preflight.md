@@ -73,9 +73,11 @@ scope challenge.
 For configured callbacks, it also sends one cookie-free authorization-code
 request with S256, `prompt=none`, the canonical resource and read scope, the
 existing client ID, random state and the first validated configured callback.
-It requires a matching-state `login_required` redirect to that callback, stops
-before following it, and rejects grants or other errors without logging redirect
-contents. Empty-callback bootstrap skips only this authorization request.
+It requires a redirect to that callback containing exactly one `error` set to
+`login_required`, exactly one matching `state`, and at most one optional
+`error_description`. It rejects all other query parameters, duplicate parameters,
+grants and other errors without logging redirect contents or following the
+redirect. Empty-callback bootstrap skips only this authorization request.
 Every HTTP request has a five-second timeout; no client secret, user credentials,
 token exchange or note access is involved. These public checks establish
 parameter acceptance before login, not an authenticated OAuth exchange.
