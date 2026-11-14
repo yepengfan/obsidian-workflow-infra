@@ -4,8 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { tokenVerifier } from '../src/auth.js';
 import { createFetchHandler } from '../src/handler.js';
-import { runtimeOptionsSchema } from '../src/config.js';
-import { MemoryStore, owner, runtimeSettings } from './runtime-fixtures.js';
+import { MemoryStore, owner, ownerGroup, runtimeSettings } from './runtime-fixtures.js';
 
 let keys: Awaited<ReturnType<typeof generateKeyPair>>;
 let jwks: ReturnType<typeof createLocalJWKSet>;
@@ -13,7 +12,7 @@ beforeAll(async () => { keys = await generateKeyPair('RS256', { extractable: tru
 async function token(overrides: Record<string, unknown> = {}) {
   const settings = runtimeSettings(); const now = Math.floor(Date.now() / 1000);
   return new SignJWT({ iss: settings.issuer, sub: owner, client_id: settings.clientId, token_use: 'access', aud: settings.resource,
-    scope: settings.scope, iat: now, exp: now + 900, ...overrides }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).sign(keys.privateKey);
+    scope: settings.scope, 'cognito:groups': [ownerGroup], iat: now, exp: now + 900, ...overrides }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).sign(keys.privateKey);
 }
 describe('authenticated stateless Streamable HTTP', () => {
   it('publishes discovery and challenges anonymous MCP calls without touching S3', async () => {
@@ -31,15 +30,26 @@ describe('authenticated stateless Streamable HTTP', () => {
     const verify = tokenVerifier(runtimeSettings(), jwks);
     await expect(verify(`Bearer ${await token(overrides)}`)).rejects.toMatchObject({ status: 401 });
   });
-  it('denies valid non-owner tokens and an empty allowlist', async () => {
-    await expect(tokenVerifier(runtimeSettings(), jwks)(`Bearer ${await token({ sub: 'other-owner' })}`)).rejects.toMatchObject({ status: 403 });
-    await expect(tokenVerifier(runtimeSettings({ ownerSubjects: [] }), jwks)(`Bearer ${await token()}`)).rejects.toMatchObject({ status: 403 });
+  it.each([
+    { label: 'missing', groups: undefined }, { label: 'null', groups: null }, { label: 'empty', groups: [] },
+    { label: 'unrelated', groups: ['other-group'] }, { label: 'different case', groups: ['Obsidian-mcp-owners'] },
+    { label: 'trailing space', groups: ['obsidian-mcp-owners '] }, { label: 'leading space', groups: [' obsidian-mcp-owners'] },
+    { label: 'string', groups: ownerGroup }, { label: 'object', groups: { name: ownerGroup } }, { label: 'mixed types', groups: [ownerGroup, 1] },
+  ])('denies a valid token without exact, well-formed group membership: $label', async ({ groups }) => {
+    const settings = runtimeSettings(), store = new MemoryStore();
+    const fetch = createFetchHandler(settings, { store, verify: tokenVerifier(settings, jwks) });
+    const response = await fetch(new Request(settings.resource, { method: 'POST', headers: { Authorization: `Bearer ${await token({ 'cognito:groups': groups })}` }, body: '{}' }));
+    expect(response.status).toBe(403); expect(store.calls).toHaveLength(0);
   });
-  it.each(['Opaque-Cognito-Owner', 'opaque-cognito-owner ', ' opaque-cognito-owner'])('denies a signed subject differing in case or whitespace: %s', async subject => {
-    const settings = runtimeSettings(runtimeOptionsSchema.parse({ ownerSubjects: ['opaque-cognito-owner'] }));
-    const verify = tokenVerifier(settings, jwks);
-    await expect(verify(`Bearer ${await token({ sub: 'opaque-cognito-owner' })}`)).resolves.toBe('opaque-cognito-owner');
-    await expect(verify(`Bearer ${await token({ sub: subject })}`)).rejects.toMatchObject({ status: 403 });
+  it('accepts group members independently of their opaque user subject', async () => {
+    const verify = tokenVerifier(runtimeSettings(), jwks);
+    await expect(verify(`Bearer ${await token({ sub: 'another-Cognito-user', 'cognito:groups': ['other-group', ownerGroup] })}`)).resolves.toBe('another-Cognito-user');
+  });
+  it.each([
+    { label: 'null', subject: null }, { label: 'number', subject: 1 }, { label: 'array', subject: [] },
+    { label: 'object', subject: {} }, { label: 'empty', subject: '' }, { label: 'oversized', subject: 'x'.repeat(2049) },
+  ])('rejects an invalid subject even with owner group membership: $label', async ({ subject }) => {
+    await expect(tokenVerifier(runtimeSettings(), jwks)(`Bearer ${await token({ sub: subject })}`)).rejects.toMatchObject({ status: 401 });
   });
   it('rejects bad signatures', async () => {
     const other = await generateKeyPair('RS256'); const now = Math.floor(Date.now() / 1000);
@@ -47,7 +57,7 @@ describe('authenticated stateless Streamable HTTP', () => {
     await expect(tokenVerifier(runtimeSettings(), jwks)(`Bearer ${bad}`)).rejects.toMatchObject({ status: 401 });
   });
   it.each([owner, 'aaaaaaaa-bbbb-7ccc-dddd-eeeeeeeeeeee', 'opaque-cognito-subject'])('uses the real SDK client across fresh invocation instances for subject %s, with structured read-only tools and no sessions', async subject => {
-    const settings = runtimeSettings(runtimeOptionsSchema.parse({ ownerSubjects: [subject] })), store = new MemoryStore(); const bearer = await token({ sub: subject }); const logs: unknown[] = []; const statuses: number[] = [];
+    const settings = runtimeSettings(), store = new MemoryStore(); const bearer = await token({ sub: subject }); const logs: unknown[] = []; const statuses: number[] = [];
     const client = new Client({ name: 'test-chatgpt-client', version: '1' });
     const transport = new StreamableHTTPClientTransport(new URL(settings.resource), {
       requestInit: { headers: { Authorization: `Bearer ${bearer}` } },

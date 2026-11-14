@@ -34,9 +34,10 @@ make older plans stale; rerunning an old revision cannot deploy it. If only the
 latest revision's CI needs retrying, rerun its `validate` workflow to generate a
 new Plan rather than approving an older source-bound plan.
 
-If the owner identifier or exact ChatGPT callback is unavailable before the
-runtime PR, keep access denied and make the final configuration change in a
-reviewed follow-up. Never use a placeholder owner or an overly broad callback.
+If the exact ChatGPT callback is unavailable before the runtime PR, leave OAuth
+disabled and make the final configuration change in a reviewed follow-up. Group
+membership is managed in Cognito after successful Apply, not through IaC. Never
+use a placeholder user identifier or an overly broad callback.
 Implementation-plan approval does not authorize an AWS Apply.
 
 ## Permission scope
@@ -57,8 +58,13 @@ Implementation-plan approval does not authorize an AWS Apply.
   and API management scope covers rollback of their runtime child resources.
 - Cognito configuration imports the exact ARN of the deployed, tagged user pool. Bootstrap
   pool creation and the unowned-pool initial tagging grant are removed. Client,
-  resource-server and managed-login-branding configuration is allowed only there;
-  user/password administration is not granted. Pool operations require the
+  resource-server, group and managed-login-branding configuration is allowed only
+  there; user/password administration and adding/removing group members are not
+  granted. Group CRUD covers all groups within this one pool because Cognito
+  authorizes these actions on the user-pool ARN, not individual group ARNs.
+  No group `RoleArn` is configured and no new `iam:PassRole` or
+  `iam:PutRolePolicy` permission is granted. Native handler behavior remains an
+  approved deployment check. Pool operations require the
   matching `Project` resource tag; tag removal is not granted. Explicit denies
   prevent changing that tag or claiming a pool owned by another project.
   Tagging the pinned, already-owned pool remains allowed under those guards.
@@ -174,13 +180,23 @@ its remaining events. Current notes/books and user-pool accounts are unaffected
 by the runtime deletion policy. See
 [CloudFormation deletion policies](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-attribute-deletionpolicy.html).
 
-The owner and exact ChatGPT callback are now configured in
-[`config/mcp-runtime.json`](../config/mcp-runtime.json). Activating this source
-configuration requires a separately owner-approved native Plan/Apply. Expect
-only updates to the existing `ChatGptClient` OAuth settings and `McpFunction`
-environment/code; no new or replaced resources, IAM, note storage or retention
-changes are intended. Live Cognito authorization-code/PKCE/refresh and actual
-ChatGPT tool interoperability remain pending until that Apply and owner sign-in.
+The owners-group name and exact ChatGPT callback are configured in
+[`config/mcp-runtime.json`](../config/mcp-runtime.json); no individual user
+identifiers or memberships belong in that configuration. The reviewed local-SSO
+IAM prerequisite adds only `CreateGroup`, `GetGroup`, `UpdateGroup`, and
+`DeleteGroup` on the pinned tagged pool to the application CloudFormation role,
+plus the group resource type to Plan's existing change-set allowlist. CI cannot
+manage users or group membership, and Lambda needs no additional IAM.
+
+Apply that separately approved IAM foundation before merging/starting the ordinary
+CI Plan for this change. The application plan adds one `OwnersGroup` and updates
+the existing `ChatGptClient` OAuth settings and `McpFunction` environment/code.
+There are no storage changes or resource replacements. The group uses
+`RetainExceptOnCreate` with replacement retention: a failed first creation removes
+the empty group, while later stack deletion or replacement preserves externally
+managed membership. It has no associated IAM role. After successful Apply, add
+the owner user to this group in Cognito. Live authorization-code/PKCE/refresh and
+actual ChatGPT interoperability remain pending until Apply and owner sign-in.
 
 After approved Apply, check the deployed code checksum, public resource metadata,
 anonymous 401 challenge and 14-day log retention. Those checks do not access notes

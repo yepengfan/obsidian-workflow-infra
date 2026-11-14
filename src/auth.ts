@@ -14,8 +14,10 @@ export function tokenVerifier(settings: Settings, key: JWTVerifyGetKey = createR
         requiredClaims: ['exp', 'iat', 'sub', 'client_id', 'token_use', 'scope', 'aud'], clockTolerance: 5,
       });
       if (typeof payload.iat !== 'number' || payload.iat > Date.now() / 1000 + 5 || payload.token_use !== 'access' || payload.client_id !== settings.clientId || payload.aud !== settings.resource ||
-        typeof payload.scope !== 'string' || !payload.scope.split(' ').includes(settings.scope) || !payload.sub) throw new AuthError(401);
-      if (!settings.ownerSubjects.includes(payload.sub)) throw new AuthError(403);
+        typeof payload.scope !== 'string' || !payload.scope.split(' ').includes(settings.scope) ||
+        typeof payload.sub !== 'string' || !payload.sub.length || payload.sub.length > 2048) throw new AuthError(401);
+      const groups = payload['cognito:groups'];
+      if (!Array.isArray(groups) || !groups.every(group => typeof group === 'string') || !groups.includes(settings.ownerGroup)) throw new AuthError(403);
       return payload.sub;
     } catch (error) { throw error instanceof AuthError ? error : new AuthError(401); }
   };

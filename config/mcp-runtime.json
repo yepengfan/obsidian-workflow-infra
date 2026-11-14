@@ -1,6 +1,6 @@
 {
   "notePrefix": "",
-  "ownerSubjects": ["895ea4c8-1001-701c-d480-dcf41b41ba98"],
+  "ownerGroup": "obsidian-mcp-owners",
   "callbackUrls": ["https://chatgpt.com/connector/oauth/JqeUjWLzAhtd"],
   "allowedOrigins": ["https://chatgpt.com"],
   "limits": {

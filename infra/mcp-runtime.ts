@@ -1,6 +1,6 @@
 import { CfnOutput, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import { CfnApi, CfnIntegration, CfnRoute, CfnStage } from 'aws-cdk-lib/aws-apigatewayv2';
-import { CfnManagedLoginBranding, CfnUserPoolClient, CfnUserPoolResourceServer, type CfnUserPool, type CfnUserPoolDomain } from 'aws-cdk-lib/aws-cognito';
+import { CfnManagedLoginBranding, CfnUserPoolClient, CfnUserPoolGroup, CfnUserPoolResourceServer, type CfnUserPool, type CfnUserPoolDomain } from 'aws-cdk-lib/aws-cognito';
 import { CfnFunction, CfnPermission } from 'aws-cdk-lib/aws-lambda';
 import { CfnLogGroup } from 'aws-cdk-lib/aws-logs';
 import type { CfnBucket } from 'aws-cdk-lib/aws-s3';
@@ -18,6 +18,14 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   const { notePrefix, ...rawOptions } = application.options;
   if (notePrefix !== deployment.notePrefix) throw Error('Runtime prefix must match the IAM boundary');
   const options = runtimeOptionsSchema.parse(rawOptions);
+  const ownerGroup = new CfnUserPoolGroup(scope, 'OwnersGroup', {
+    userPoolId: pool.ref, groupName: options.ownerGroup,
+    description: 'Authorized private Obsidian MCP users; membership is managed in Cognito',
+  });
+  ownerGroup.overrideLogicalId('OwnersGroup');
+  // Preserve externally managed membership, but remove an empty group when its
+  // first creation rolls back. No AWS role is assigned to group members.
+  ownerGroup.applyRemovalPolicy(RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE);
   const scopeName = 'obsidian.notes/read';
   const resourceServer = new CfnUserPoolResourceServer(scope, 'NotesResourceServer', {
     userPoolId: pool.ref, identifier: 'obsidian.notes', name: 'Private Obsidian notes',
@@ -53,7 +61,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
       OAUTH_CLIENT_ID: client.ref, OAUTH_SCOPE: scopeName, MCP_RESOURCE: endpoint, MCP_OPTIONS: JSON.stringify(options),
     } }, tags: [{ key: 'Project', value: 'obsidian-mcp' }],
   });
-  runtime.overrideLogicalId('McpFunction'); runtime.addResourceDependency(logs);
+  runtime.overrideLogicalId('McpFunction'); runtime.addResourceDependency(logs); runtime.addResourceDependency(ownerGroup);
   const integration = new CfnIntegration(scope, 'McpIntegration', { apiId: api.ref, integrationType: 'AWS_PROXY', integrationUri: runtime.attrArn, payloadFormatVersion: '2.0', timeoutInMillis: 11000 });
   integration.overrideLogicalId('McpIntegration');
   const routes = [ ['McpRoute', 'ANY /mcp'], ['MetadataRoute', 'GET /.well-known/oauth-protected-resource'], ['MetadataPathRoute', 'GET /.well-known/oauth-protected-resource/mcp'] ].map(([id, key]) => {
@@ -73,4 +81,5 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   new CfnOutput(scope, 'McpEndpoint', { value: endpoint });
   new CfnOutput(scope, 'ChatGptClientId', { value: client.ref });
   new CfnOutput(scope, 'NotesScope', { value: scopeName });
+  new CfnOutput(scope, 'OwnerGroupName', { value: ownerGroup.ref });
 }
