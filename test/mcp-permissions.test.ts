@@ -186,6 +186,9 @@ it('limits optional practice saves to encrypted conditional writes on practice d
       expect(JSON.stringify(resource)).toContain(storage.buckets.vault.name + '/Knowledge/Learning/Practice/');
       expect(JSON.stringify(resource)).not.toContain(storage.buckets.library.name);
     }
+    expect(policy.Resource).toEqual(stack.resolve([
+      'Review/Items/*.md', 'Algorithm/Patterns/*.md', 'Algorithm/Atoms/*.md', 'Algorithm/Log/*.md',
+    ].map(path => `arn:${stack.partition}:s3:::${storage.buckets.vault.name}/Knowledge/Learning/Practice/${path}`)));
     expect(policy.Condition?.StringEquals?.['s3:x-amz-server-side-encryption']).toBe('AES256');
   }
   expect(writes.some(s => s.Condition?.StringEquals?.['s3:if-none-match'] === '*')).toBe(true);

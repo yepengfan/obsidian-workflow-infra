@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { parse } from 'yaml';
 import { z } from 'zod';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import bundle from '../workflows/practice.json' with { type: 'json' };
 import { calendarDay, nextSchedule, Practice, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
 import { NoteError } from '../src/paths.js';
@@ -18,7 +18,7 @@ const item = { id: 'lc-1071', domain: 'algorithm' as const, title: 'GCD of strin
   review_count: 0, stage: 0, last_review: null as string | null, next_review: null as string | null };
 class PracticeStore implements NoteStore {
   files = new Map<string, string>([[configPath, moduleText],
-    ...['algorithm', 'system-design'].map(domain => [root + `system/modules/${domain}/module.md`, '---\nenabled: true\n---\n'] as [string, string])]);
+    [root + 'system/modules/algorithm/module.md', '---\nenabled: true\n---\n']]);
   writes: string[] = []; lists: { prefix: string; limit: number }[] = []; serial = 0;
   beforePut?: (key: string) => void;
   tag(key: string) { return '"' + createHash('sha256').update(this.files.get(key) ?? '').digest('hex') + '"'; }
@@ -75,10 +75,14 @@ describe('canonical spaced review policy', () => {
 describe('practice storage behavior', () => {
   it('returns canonical workflow definitions and honors live module guards', async () => {
     const { store, practice } = setup(); const result = await practice.workflow('algorithm');
-    expect(result.domains).toEqual(['algorithm', 'system-design', 'behavioral']); expect(result.selected_domain).toBe('algorithm');
+    expect(result.domains).toEqual(['algorithm']); expect(result.selected_domain).toBe('algorithm');
     expect(result.source_commit).toBe(bundle.sourceCommit); expect(result.intervals).toEqual([1, 3, 7, 14, 30]);
-    const document = await practice.instruction('.agents/skills/practice/SKILL.md', 0);
-    expect(document.text).toBe(bundle.documents['.agents/skills/practice/SKILL.md'].text); expect(store.writes).toHaveLength(0);
+    let document = await practice.instruction('.agents/skills/algo-solve/SKILL.md', 0);
+    let text = document.text;
+    while (document.next_offset !== undefined) {
+      document = await practice.instruction(document.path, document.next_offset); text += document.text;
+    }
+    expect(text).toBe(bundle.documents['.agents/skills/algo-solve/SKILL.md'].text); expect(store.writes).toHaveLength(0);
     store.files.set(configPath, moduleText.replace('enabled: true', 'enabled: false'));
     await expect(practice.workflow()).rejects.toThrow('practice_module_disabled');
   });
@@ -124,7 +128,7 @@ describe('practice storage behavior', () => {
     expect(await practice.record(attempt(prompt.revision, { completed_on: '2026-11-12' }))).toMatchObject({ last_review: '2026-11-12', next_review: '2026-11-13' });
     await expect(practice.record(attempt((await practice.review(item.id)).revision, { attempt_id: 'future', completed_on: '2026-11-15' }))).rejects.toThrow('future');
   });
-  it('paginates only the review prefix and binds cursors to owner/domain/date', async () => {
+  it('paginates only the review prefix and binds cursors to the calendar date', async () => {
     const { store, practice } = setup();
     for (let i = 0; i < 23; i++) await practice.add({ ...request, id: `lc-${i}` });
     const first = await practice.reviews({ domain: 'algorithm' });
@@ -132,15 +136,38 @@ describe('practice storage behavior', () => {
     const second = await practice.reviews({ domain: 'algorithm', cursor: first.nextCursor });
     expect(second.complete).toBe(true); expect(second.unstarted).toHaveLength(3);
     expect(store.lists).toEqual([{ prefix: items, limit: 20 }, { prefix: items, limit: 20 }]);
-    await expect(practice.reviews({ domain: 'behavioral', cursor: first.nextCursor })).rejects.toThrow('invalid_cursor');
     const tomorrow = new Practice(store, settings(), owner, AbortSignal.timeout(10000), () => new Date('2026-11-15T02:00:00Z'));
     await expect(tomorrow.reviews({ domain: 'algorithm', cursor: first.nextCursor })).rejects.toThrow('invalid_cursor');
+  });
+  it('skips other domains in a mixed queue and refuses to read or record their attempts', async () => {
+    const { store, practice } = await seeded();
+    const algorithmNote = store.files.get(items + item.id + '.md')!;
+    for (const domain of ['system-design', 'behavioral']) {
+      const id = `other-${domain}`;
+      store.files.set(items + id + '.md', algorithmNote.replace('id: lc-1071', `id: ${id}`).replace('domain: algorithm', `domain: ${domain}`));
+      await expect(practice.review(id)).rejects.toThrow('unsupported_practice_domain');
+      await expect(practice.record(attempt(store.tag(items + id + '.md'), { id }))).rejects.toThrow('unsupported_practice_domain');
+    }
+    const queue = await practice.reviews({ domain: 'algorithm' });
+    expect(queue.complete).toBe(true); expect(queue.unstarted.map(item => item.id)).toEqual([item.id]);
+    expect(store.writes).toEqual([items + item.id + '.md']);
+  });
+  it('starts Algorithm directly and exposes only its instruction set and note scope', async () => {
+    const { practice } = setup();
+    expect(await practice.workflow()).toMatchObject({ domains: ['algorithm'], selected_domain: 'algorithm', time_limits: { algorithm: expect.any(Number) } });
+    const workflow = await practice.workflow();
+    expect(workflow.entry).toBe(bundle.entry);
+    for (const path of ['.agents/skills/sysd-solve/SKILL.md', 'Learning/Practice/Review/Flows/behavioral.md']) {
+      expect(workflow.documents).not.toContain(path);
+      await expect(practice.instruction(path, 0)).rejects.toThrow('unknown_practice_instruction');
+    }
+    await expect(practice.readNote('Learning/Practice/System-Design/Patterns/test.md')).rejects.toThrow('invalid_path');
   });
   it('does not permit private record changes when writes are disabled', async () => {
     const { store, practice } = setup(false); await expect(practice.add(request)).rejects.toThrow('writes_disabled'); expect(store.writes).toHaveLength(0);
   });
   it.each(['system/modules/algorithm/module.md', 'WeRead/a.md', 'Learning/Practice/Algorithm/Patterns/AGENTS.md',
-    'Learning/Practice/Algorithm/Patterns/../AGENTS.md', 'Learning/Practice/Review/Items/lc-1.md', 'Templates/SD Log.md'])('rejects ordinary edits to %s', path => {
+    'Learning/Practice/Algorithm/Patterns/../AGENTS.md', 'Learning/Practice/Review/Items/lc-1.md', 'Learning/Practice/System-Design/Patterns/queues.md', 'Learning/Practice/System-Design/Solutions/URL-Shortener/progress.md', 'Templates/SD Log.md'])('rejects ordinary edits to %s', path => {
     expect(() => validatePracticeWritePath(path)).toThrow();
   });
   it('updates only unique anchors and refuses stale or ambiguous note edits', async () => {
@@ -151,71 +178,7 @@ describe('practice storage behavior', () => {
     await expect(practice.updateNote(path, read.revision, [{ old: '# Log', replacement: '# Wrong' }])).rejects.toThrow('revision_conflict');
     await expect(practice.updateNote(path, (await practice.readNote(path)).revision, [{ old: 'Missing', replacement: 'Wrong' }])).rejects.toThrow('anchor_not_unique');
   });
-  it('creates valid Excalidraw data and a progress note; retries preserve user edits', async () => {
-    const { store, practice } = setup(); const input = { topic: 'URL Shortener', started_on: '2026-11-14', session_id: 'session-1' };
-    const result = await practice.createDesignSession(input); expect(result.complete).toBe(true); expect(result.files).toHaveLength(2);
-    const canvas = store.files.get(root + result.files[1]!.path)!;
-    const drawing = JSON.parse(canvas.match(/```json\n([\s\S]*?)\n```/u)![1]!);
-    expect(drawing.type).toBe('excalidraw'); expect(drawing.elements[0].text).toBe('Design: URL Shortener');
-    for (const element of drawing.elements) expect(canvas).toContain('^' + element.id);
-    const progressPath = root + result.files[0]!.path;
-    store.files.set(progressPath, store.files.get(progressPath)! + '\nHuman progress');
-    const retry = await practice.createDesignSession(input); expect(retry.files.every(file => file.status === 'existing')).toBe(true);
-    expect(store.files.get(progressPath)).toContain('Human progress');
-    expect(await practice.createDesignSession({ ...input, session_id: 'different-session' })).toMatchObject({ complete: false, files: [{ status: 'failed' }] });
-  });
-  it('reports partial session creation and recovers without replacing the first file', async () => {
-    const { store, practice } = setup(); const input = { topic: 'YouTube', started_on: '2026-11-14', session_id: 'session-2' };
-    store.beforePut = key => { if (key.endsWith('.excalidraw.md')) throw new NoteError('note_unavailable'); };
-    const partial = await practice.createDesignSession(input); expect(partial.complete).toBe(false); expect(partial.files.map(file => file.status)).toEqual(['created', 'failed']);
-    store.beforePut = undefined; const result = await practice.createDesignSession(input); expect(result.complete).toBe(true);
-    expect(result.files.map(file => file.status)).toEqual(['existing', 'created']);
-    const progress = store.files.get(root + result.files[0]!.path)!;
-    const metadata = parse(progress.split('---\n')[1]!); expect(metadata.mcp_session_id).toBe(input.session_id);
-  });
-  it.each([
-    { name: 'timeout', failure: new NoteError('timeout'), code: 'timeout' },
-    { name: 'read failure', failure: new NoteError('note_unavailable'), code: 'note_unavailable' },
-    { name: 'unexpected read failure', failure: new Error('private diagnostic'), code: 'note_unavailable' },
-    { name: 'oversized canvas', content: 'x'.repeat(65537), code: 'practice_note_too_large' },
-    { name: 'missing frontmatter', content: 'Private canvas without frontmatter', code: 'invalid_practice_note' },
-    { name: 'invalid frontmatter', content: '---\nmcp_session_id: [\n---\nPrivate canvas', code: 'invalid_practice_note' },
-  ])('preserves partial statuses after recovery encounters $name', async ({ failure, content, code }) => {
-    const { store, practice } = setup();
-    const input = { topic: 'YouTube', started_on: '2026-11-14', session_id: 'recovery-failure' };
-    const folder = 'Learning/Practice/System-Design/Solutions/YouTube-2026-11-14/';
-    const progressPath = folder + 'progress.md', canvasPath = folder + 'YouTube.excalidraw.md';
-    const originalRead = store.read.bind(store);
-    const read = vi.spyOn(store, 'read').mockImplementation(async (...args) => {
-      if (args[0] === root + canvasPath && failure) throw failure;
-      return originalRead(...args);
-    });
-    let originalCanvas = '';
-    store.beforePut = key => {
-      if (key !== root + canvasPath) return;
-      originalCanvas ||= store.files.get(key) ?? '---\nmcp_session_id: recovery-failure\n---\nHuman canvas edit';
-      store.files.set(key, content ?? originalCanvas);
-    };
-    const partial = await practice.createDesignSession(input);
-    expect(partial).toMatchObject({ complete: false, files: [
-      { path: progressPath, status: 'created' }, { path: canvasPath, status: 'failed', error: code },
-    ] });
-    const editedProgress = store.files.get(root + progressPath)! + '\nHuman progress edit';
-    store.files.set(root + progressPath, editedProgress);
-    expect(await practice.createDesignSession(input)).toMatchObject({ complete: false, files: [
-      { path: progressPath, status: 'existing' }, { path: canvasPath, status: 'failed', error: code },
-    ] });
-    expect(store.files.get(root + progressPath)).toBe(editedProgress);
-    expect(store.files.get(root + canvasPath)).toBe(content ?? originalCanvas);
-    read.mockRestore(); store.beforePut = undefined;
-    store.files.set(root + canvasPath, originalCanvas);
-    expect(await practice.createDesignSession(input)).toMatchObject({ complete: true, files: [
-      { path: progressPath, status: 'existing' }, { path: canvasPath, status: 'existing' },
-    ] });
-    expect(store.files.get(root + progressPath)).toBe(editedProgress);
-    expect(store.files.get(root + canvasPath)).toBe(originalCanvas);
-    expect(store.writes).toEqual([root + progressPath]);
-  });
+
 });
 
 it('exposes and executes the workflow through the real stateless MCP SDK client', async () => {
@@ -238,9 +201,16 @@ it('exposes and executes the workflow through the real stateless MCP SDK client'
     await client.connect(transport);
     const tools = (await client.listTools()).tools;
     expect(tools.some(tool => tool.name === 'practice')).toBe(true);
+    expect(tools.map(tool => tool.name)).not.toContain('practice_create_design_session');
+    for (const domain of ['system-design', 'behavioral']) {
+      for (const name of ['practice', 'practice_reviews', 'practice_add_review']) {
+        expect((await client.callTool({ name, arguments: { ...(name === 'practice_add_review' ? request : {}), domain } })).isError).toBe(true);
+      }
+    }
+    expect(store.writes).toHaveLength(0);
     expect(tools.find(tool => tool.name === 'practice_record_review')?._meta?.securitySchemes)
       .toEqual([{ type: 'oauth2', scopes: [options.scope, `${options.resource}/write`] }]);
-    const workflow = await client.callTool({ name: 'practice', arguments: { domain: 'algorithm' } });
+    const workflow = await client.callTool({ name: 'practice', arguments: {} });
     expect(workflow.structuredContent).toMatchObject({ selected_domain: 'algorithm', source_commit: bundle.sourceCommit });
     const denied = await client.callTool({ name: 'practice_add_review', arguments: request });
     expect(denied.isError).toBe(true); expect(denied._meta?.['mcp/www_authenticate']).toContain('/write'); expect(store.writes).toHaveLength(0);
@@ -279,19 +249,15 @@ it.each([
     }));
     const review = await client.callTool({ name: 'practice_record_review',
       arguments: { ...attempt(revision), completed_on: date } });
-    const session = await client.callTool({ name: 'practice_create_design_session',
-      arguments: { topic: 'URL Shortener', session_id: 'calendar-test', started_on: date } });
     if (!valid) {
-      expect(review.isError).toBe(true); expect(session.isError).toBe(true);
+      expect(review.isError).toBe(true);
       expect(store.files).toEqual(before); expect(store.writes).toEqual(writesBefore);
     } else {
-      expect(review.isError).not.toBe(true); expect(session.isError).not.toBe(true);
+      expect(review.isError).not.toBe(true);
       expect(review.structuredContent).toMatchObject({ recorded: true, last_review: date });
-      expect(session.structuredContent).toMatchObject({ complete: true });
       expect(parse(store.files.get(items + item.id + '.md')!.split('---\n')[1]!))
         .toMatchObject({ last_review: date, next_review: date.endsWith('02-29') ? date.slice(0, 4) + '-03-01' : '0001-01-02' });
-      const progress = root + `Learning/Practice/System-Design/Solutions/URL-Shortener-${date}/progress.md`;
-      expect(parse(store.files.get(progress)!.split('---\n')[1]!)).toMatchObject({ started: date });
+
     }
   } finally { await client.close(); }
 });

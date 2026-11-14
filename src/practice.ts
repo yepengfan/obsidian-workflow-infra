@@ -6,7 +6,7 @@ import type { Settings } from './config.js';
 import { decodeCursor, encodeCursor, keyFor, NoteError, validPath } from './paths.js';
 import type { NoteStore } from './s3.js';
 
-export const domainSchema = z.enum(['algorithm', 'system-design', 'behavioral']);
+export const domainSchema = z.enum(['algorithm']);
 export const slugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(120);
 export const revisionSchema = z.string().min(1).max(256);
 const text = z.string().max(12000);
@@ -18,16 +18,16 @@ export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: rev
   attempt_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u).max(128),
   outcome: z.enum(['independent', 'assisted', 'incomplete']), reflection: requiredText,
   completed_on: dateSchema, submission: text.optional(), observations: text.optional() });
-export const listReviewsSchema = z.strictObject({ domain: domainSchema, cursor: z.string().max(8192).optional() });
-const summarySchema = z.object({ id: slugSchema, domain: domainSchema, title: z.string().min(1).max(200), status: z.enum(['active', 'archived']),
+export const listReviewsSchema = z.strictObject({ domain: domainSchema.default('algorithm'), cursor: z.string().max(8192).optional() });
+const summarySchema = z.object({ id: slugSchema, domain: z.enum(['algorithm', 'system-design', 'behavioral']), title: z.string().min(1).max(200), status: z.enum(['active', 'archived']),
   review_count: z.number().int().nonnegative(), stage: z.number().int().nonnegative(),
   last_review: dateSchema.nullable(), next_review: dateSchema.nullable() });
 const itemSchema = summarySchema.extend({ prompt: requiredText, source: text.optional(), attempt_ids: z.array(z.string()).max(5000).default([]) });
 const moduleSchema = z.object({ enabled: z.boolean(), interval_days: z.array(z.number().int().min(1).max(3650)).min(1).max(20),
-  retry_days: z.number().int().min(1).max(3650), practice_flows: z.record(domainSchema, z.string()),
-  review_time_limits: z.record(domainSchema, z.number().positive().max(240)) });
+  retry_days: z.number().int().min(1).max(3650), practice_flows: z.object({ algorithm: z.string() }),
+  review_time_limits: z.object({ algorithm: z.number().positive().max(240) }) });
 const prefix = 'Learning/Practice/Review/Items/';
-const expectedFlows = { algorithm: '.agents/skills/algo-solve/SKILL.md', 'system-design': '.agents/skills/sysd-solve/SKILL.md', behavioral: 'Learning/Practice/Review/Flows/behavioral.md' };
+const expectedFlow = '.agents/skills/algo-solve/SKILL.md';
 const documents: Record<string, { text: string; sha256: string }> = bundle.documents;
 export class PracticeError extends Error { constructor(readonly code: string) { super(code); } }
 function parseNote(value: string) {
@@ -73,27 +73,24 @@ export class Practice {
     if (value.total > value.bytes.length) throw new PracticeError('practice_note_too_large');
     return { text: new TextDecoder('utf-8', { fatal: true }).decode(value.bytes), revision: value.etag };
   }
-  private async config(domain?: z.infer<typeof domainSchema>) {
+  private async config() {
     if (!this.settings.practice.enabled) throw new PracticeError('practice_disabled');
     const note = await this.read('system/modules/practice-review/module.md');
     const config = moduleSchema.parse(parseNote(note.text).metadata);
     if (!config.enabled) throw new PracticeError('practice_module_disabled');
-    if (domain) {
-      if (config.practice_flows[domain] !== expectedFlows[domain]) throw new PracticeError('workflow_mapping_changed_refresh_required');
-      if (domain !== 'behavioral') {
-        const guard = await this.read(`system/modules/${domain}/module.md`);
-        if (parseNote(guard.text).metadata.enabled !== true) throw new PracticeError('domain_module_disabled');
-      }
-    }
+    if (config.practice_flows.algorithm !== expectedFlow) throw new PracticeError('workflow_mapping_changed_refresh_required');
+    const guard = await this.read('system/modules/algorithm/module.md');
+    if (parseNote(guard.text).metadata.enabled !== true) throw new PracticeError('domain_module_disabled');
     return config;
   }
-  async workflow(domain?: z.infer<typeof domainSchema>) {
-    const config = await this.config(domain);
-    return { domains: domainSchema.options, selected_domain: domain ?? null, source_commit: bundle.sourceCommit,
-      entry: documents['.agents/skills/practice/SKILL.md']!.text, documents: Object.keys(documents).filter(path => path.endsWith('.md')),
+  async workflow(domain: z.infer<typeof domainSchema> = 'algorithm') {
+    domainSchema.parse(domain);
+    const config = await this.config();
+    return { domains: domainSchema.options, selected_domain: domain, source_commit: bundle.sourceCommit,
+      entry: bundle.entry, documents: Object.keys(documents).filter(path => path.endsWith('.md')),
       time_limits: config.review_time_limits, intervals: config.interval_days, retry_days: config.retry_days,
       today: this.today(), time_zone: this.settings.practice.timeZone, writes_enabled: this.settings.practice.writesEnabled,
-      adapter: 'User-invoked practice workflow. Use practice_instruction for the listed versioned workflow definitions, and read_note/list_notes for private S3 notes. Replace the local review.py due/show/add/record commands with practice_reviews/practice_review/practice_add_review/practice_record_review. Collect all queue pages before claiming the full due order or no due items; stop after 10 pages and ask to narrow the task if still incomplete. Sort overdue/today by next_review and stable id. Complete due reviews before new practice. Use neutral prompts only until the independent submission ends. Keep the learner reflection verbatim. Obtain explicit save confirmation before write calls; never treat a code submission as consent. Replace local mkdir/template execution with practice_create_design_session; read BOTH progress.md and the actual Excalidraw file on resume. Use practice_create_note/practice_update_note only after preview and confirmation for domain-specific saving. No local shell, Python, Git or arbitrary program execution is available. If writes are disabled, coach and draft in chat and explicitly report that nothing was saved. Do not claim a timer or code execution occurred unless an actual host tool performed it. Source workflow guards remain authoritative; do not toggle modules through note writes.' };
+      adapter: 'Algorithm-only MVP: start algorithm practice directly without a domain menu. Shared source documents may mention other domains; those are outside this integration. Use practice_instruction for listed workflow definitions and read_note/list_notes for private S3 notes. Replace review.py due/show/add/record with practice_reviews/practice_review/practice_add_review/practice_record_review. Collect all queue pages before claiming the full due order or no due items; stop after 10 pages and ask to narrow the task if still incomplete. Sort overdue/today by next_review and stable id. Complete due reviews before new practice. Use neutral prompts until the independent submission ends. Keep learner reflections verbatim. Obtain explicit save confirmation before write calls; never treat a code submission as consent. Use practice_create_note/practice_update_note for algorithm Pattern/Atom/Log saving after preview and confirmation. No local shell, Python, Git or arbitrary program execution is available. If writes are disabled, coach and draft in chat and explicitly report that nothing was saved. Do not claim a timer or code execution occurred unless an actual host tool performed it. Do not toggle modules through note writes.' };
   }
   async instruction(path: string, offset: number) {
     await this.config();
@@ -103,14 +100,16 @@ export class Practice {
     return { path, text, source_commit: bundle.sourceCommit, source_sha256: doc.sha256, offset, complete: offset + text.length >= doc.text.length,
       ...(offset + text.length < doc.text.length ? { next_offset: offset + text.length } : {}) };
   }
-  private async item(id: string) {
+  private async item(id: string, forQueue = false) {
     const path = prefix + slugSchema.parse(id) + '.md';
     const note = await this.read(path), parsed = parseNote(note.text), item = itemSchema.parse(parsed.metadata);
     if (item.id !== id) throw new PracticeError('review_id_mismatch');
+    if (!forQueue && item.domain !== 'algorithm') throw new PracticeError('unsupported_practice_domain');
     return { ...note, ...parsed, item, path };
   }
   async reviews(input: z.infer<typeof listReviewsSchema>) {
-    await this.config(input.domain);
+    domainSchema.parse(input.domain);
+    await this.config();
     const day = this.today(), context = createHash('sha256').update(JSON.stringify([this.owner, this.settings.bucket, this.settings.prefix, day, input.domain])).digest('hex');
     const decoded = input.cursor ? decodeCursor(input.cursor, z.strictObject({ context: z.string(), token: z.string().min(1).max(4096) })) : undefined;
     if (decoded && decoded.context !== context) throw new NoteError('invalid_cursor');
@@ -124,7 +123,7 @@ export class Practice {
       const summaries = await Promise.all(chunk.map(async note => {
         const name = note.key.slice((this.settings.prefix + prefix).length);
         if (note.key !== this.settings.prefix + prefix + name || !/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u.test(name)) throw new PracticeError('invalid_review_path');
-        const value = await this.item(name.slice(0, -3));
+        const value = await this.item(name.slice(0, -3), true);
         return summarySchema.parse(value.item);
       }));
       rows.push(...summaries.filter(item => item.domain === input.domain && item.status === 'active'));
@@ -135,7 +134,7 @@ export class Practice {
       ordering: 'this_page_only', ...(page.next ? { nextCursor: encodeCursor({ context, token: page.next }) } : {}) };
   }
   async review(id: string, includeHistory = false) {
-    const note = await this.item(id); await this.config(note.item.domain);
+    const note = await this.item(id); await this.config();
     if (note.item.status !== 'active') throw new PracticeError('review_archived');
     return { ...summarySchema.parse(note.item), prompt: note.item.prompt, source: note.item.source ?? null,
       revision: note.revision, ...(includeHistory ? { history: note.body } : {}) };
@@ -146,7 +145,8 @@ export class Practice {
     return this.store.put(this.key(path), value, revision, this.signal);
   }
   async add(input: z.infer<typeof addReviewSchema>) {
-    await this.config(input.domain);
+    domainSchema.parse(input.domain);
+    await this.config();
     const metadata = { id: input.id, domain: input.domain, title: input.title.trim(), status: 'active', prompt: input.prompt,
       review_count: 0, stage: 0, last_review: null, next_review: null, attempt_ids: [], ...(input.source ? { source: input.source } : {}) };
     const body = `# ${metadata.title.replace(/[\r\n]/gu, ' ')}\n\n${input.review_focus ? '## Review focus\n\n' + input.review_focus + '\n\n' : ''}## Practice history\n`;
@@ -160,7 +160,7 @@ export class Practice {
     return { ...summarySchema.parse(metadata), created: true };
   }
   async record(input: z.infer<typeof recordReviewSchema>) {
-    const note = await this.item(input.id), config = await this.config(note.item.domain);
+    const note = await this.item(input.id), config = await this.config();
     if (note.item.status !== 'active') throw new PracticeError('review_archived');
     if (note.item.attempt_ids.includes(input.attempt_id)) return { ...summarySchema.parse(note.item), recorded: false };
     if (input.completed_on > this.today()) throw new PracticeError('review_date_is_in_future');
@@ -173,51 +173,18 @@ export class Practice {
     await this.put(note.path, serialize(metadata, note.body + entry), note.revision);
     return { ...summarySchema.parse(metadata), recorded: true };
   }
-  async createDesignSession(input: { topic: string; session_id: string; started_on: string }) {
-    await this.config('system-design');
-    if (input.started_on > this.today()) throw new PracticeError('session_date_is_in_future');
-    const folder = `Learning/Practice/System-Design/Solutions/${input.topic.trim().replace(/ +/gu, '-')}-${input.started_on}/`;
-    const canvasName = `${input.topic.trim().replace(/ +/gu, '-')}.excalidraw.md`;
-    const metadata = { topic: `Design ${input.topic}`, started: input.started_on, source: 'Hello Interview',
-      excalidraw: `[[${folder}${canvasName.slice(0, -3)}]]`, tags: ['system-design/wip'], mcp_session_id: input.session_id };
-    const progress = serialize(metadata, '# Progress\n\n| Step | Status | Notes |\n| --- | --- | --- |\n' +
-      ['Requirements', 'Core Entities', 'API', 'Data Flow', 'High-Level Design', 'Deep Dives'].map(step => `| ${step} | ⬜ | |`).join('\n') +
-      '\n\n## Pending Questions\n\n## Key Learnings\n\n## Next Session\n\nBegin Requirements.\n');
-    const template = bundle.canvasTemplate.replaceAll('MCP_TOPIC_PLACEHOLDER', input.topic);
-    const parsed = parseNote(template);
-    const canvas = serialize({ ...parsed.metadata, mcp_session_id: input.session_id }, parsed.body);
-    const files: { path: string; status: string; error?: string }[] = [];
-    for (const [name, text] of [['progress.md', progress], [canvasName, canvas]]) {
-      const path = folder + name;
-      try {
-        try { await this.put(path, text!); }
-        catch (error) {
-          if (!(error instanceof NoteError) || error.code !== 'revision_conflict') throw error;
-          const existing = parseNote((await this.read(path)).text);
-          if (existing.metadata.mcp_session_id === input.session_id) { files.push({ path, status: 'existing' }); continue; }
-          throw error;
-        }
-        files.push({ path, status: 'created' });
-      } catch (error) {
-        files.push({ path, status: 'failed', error: error instanceof NoteError || error instanceof PracticeError ? error.code : 'note_unavailable' });
-        break;
-      }
-    }
-    return { folder, session_id: input.session_id, files, complete: files.length === 2 && files.every(file => file.status !== 'failed'),
-      recovery: 'Retry with the same topic, started_on and session_id. Existing files belonging to this session are preserved, including user edits. Never delete a file to recover a partial initialization.' };
-  }
   async readNote(path: string) {
     await this.config();
-    if (!path.startsWith('Learning/Practice/')) throw new NoteError('invalid_path');
+    if (!path.startsWith('Learning/Practice/Algorithm/')) throw new NoteError('invalid_path');
     return { path, ...await this.read(path) };
   }
   async createNote(path: string, content: string) {
-    validatePracticeWritePath(path); await this.config(path.includes('/Algorithm/') ? 'algorithm' : 'system-design');
+    validatePracticeWritePath(path); await this.config();
     await this.put(path, content);
     return { path, created: true };
   }
   async updateNote(path: string, revision: string, edits: { old: string; replacement: string }[]) {
-    validatePracticeWritePath(path); await this.config(path.includes('/Algorithm/') ? 'algorithm' : 'system-design');
+    validatePracticeWritePath(path); await this.config();
     const note = await this.read(path);
     if (note.revision !== revision) throw new PracticeError('revision_conflict');
     let result = note.text;
@@ -232,5 +199,5 @@ export class Practice {
 export function validatePracticeWritePath(path: string) {
   validPath(path);
   if (/(?:^|\/)(?:AGENTS|CLAUDE|Guide|00_index)\.md$/iu.test(path) ||
-    !/^Learning\/Practice\/(?:(?:Algorithm\/(?:Patterns|Atoms|Log)|System-Design\/(?:Patterns|Log))\/[^/]+\.md|System-Design\/Solutions\/[^/]+\/(?:progress\.md|[^/]+\.excalidraw\.md))$/u.test(path)) throw new NoteError('invalid_path');
+    !/^Learning\/Practice\/Algorithm\/(?:Patterns|Atoms|Log)\/[^/]+\.md$/u.test(path)) throw new NoteError('invalid_path');
 }

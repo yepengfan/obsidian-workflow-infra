@@ -72,7 +72,7 @@ flowchart TB
 ```
 
 The application implements `list_notes`, `search_notes`, and `read_note`, plus
-a staged practice workflow for Algorithm, System Design and Behavioral Interview.
+an Algorithm-only practice MVP with due reviews followed by new problems.
 Practice coaching and queue reads reuse the same authenticated Lambda and S3
 containers; confirmed saving is implemented behind a disabled write flag. See
 [practice through MCP](docs/practice.md) for its tools and activation checks.

@@ -1,8 +1,9 @@
 # Practice through MCP
 
 The practice integration adapts the existing `obsidian-workflow` skill for the
-ChatGPT connection. It supports Algorithm, System Design and Behavioral
-Interview: choose a domain, complete its due reviews, then start a new problem.
+ChatGPT connection. The MVP supports Algorithm only: start directly, complete
+due Algorithm reviews, then start a new problem. System Design and Behavioral
+Interview are outside this rollout.
 ChatGPT guides and assesses the conversation; Lambda performs typed data
 operations. Lambda does not host an LLM, execute arbitrary code or run a local
 Python process.
@@ -30,8 +31,11 @@ test; deterministic tests prove the protocol and persistence behavior.
 ## Source of truth
 
 `workflows/practice.json` is a generated, versioned snapshot of the canonical
-workflow repository's public tracked definitions, including domain guides,
-templates, content definitions and the Excalidraw template. It contains no
+workflow repository's public tracked definitions, including Algorithm guides,
+templates and review content definitions. `workflows/practice-entry.md` is the
+maintained Algorithm-only MCP entry; the importer includes it in the snapshot.
+Shared upstream review guides retain their original domain references, but the
+entry restricts their use to Algorithm. It contains no
 private review items, submissions, notes, credentials or environment files.
 The manifest records the upstream commit and each source file's SHA-256.
 Text punctuation is normalized from long dashes to plain dashes in the imported
@@ -45,15 +49,14 @@ npm run check
 ```
 
 Review the generated diff; never edit the snapshot manually. Refresh does not
-fetch code, upload to S3 or deploy anything. It runs the explicitly selected
-canonical Excalidraw template generator locally to capture an initial canvas.
-CI and Lambda use the committed snapshot and do not run that script. Generated
-canvas element IDs/timestamps change on an explicit refresh. Runtime ZIP builds
-from the same committed snapshot remain deterministic.
+fetch code, execute upstream scripts, upload to S3 or deploy anything.
+CI and Lambda use the committed snapshot. Runtime ZIP builds from the same
+committed snapshot remain deterministic.
 
 The live S3 practice-review manifest controls `enabled`, intervals, retry days,
-time limits and domain mapping. Domain module guards are also read before
-domain actions. A changed workflow mapping requires a reviewed source refresh,
+time limits and domain mapping. The Algorithm module guard is read before
+practice actions. Other domain settings in the shared manifest are ignored.
+A changed workflow mapping requires a reviewed source refresh,
 rather than loading arbitrary executable code. Missing/invalid configuration
 fails closed. Module configuration and guide files cannot be saved through the
 practice write tools.
@@ -62,18 +65,17 @@ practice write tools.
 
 | Tool | Behavior |
 | --- | --- |
-| `practice` | Return domain choices, workflow entry, instruction catalog and current configuration. |
+| `practice` | Start Algorithm directly; return workflow entry, instruction catalog and current configuration. |
 | `practice_instruction` | Read a bounded chunk of one packaged instruction document. |
-| `practice_reviews` | Read one bounded queue page for a domain. |
+| `practice_reviews` | Read one bounded Algorithm review queue page. |
 | `practice_review` | Return a neutral prompt and revision; feedback phase may include history. |
-| `practice_read_note` | Read one complete bounded practice note and its revision for a potential edit. |
+| `practice_read_note` | Read one complete bounded Algorithm note and its revision for a potential edit. |
 | `practice_add_review` | Create an unstarted review object without overwriting an existing one. |
 | `practice_record_review` | Append an ended attempt/reflection and calculate scheduling deterministically. |
-| `practice_create_note` | Create an approved Pattern/Atom/Log/session Markdown file if absent. |
+| `practice_create_note` | Create an approved Algorithm Pattern/Atom/Log Markdown file if absent. |
 | `practice_update_note` | Apply selected unique text-anchor edits with an expected revision. |
-| `practice_create_design_session` | Create progress and Excalidraw files with partial-result reporting. |
 
-The last five tools are absent from the catalog while writes are disabled.
+The last four tools are absent from the catalog while writes are disabled.
 Every write requires both the resource-bound read and write scopes and owners
 group membership. Tool annotations request careful host handling but are not
 proof of human approval. The workflow requires showing the intended change and
@@ -84,7 +86,9 @@ an authorization mechanism.
 ## Queue and schedule
 
 The queue scans only `Learning/Practice/Review/Items/`, twenty objects per call,
-with at most four concurrent object reads. Results and ordering are page-local.
+with at most four concurrent object reads. Existing System Design and Behavioral
+records are skipped when listing and rejected by selected-review and record
+operations. Results and ordering are page-local.
 Collect all pages before claiming a complete queue or global review order;
 after ten pages, stop and ask to narrow the task rather than reading indefinitely.
 Pagination is not a transaction or a frozen snapshot. Refresh after recording a
@@ -110,7 +114,7 @@ later save. Future dates and dates preceding the last recorded review are
 rejected. Learner reflections are stored verbatim, separate from observations
 and submitted work.
 
-## Concurrency and system-design sessions
+## Concurrency and note edits
 
 S3 creation uses `If-None-Match: *`; updates use the previously read ETag in
 `If-Match`. Conflicts never fall back to unconditional writes. Reread the file,
@@ -118,24 +122,17 @@ reconcile the intended change, show the revised preview and reconfirm.
 `attempt_id` is stable across retries. An already recorded ID returns
 `recorded: false` without appending another round or advancing the schedule.
 
-System design retains its Obsidian artifacts. Resume reads both `progress.md`
-and the actual Excalidraw file, including its uncompressed Text Elements.
-Initialization creates the six-step progress note and the canonical canvas.
-Keep `session_id`, topic and `started_on` stable across retries, including
-midnight. Existing files tagged with that session ID are preserved with all
-user edits. A different session in the same destination produces a conflict.
-
-Two S3 writes are not atomic. Initialization reports each file's status and
-`complete: false` on a partial failure. Retry with the same session parameters;
-never delete an existing file as recovery. Pattern/Log saves across multiple
-files likewise need honest per-file reporting and readback before declaring
-success. There is no cross-file transaction.
+Only Algorithm Pattern, Atom and Log notes can be created or edited through the
+practice note tools. Review attempts use their dedicated tools. The shared
+review folder remains unchanged; the backend enforces each record's domain.
+Multiple note saves are independent operations. Report each result honestly.
+No System Design session or Excalidraw creation tool is included in this MVP.
 
 Individual managed notes are limited to 64 KiB. General `read_note` supports
 chunked reads of larger notes; the write tools refuse to replace a partially
 read or oversized note. No history truncation, archive move or object deletion
-is implemented. Obsidian remains responsible for rendering the canvas and
-Dataview views. ChatGPT does not gain a Python runner or an Obsidian UI from MCP.
+is implemented. Obsidian remains responsible for rendering Dataview views.
+ChatGPT does not gain a Python runner or an Obsidian UI from MCP.
 
 ## Activate writes separately
 
@@ -153,7 +150,7 @@ Dataview views. ChatGPT does not gain a Python runner or an Obsidian UI from MCP
 5. Refresh/reconnect ChatGPT with the additional scope. Keep the client secret
    in its appropriate OAuth field, never in a chat or this repository.
 6. Use an explicitly agreed disposable test session to verify a save, cancelled
-   save, stale concurrent edit, same-attempt retry and two-file recovery. Do not
+   save, stale concurrent edit and same-attempt retry. Do not
    claim host confirmation behavior or production writing is validated before
    observing it. Leave production writes disabled if that check cannot be done.
 
@@ -170,5 +167,5 @@ npm run synth
 The suite uses the actual MCP SDK client and real AWS SDK serialization with
 local in-memory/HTTP fixtures. It covers scheduling, module guards, read-only
 catalogs, scope enforcement, encrypted conditional writes, retries, conflicts,
-neutral prompts, preserved history and valid Excalidraw JSON. It does not use
-real notes, user credentials or a live AWS deployment.
+neutral prompts, preserved history, mixed-domain queues and Algorithm-only tools.
+It does not use real notes, user credentials or a live AWS deployment.
