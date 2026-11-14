@@ -27,6 +27,13 @@ const bucketSchema = z.object({
 export const storageSchema = z.object({
   account: z.string().regex(/^\d{12}$/u),
   region: z.string().regex(/^[a-z]{2}-[a-z]+-\d$/u),
+  retention: z.strictObject({
+    unusedCodeDays: z.number().int().min(1).max(3650),
+    incompleteMultipartUploadDays: z.number().int().min(1).max(365),
+    logDays: z.literal(14),
+    maxCodeVersionsPerRun: z.number().int().min(1).max(10000),
+    maxCodeChangesPerRun: z.number().int().min(1).max(2000),
+  }),
   buckets: z.object({ vault: bucketSchema, library: bucketSchema }).strict(),
 }).strict().refine((value) => value.buckets.vault.name !== value.buckets.library.name, 'Bucket names must differ');
 

@@ -4,10 +4,12 @@ import type { Construct } from 'constructs';
 import type { McpDeploymentConfig } from './mcp-permissions.js';
 
 /** Code only. Provision before the runtime's first approved ZIP upload. */
-export function addCodeArtifacts(scope: Construct, settings: McpDeploymentConfig): CfnBucket {
+export function addCodeArtifacts(scope: Construct, settings: McpDeploymentConfig, incompleteUploadDays: number): CfnBucket {
   const bucket = new CfnBucket(scope, 'CodeArtifacts', {
     bucketName: settings.codeBucketName,
     versioningConfiguration: { status: 'Enabled' },
+    lifecycleConfiguration: { rules: [{ id: 'AbortIncompleteMultipartUploads', status: 'Enabled', prefix: '',
+      abortIncompleteMultipartUpload: { daysAfterInitiation: incompleteUploadDays } }] },
     ownershipControls: { rules: [{ objectOwnership: 'BucketOwnerEnforced' }] },
     publicAccessBlockConfiguration: { blockPublicAcls: true, ignorePublicAcls: true, blockPublicPolicy: true, restrictPublicBuckets: true },
     bucketEncryption: { serverSideEncryptionConfiguration: [{

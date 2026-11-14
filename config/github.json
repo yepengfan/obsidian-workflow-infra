@@ -4,5 +4,6 @@
   "mcpExecutionRoleName": "obsidian-mcp-execution",
   "planRoleName": "obsidian-workflow-ap-southeast-2-plan",
   "deployRoleName": "obsidian-workflow-ap-southeast-2-deploy",
-  "runtimeRoleName": "obsidian-mcp-runtime"
+  "runtimeRoleName": "obsidian-mcp-runtime",
+  "codeRetentionRoleName": "obsidian-mcp-code-retention"
 }

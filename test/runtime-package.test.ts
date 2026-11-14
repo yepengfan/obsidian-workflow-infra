@@ -8,6 +8,7 @@ import { Readable } from 'node:stream';
 import { S3Client } from '@aws-sdk/client-s3';
 import { unzipSync } from 'fflate';
 import { expect, it } from 'vitest';
+import { protectionTags } from '../src/artifact-retention.js';
 import { buildRuntime, publishCode, validateCode } from '../bin/runtime-package.js';
 
 it('builds byte-identical ZIPs for identical runtime code and executes the emitted Lambda handler', async () => {
@@ -41,15 +42,16 @@ it.each(['new', 'exists', 'conflict', 'wrong checksum', 'wrong artifact'] as con
     requestHandler: { handle: async (request: HttpRequest) => {
       calls.push({ method: request.method, headers: request.headers });
       if (request.method === 'PUT' && mode !== 'new') return { response: { statusCode: mode === 'conflict' ? 409 : 412, headers: {}, body: Readable.from(['<Error><Code>PreconditionFailed</Code></Error>']) } };
-      return { response: { statusCode: 200, headers: { 'content-length': String(bytes.length), 'x-amz-server-side-encryption': 'AES256', 'x-amz-checksum-sha256': mode === 'wrong checksum' ? 'bad' : metadata.sha256Base64 }, body: Readable.from([]) } };
+      return { response: { statusCode: 200, headers: { 'content-length': String(bytes.length), 'x-amz-server-side-encryption': 'AES256', 'x-amz-version-id': 'fixture-version', 'x-amz-checksum-sha256': mode === 'wrong checksum' ? 'bad' : metadata.sha256Base64 }, body: Readable.from([]) } };
     } },
   });
   try {
-    const operation = publishCode(client, 'private-code-only', metadata, mode === 'wrong artifact' ? Buffer.from('changed') : bytes, metadata.sourceSha);
-    if (mode === 'new' || mode === 'exists') await operation; else await expect(operation).rejects.toThrow();
+    const operation = publishCode(client, 'private-code-only', metadata, mode === 'wrong artifact' ? Buffer.from('changed') : bytes, metadata.sourceSha, protectionTags(null));
+    if (mode === 'new' || mode === 'exists') expect((await operation).VersionId).toBe('fixture-version'); else await expect(operation).rejects.toThrow();
     if (mode === 'wrong artifact') expect(calls).toHaveLength(0);
     else {
       expect(calls[0]).toMatchObject({ method: 'PUT', headers: { 'if-none-match': '*', 'x-amz-server-side-encryption': 'AES256', 'x-amz-checksum-sha256': metadata.sha256Base64 } });
+      expect(new URLSearchParams(calls[0]!.headers['x-amz-tagging'])).toEqual(new URLSearchParams(protectionTags(null)));
       expect(calls.map(call => call.method)).toEqual(mode === 'conflict' ? ['PUT'] : ['PUT', 'HEAD']);
     }
   } finally { client.destroy(); }

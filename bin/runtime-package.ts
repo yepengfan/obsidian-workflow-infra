@@ -31,14 +31,16 @@ export function validateCode(metadata: CodeBundle, bytes: Uint8Array, expectedSo
   if (metadata.sourceSha !== expectedSource || metadata.bytes !== bytes.length || metadata.sha256 !== digest.toString('hex') ||
     metadata.sha256Base64 !== digest.toString('base64') || metadata.key !== `releases/${metadata.sha256}.zip`) throw Error('Code artifact does not match the reviewed manifest');
 }
-export async function publishCode(client: S3Client, bucket: string, metadata: CodeBundle, bytes: Uint8Array, expectedSource: string) {
+export async function publishCode(client: S3Client, bucket: string, metadata: CodeBundle, bytes: Uint8Array, expectedSource: string, tags?: Record<string, string>) {
   validateCode(bundleSchema.parse(metadata), bytes, expectedSource);
   try {
     await client.send(new PutObjectCommand({ Bucket: bucket, Key: metadata.key, Body: bytes, IfNoneMatch: '*',
-      ServerSideEncryption: 'AES256', ChecksumSHA256: metadata.sha256Base64, ContentType: 'application/zip' }));
+      ServerSideEncryption: 'AES256', ChecksumSHA256: metadata.sha256Base64, ContentType: 'application/zip',
+      ...(tags ? { Tagging: new URLSearchParams(tags).toString() } : {}) }));
   } catch (error) {
     if (!(error instanceof Error && '$metadata' in error && (error.$metadata as { httpStatusCode?: number }).httpStatusCode === 412)) throw Error('Conditional code upload failed', { cause: error });
   }
   const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: metadata.key, ChecksumMode: 'ENABLED' }));
   if (head.ContentLength !== metadata.bytes || head.ChecksumSHA256 !== metadata.sha256Base64 || head.ServerSideEncryption !== 'AES256') throw Error('Stored code checksum differs from the reviewed artifact');
+  return head;
 }

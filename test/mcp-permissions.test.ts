@@ -91,6 +91,29 @@ describe('MCP runtime permission boundary', () => {
     template.resourceCountIs('AWS::ApiGatewayV2::Api', 0);
     for (const role of Object.values(template.findResources('AWS::IAM::Role'))) expect(role.Properties.ManagedPolicyArns).toBeUndefined();
   });
+  it('isolates recurring retention from deployment and both private note buckets', () => {
+    const { stack, statements } = build();
+    const cleanup = statements(config.codeRetentionRoleName);
+    const bucket = stack.resolve(`arn:${stack.partition}:s3:::${settings.codeBucketName}`);
+    expect(cleanup.flatMap(actions).sort()).toEqual([
+      'cloudformation:DescribeStacks', 'cloudformation:GetTemplate', 'lambda:GetFunctionConfiguration',
+      's3:DeleteObjectVersion', 's3:GetObjectTagging', 's3:GetObjectVersionTagging',
+      's3:ListBucketVersions', 's3:PutObjectTagging', 's3:PutObjectVersionTagging',
+    ]);
+    expect(cleanup.find(s => actions(s).includes('s3:ListBucketVersions'))).toMatchObject({
+      Resource: bucket, Condition: { StringLike: { 's3:prefix': ['releases/*'] }, NumericLessThanEquals: { 's3:max-keys': 1000 } },
+    });
+    for (const s of cleanup.filter(s => actions(s).some(a => a.startsWith('s3:') && a !== 's3:ListBucketVersions'))) {
+      expect(s.Resource).toEqual(stack.resolve(`arn:${stack.partition}:s3:::${settings.codeBucketName}/releases/*`));
+    }
+    expect(cleanup.find(s => actions(s).includes('cloudformation:GetTemplate'))?.Resource)
+      .toEqual(stack.resolve(`arn:${stack.partition}:cloudformation:${storage.region}:${storage.account}:stack/ObsidianMcp/*`));
+    expect(cleanup.find(s => actions(s).includes('lambda:GetFunctionConfiguration'))?.Resource)
+      .toEqual(stack.resolve(`arn:${stack.partition}:lambda:${storage.region}:${storage.account}:function:${settings.functionName}`));
+    expect(statements(config.deployRoleName).flatMap(actions)).not.toContain('s3:DeleteObjectVersion');
+    expect(statements(config.planRoleName).flatMap(actions)).not.toContain('s3:PutObjectTagging');
+    expect(statements(config.mcpExecutionRoleName).find(s => actions(s).includes('s3:PutLifecycleConfiguration'))?.Resource).toEqual(bucket);
+  });
   it.each(['../', 'Notes/../', '/Notes/', 'Notes/*/', 'Notes/?/', 'Notes\\Folder/', 'Notes/\n/'])('rejects a nonliteral or escaping prefix %j', notePrefix => {
     expect(mcpDeploymentSchema.safeParse({ ...settings, notePrefix }).success).toBe(false);
   });

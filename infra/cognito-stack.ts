@@ -17,7 +17,7 @@ export const cognitoSchema = z.strictObject({
 
 /** Retains the native issuer identity while optionally adding code storage and the MCP application. */
 export class CognitoStack extends Stack {
-  constructor(scope: Construct, id: string, aws: Pick<StorageConfig, 'account' | 'region'>, settings: z.infer<typeof cognitoSchema>, deployment?: McpDeploymentConfig, application?: McpApplication) {
+  constructor(scope: Construct, id: string, aws: Pick<StorageConfig, 'account' | 'region' | 'retention'>, settings: z.infer<typeof cognitoSchema>, deployment?: McpDeploymentConfig, application?: McpApplication) {
     super(scope, id, {
       env: { account: aws.account, region: aws.region },
       synthesizer: new DefaultStackSynthesizer({ generateBootstrapVersionRule: false }),
@@ -61,8 +61,8 @@ export class CognitoStack extends Stack {
     new CfnOutput(this, 'OAuthIssuer', { value: `https://cognito-idp.${aws.region}.amazonaws.com/${pool.ref}` });
     new CfnOutput(this, 'ManagedLoginDomain', { value: `https://${settings.domainPrefix}.auth.${aws.region}.amazoncognito.com` });
     if (deployment) {
-      const codeBucket = addCodeArtifacts(this, deployment);
-      if (application) addMcpRuntime(this, deployment, application, pool, domain, codeBucket);
+      const codeBucket = addCodeArtifacts(this, deployment, aws.retention.incompleteMultipartUploadDays);
+      if (application) addMcpRuntime(this, deployment, application, pool, domain, codeBucket, aws.retention.logDays);
     } else if (application) throw Error('Runtime requires reviewed deployment identities');
   }
 }

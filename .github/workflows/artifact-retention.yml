@@ -1,0 +1,69 @@
+name: artifact retention
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Preview only (scheduled runs apply the reviewed retention policy)
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: obsidian-infrastructure-production
+  queue: max
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production-plan
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Reject an outdated retention revision
+        run: |
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          [[ "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')" == "$GITHUB_SHA" ]]
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Read reviewed retention role and account
+        id: config
+        run: |
+          node --input-type=commonjs <<'NODE' >> "$GITHUB_OUTPUT"
+          const s = require('./config/storage.json');
+          const g = require('./config/github.json');
+          console.log('account=' + s.account);
+          console.log('region=' + s.region);
+          console.log('roleArn=arn:aws:iam::' + s.account + ':role/' + g.codeRetentionRoleName);
+          NODE
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ steps.config.outputs.roleArn }}
+          aws-region: ${{ steps.config.outputs.region }}
+          allowed-account-ids: ${{ steps.config.outputs.account }}
+      - name: Run bounded code-only retention
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          mode=--apply
+          if [[ "$DRY_RUN" == true ]]; then mode=--dry-run; fi
+          node_modules/.bin/tsx bin/retain-code.ts "$mode"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: code-retention-result
+          retention-days: 7
+          path: code-retention-result.json
+          if-no-files-found: ignore

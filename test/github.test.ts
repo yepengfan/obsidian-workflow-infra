@@ -9,7 +9,7 @@ import { storageSchema } from '../infra/storage-config.js';
 const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
 const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
 type Statement = { Action: string | string[]; Resource?: unknown; Principal?: { Federated?: unknown; Service?: string }; Condition?: { StringEquals?: Record<string, string> } };
-type Role = { Properties: { AssumeRolePolicyDocument: { Statement: Statement[] } } };
+type Role = { Properties: { RoleName: string; AssumeRolePolicyDocument: { Statement: Statement[] } } };
 type Policy = { Properties: { Roles: { Ref: string }[]; PolicyDocument: { Statement: Statement[] } } };
 
 describe('GitHub OIDC foundation', () => {
@@ -17,7 +17,7 @@ describe('GitHub OIDC foundation', () => {
     const template = Template.fromStack(new GitHubTrustStack(new App(), 'Trust', storage, github));
     template.resourceCountIs('AWS::IAM::OIDCProvider', 1);
     const roles = template.findResources('AWS::IAM::Role') as Record<string, Role>;
-    expect(Object.keys(roles)).toHaveLength(5);
+    expect(Object.keys(roles)).toHaveLength(6);
     const subjects = Object.values(roles).filter(role => role.Properties.AssumeRolePolicyDocument.Statement[0]?.Principal?.Federated).map((role) => {
       const statement = role.Properties.AssumeRolePolicyDocument.Statement[0]!;
       expect(statement.Condition?.StringEquals?.['token.actions.githubusercontent.com:aud']).toBe('sts.amazonaws.com');
@@ -25,10 +25,11 @@ describe('GitHub OIDC foundation', () => {
     });
     expect(subjects.sort()).toEqual([
       `${github.repositorySubject}:environment:production`, `${github.repositorySubject}:environment:production-plan`,
+      `${github.repositorySubject}:environment:production-plan`,
     ]);
     expect(Object.values(template.toJSON().Resources).map((r) => (r as { Type: string }).Type).sort()).toEqual([
-      'AWS::IAM::OIDCProvider', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy',
-      'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role',
+      'AWS::IAM::OIDCProvider', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy',
+      'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role',
     ]);
   });
 
@@ -39,7 +40,7 @@ describe('GitHub OIDC foundation', () => {
     const policies = Object.values(template.findResources('AWS::IAM::Policy')) as Policy[];
     for (const [id, role] of Object.entries(roles)) {
       const subject = role.Properties.AssumeRolePolicyDocument.Statement[0]!.Condition?.StringEquals?.['token.actions.githubusercontent.com:sub'];
-      if (!subject) continue;
+      if (!subject || role.Properties.RoleName === github.codeRetentionRoleName) continue;
       const statements = policies.filter((p) => p.Properties.Roles.some((r) => r.Ref === id)).flatMap((p) => p.Properties.PolicyDocument.Statement);
       const actions = statements.flatMap((s) => Array.isArray(s.Action) ? s.Action : [s.Action]);
       if (subject.endsWith(':production-plan')) {
@@ -123,9 +124,9 @@ describe('GitHub OIDC foundation', () => {
     const roles = Object.values(Template.fromStack(new GitHubTrustStack(new App(), 'Trust', storage, github))
       .findResources('AWS::IAM::Role'));
     expect(roles.map(role => role.Properties.RoleName).sort()).toEqual(
-      [github.planRoleName, github.deployRoleName, github.executionRoleName, github.mcpExecutionRoleName, github.runtimeRoleName].sort(),
+      [github.planRoleName, github.deployRoleName, github.executionRoleName, github.mcpExecutionRoleName, github.runtimeRoleName, github.codeRetentionRoleName].sort(),
     );
-    for (const [name, environment] of [[github.planRoleName, 'production-plan'], [github.deployRoleName, 'production']]) {
+    for (const [name, environment] of [[github.planRoleName, 'production-plan'], [github.deployRoleName, 'production'], [github.codeRetentionRoleName, 'production-plan']]) {
       const role = roles.find(role => role.Properties.RoleName === name)!;
       expect(role.Properties.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals[
         'token.actions.githubusercontent.com:sub'
@@ -140,6 +141,7 @@ describe('GitHub OIDC foundation', () => {
     { planRoleName: github.executionRoleName },
     { mcpExecutionRoleName: github.executionRoleName },
     { mcpExecutionRoleName: 'administrator' },
+    { codeRetentionRoleName: github.planRoleName },
   ])('rejects invalid or colliding role names: %j', change => {
     expect(() => githubSchema.parse({ ...github, ...change })).toThrow();
   });

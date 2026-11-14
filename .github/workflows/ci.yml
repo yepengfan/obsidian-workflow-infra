@@ -20,7 +20,9 @@ jobs:
       - run: npm ci
       - run: npm run check
       - name: Validate workflow definitions with the pinned native linter
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+        # GitHub supports queue:max; upstream actionlint #657 does not yet.
+        # The shared concurrency contract is also checked semantically in tests.
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -ignore '^unexpected key "queue" for "concurrency" section\.'
       - name: Audit build dependencies (known CDK bundled moderate finding documented)
         run: npm audit --audit-level=high
       - name: Synthesize the entire infrastructure without AWS credentials
