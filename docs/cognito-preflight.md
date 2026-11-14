@@ -65,19 +65,20 @@ The fallback can make a second request within an attempt. It requires the expect
 issuer/JWKS, exact AWS-domain authorize/token endpoints, authorization-code
 support, `S256` and supported confidential-client authentication. It never
 registers a client or requests tokens, and errors omit remote bodies.
-When `McpEndpoint` is present, the same command also validates the public
-protected-resource metadata against that endpoint and Cognito issuer, then
-requires an anonymous MCP initialization request to return 401 with the expected
-resource-metadata challenge. It never authenticates or requests a note. These
-public checks do not establish an authenticated OAuth exchange.
-For configured callbacks, the checker additionally validates `NotesScope` as
-`<McpEndpoint>/read` and sends one cookie-free `prompt=none` authorization request
-with that resource, scope, client ID and callback. It requires a matching-state
-`login_required` redirect, stops before following it, and rejects grants or other
-errors without logging the redirect contents. This detects the custom-scope
-resource-binding mismatch before owner sign-in. Empty-callback bootstrap skips
-this authorization request. Every HTTP request has a five-second timeout; no
-client secret, user credentials, token exchange or note access is involved.
+When `McpEndpoint` is present, the checker requires `NotesScope` to match the
+[resource-bound read scope](mcp-server.md#configuration-and-bounds), validates
+that scope in the public protected-resource metadata, and requires an anonymous
+MCP initialization request to return 401 with the expected resource-metadata and
+scope challenge.
+For configured callbacks, it also sends one cookie-free authorization-code
+request with S256, `prompt=none`, the canonical resource and read scope, the
+existing client ID, random state and the first validated configured callback.
+It requires a matching-state `login_required` redirect to that callback, stops
+before following it, and rejects grants or other errors without logging redirect
+contents. Empty-callback bootstrap skips only this authorization request.
+Every HTTP request has a five-second timeout; no client secret, user credentials,
+token exchange or note access is involved. These public checks establish
+parameter acceptance before login, not an authenticated OAuth exchange.
 When the entire infrastructure is unchanged, Plan runs this check once.
 
 To repeat the check locally after an approved deployment:

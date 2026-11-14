@@ -73,9 +73,9 @@ immutable ZIP upload and post-Apply verification. Review the templates, native
 change-set ARNs and digest before approving production. Stack execution is not
 atomic; inspect partially completed runs before retrying.
 
-The group-based authorization and callback activation have not been deployed
-as part of code validation. Native group handler permissions, live Cognito OAuth
-and real ChatGPT compatibility remain rollout checks requiring separate approval.
+The resource-bound scope migration requires separately approved deployment;
+code validation does not activate it. Live Cognito OAuth and real ChatGPT
+compatibility remain [connection checks](#connection-verification) after Apply.
 
 ## Owner setup and ChatGPT connection
 
@@ -129,13 +129,9 @@ and replace any manually saved legacy default scope with `NotesScope`. Reconnect
 through OAuth to obtain a new token. Keep the existing callback URI configured;
 creating another connection can produce a different callback that needs review.
 
-The resource-server identifier is immutable in Cognito, so this migration
-replaces only the `NotesResourceServer` scope registry and updates the existing
-client scopes and Lambda settings/code. Review this specific replacement in the
-native plan. The [Apply guard](github-actions.md#automatic-deployment-run) permits
-it only for the modeled registry bound to the MCP URL and existing user pool.
-Other resource replacements and removals remain blocked. User accounts and
-owners-group membership are not part of the registry and need no reassignment.
+Review the [scope-registry migration](mcp-rollout.md#resource-bound-read-scope-migration)
+in the native plan before approving Apply. Existing user accounts and owners-group
+membership need no reassignment.
 
 ## Connection verification
 
@@ -143,12 +139,9 @@ The public `/.well-known/oauth-protected-resource/mcp` document identifies the
 exact `/mcp` resource and native Cognito issuer. Anonymous MCP requests must
 return 401 with `WWW-Authenticate` resource metadata, with no S3 reads.
 
-After Apply, `check:cognito` also sends a cookie-free authorization-code request
-with S256, `prompt=none`, the exact callback, resource and read scope. It requires
-Cognito to return `login_required` to that callback with the matching state,
-without following the redirect. This catches resource-binding rejection before
-interactive login; it never signs in, exchanges a code, requests tokens or reads
-notes. It does not prove the user's complete OAuth exchange.
+The [post-deployment public checker](cognito-preflight.md#local-checks-and-post-deployment-discovery)
+checks resource-bound authorization parameters before login. It does not prove
+the user's complete OAuth exchange.
 
 Use the actual ChatGPT connection to browse one root page, choose a returned
 folder, list that folder, choose one note, and read it. Ask for body search only
