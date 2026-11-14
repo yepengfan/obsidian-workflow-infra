@@ -109,6 +109,28 @@ describe('MCP runtime permission boundary', () => {
       Condition: { StringNotEquals: { 'aws:RequestTag/Project': 'obsidian-mcp' }, Null: { 'aws:RequestTag/Project': 'false' } },
     });
   });
+  it('supports the native log-group read handler without allowing log-body reads or policy writes', () => {
+    const { stack, statements } = build();
+    const execution = statements(config.mcpExecutionRoleName);
+    const metadata = execution.find(s => actions(s).includes('logs:DescribeIndexPolicies'));
+    expect(metadata).toEqual({
+      Effect: 'Allow', Action: ['logs:DescribeLogGroups', 'logs:DescribeIndexPolicies', 'logs:DescribeResourcePolicies'],
+      Resource: '*', Condition: { StringEquals: { 'aws:RequestedRegion': storage.region } },
+    });
+    const protection = execution.filter(s => actions(s).includes('logs:GetDataProtectionPolicy'));
+    const group = `arn:${stack.partition}:logs:${storage.region}:${storage.account}:log-group:/aws/lambda/${settings.functionName}`;
+    expect(protection).toEqual([{
+      Effect: 'Allow', Action: 'logs:GetDataProtectionPolicy', Resource: stack.resolve([group, `${group}:*`]),
+    }]);
+    for (const action of ['logs:GetLogEvents', 'logs:FilterLogEvents', 'logs:StartQuery', 'logs:PutIndexPolicy', 'logs:PutResourcePolicy', 'logs:PutDataProtectionPolicy']) {
+      expect(execution.flatMap(actions)).not.toContain(action);
+    }
+    for (const name of [config.planRoleName, config.deployRoleName, settings.runtimeRoleName, config.codeRetentionRoleName]) {
+      for (const action of ['logs:DescribeIndexPolicies', 'logs:DescribeResourcePolicies', 'logs:GetDataProtectionPolicy']) {
+        expect(statements(name).flatMap(actions)).not.toContain(action);
+      }
+    }
+  });
   it('isolates recurring retention from deployment and both private note buckets', () => {
     const { stack, statements } = build();
     const cleanup = statements(config.codeRetentionRoleName);

@@ -80,6 +80,14 @@ Implementation-plan approval does not authorize an AWS Apply.
 - Metadata APIs without resource-level authorization retain explicit exceptions:
   CloudFormation summary/status reads and regional Cognito-domain/log-group
   discovery. No wildcard action or managed administrator policy is introduced.
+  The native log-group read handler also needs `logs:DescribeIndexPolicies` and
+  `logs:DescribeResourcePolicies`. Like `DescribeLogGroups`, AWS requires
+  `Resource: "*"` for these metadata APIs; `aws:RequestedRegion` limits them to
+  the configured Region. They may expose other log groups' policy metadata in
+  that Region, but grant no log-event reads or policy writes. The companion
+  `logs:GetDataProtectionPolicy` read is restricted to the named MCP log group.
+  These grants belong only to the application CloudFormation role. See the
+  [CloudWatch Logs authorization reference](https://docs.aws.amazon.com/service-authorization/latest/reference/list_logs.html).
 
 The existing storage execution role still manages only the two original note
 buckets. The lifecycle grant's indirect deletion capability is unchanged; see
@@ -178,8 +186,22 @@ an explicit compatibility exception, not a clean Analyzer pass. The scoped
 grant in `infra/mcp-permissions.ts` follows the native schema and observed
 denial; its request-tag conditions still need validation during an approved
 live retry. Do not add administrator access or wildcard actions as a workaround.
-The IAM custom-policy simulator also rejected the proposed literal action as
-invalid policy content, so it supplies no authorization evidence for this grant.
+With a structured `--cli-input-json` request, the IAM custom-policy simulator
+evaluates the intended stage-tagging grant as allowed. The earlier invalid-policy
+response came from CLI list-argument parsing, not the literal action. Simulation
+does not establish which request context API Gateway supplies or whether the
+live service honors the action; the Analyzer discrepancy remains unresolved.
+
+After PR #23 merged, the next Plan failed before Apply: native early validation
+reported that the retained function and Cognito resource server already exist.
+It also skipped the log-group existence check because
+`logs:DescribeIndexPolicies` was denied. The regional `AWS::Logs::LogGroup`
+read-handler schema lists `DescribeLogGroups`, `ListTagsForResource`,
+`GetDataProtectionPolicy`, `DescribeIndexPolicies` and `DescribeResourcePolicies`.
+The foundation must cover these metadata reads before recovery; do not treat
+a skipped validation or an available import change set as proof that the
+eventual read handler is authorized. No log policy, index or retention setting
+is changed by the metadata permissions.
 
 Inspect the current registry with `aws cloudformation describe-type --type
 RESOURCE --type-name AWS::ApiGatewayV2::Stage --query Schema --output text` in
