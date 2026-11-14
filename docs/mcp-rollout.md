@@ -136,15 +136,17 @@ before enabling code cleanup.
 
 ## Runtime stage
 
-This revision selects `runtime`. The identity, private code bucket and IAM
-prerequisites are already deployed; this source change does not deploy the
-runtime. Review the current-main CI Plan and approve production Apply separately.
+The configured stage is `runtime`. The identity and private code bucket are
+deployed. Before another runtime Plan or Apply, follow the
+[first-Apply recovery procedure](#recovering-the-first-runtime-apply) for the
+outstanding IAM prerequisite and retained resources.
 
-The Plan adds the Lambda function, API Gateway HTTP API/integration/routes/stage,
-invoke permission, 14-day log group, Cognito read resource server, confidential
-ChatGPT client and managed-login branding. Existing note buckets, pool/domain,
-code bucket, IAM roles and permission documents remain unchanged. Reject resource
-removals, replacements, unexpected IAM changes or a new note bucket.
+The full runtime template models the Lambda function, API Gateway HTTP
+API/integration/routes/stage, invoke permission, 14-day log group, Cognito read
+resource server, confidential ChatGPT client and managed-login branding. The
+application template preserves the existing pool/domain and code bucket; the
+separate foundation owns IAM. Existing note buckets remain unchanged. Reject
+resource removals, replacements, unexpected IAM changes or a new note bucket.
 
 The deployment builds a source-bound, deterministic ZIP and conditionally uploads
 it to the existing private code bucket only after approval. Publication tags
