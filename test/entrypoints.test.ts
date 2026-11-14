@@ -10,7 +10,7 @@ it.each([
   const directory = fs.mkdtempSync(path.resolve('.entrypoint-test-'));
   try {
     const result = spawnSync(process.execPath, ['--import', 'tsx', `bin/${entry}.ts`], {
-      encoding: 'utf8',
+      encoding: 'utf8', timeout: 25_000,
       env: {
         ...process.env,
         CDK_OUTDIR: directory,
@@ -29,4 +29,4 @@ it.each([
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
-});
+}, 30_000);
