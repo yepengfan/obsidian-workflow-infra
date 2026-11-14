@@ -13,8 +13,8 @@ been reviewed and approved. Merging source alone does not grant AWS permissions.
 | Lambda log events | 14 days | Explicit CloudWatch retention in the runtime template |
 | GitHub review and cleanup artifacts | 7 days | Actions artifact retention |
 
-The code-storage stage currently has no Lambda/log group. The runtime template
-defines the 14-day event retention for its future log group. Retain policies on
+See the [rollout guide](mcp-rollout.md#runtime-stage) for the current stage and
+the separate runtime deployment approval. Retain policies on
 buckets, identity resources and the log group protect resources from accidental
 stack deletion; they do not disable event expiration or data-retention cleanup.
 Current primary data intentionally has no age-based expiry. A retained empty

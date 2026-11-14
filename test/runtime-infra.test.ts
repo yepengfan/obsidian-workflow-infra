@@ -29,6 +29,11 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
   if (enabled) {
     expect(resources.ChatGptClient.Properties.AllowedOAuthFlows).toEqual(['code']);
     expect(resources.ChatGptClient.Properties.CallbackURLs).toEqual(options.callbackUrls);
+    // Native Cognito advertises these OIDC scopes; ChatGPT requests them by default.
+    // The generated client must accept that request without an invalid_scope error.
+    expect(new Set(resources.ChatGptClient.Properties.AllowedOAuthScopes)).toEqual(
+      new Set(['openid', 'email', 'phone', 'profile', 'obsidian.notes/read']),
+    );
   } else {
     expect(resources.ChatGptClient.Properties.CallbackURLs).toBeUndefined();
     expect(resources.ChatGptClient.Properties.AllowedOAuthFlows).toBeUndefined();

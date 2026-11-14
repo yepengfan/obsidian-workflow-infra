@@ -28,7 +28,8 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   const client = new CfnUserPoolClient(scope, 'ChatGptClient', {
     userPoolId: pool.ref, clientName: 'obsidian-chatgpt', generateSecret: true,
     allowedOAuthFlowsUserPoolClient: oauthEnabled,
-    ...(oauthEnabled ? { allowedOAuthFlows: ['code'], allowedOAuthScopes: ['openid', scopeName], callbackUrLs: options.callbackUrls } : {}),
+    // ChatGPT requests the OIDC scopes advertised by native Cognito discovery.
+    ...(oauthEnabled ? { allowedOAuthFlows: ['code'], allowedOAuthScopes: ['openid', 'email', 'phone', 'profile', scopeName], callbackUrLs: options.callbackUrls } : {}),
     supportedIdentityProviders: ['COGNITO'], explicitAuthFlows: ['ALLOW_REFRESH_TOKEN_AUTH'],
     accessTokenValidity: 15, idTokenValidity: 15, refreshTokenValidity: 7,
     tokenValidityUnits: { accessToken: 'minutes', idToken: 'minutes', refreshToken: 'days' },

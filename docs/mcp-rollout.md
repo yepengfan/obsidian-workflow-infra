@@ -129,3 +129,34 @@ before retrying. A retained bucket from a failed rollback may need an explicit
 reviewed recovery/import; never delete it or bypass the native binding guards.
 Follow the [retention activation order](artifact-retention.md#permissions-and-activation-order)
 before enabling code cleanup.
+
+## Runtime stage
+
+This revision selects `runtime`. The identity, private code bucket and IAM
+prerequisites are already deployed; this source change does not deploy the
+runtime. Review the current-main CI Plan and approve production Apply separately.
+
+The Plan adds the Lambda function, API Gateway HTTP API/integration/routes/stage,
+invoke permission, 14-day log group, Cognito read resource server, confidential
+ChatGPT client and managed-login branding. Existing note buckets, pool/domain,
+code bucket, IAM roles and permission documents remain unchanged. Reject resource
+removals, replacements, unexpected IAM changes or a new note bucket.
+
+The deployment builds a source-bound, deterministic ZIP and conditionally uploads
+it to the existing private code bucket only after approval. Publication tags
+protect the deployed and immediate rollback code from retention cleanup. Inspect
+actual stack events and retained resources before retrying a partial failure.
+
+The owner list and callback list remain empty. The endpoint exposes public OAuth
+resource metadata and returns 401 to anonymous MCP requests; note access remains
+denied even for otherwise valid tokens while the owner list is empty. OAuth
+authorization-code login remains disabled until a reviewed follow-up supplies
+ChatGPT's exact callback. Do not add placeholder identities or callbacks to make
+bootstrap verification pass.
+
+After approved Apply, check the deployed code checksum, public resource metadata,
+anonymous 401 challenge and 14-day log retention. Those checks do not access notes
+or establish a completed ChatGPT OAuth exchange. Complete the
+[owner setup and connection checks](mcp-server.md#owner-setup-and-chatgpt-connection)
+in the follow-up configuration. Keep passwords, MFA secrets and the app-client
+secret out of Git, logs and chat.
