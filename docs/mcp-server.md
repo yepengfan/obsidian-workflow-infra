@@ -42,6 +42,12 @@ Resource identities and IAM are defined by the CDK modules; GitHub role settings
 are in `config/github.json`. No AWS credentials, OAuth secret or token belongs
 in these files.
 
+The canonical MCP endpoint is also the Cognito resource-server identifier. Its
+read scope is `<McpEndpoint>/read`, exported as `NotesScope`; use the exact output
+instead of a friendly scope prefix. Cognito requires custom scopes in a
+resource-bound request to belong to the requested resource. The runtime, public
+metadata, OAuth challenge and client all use this same URL-bound scope.
+
 The committed defaults are in [`config/mcp-runtime.json`](../config/mcp-runtime.json);
 [`src/config.ts`](../src/config.ts) defines the allowed bounds. Page size, selected
 note count, parallel reads, per-note body bytes, chunk bytes, request/response
@@ -110,18 +116,39 @@ not expose dynamic client registration.
    CI creates the group structure but cannot create users or change membership.
 6. Connect the HTTPS `/mcp` URL in ChatGPT with OAuth and the predefined client.
    ChatGPT requests Cognito's advertised OIDC scopes (`openid`, `email`, `phone`,
-   `profile`); the client permits these plus `obsidian.notes/read` to avoid an
+   `profile`); the client permits these plus the `NotesScope` output to avoid an
    `invalid_scope` response. Its readable attribute remains limited to `email`.
-   Include `obsidian.notes/read` in the requested scopes; OIDC scopes alone do
+   Include that exact URL-formatted read scope; OIDC scopes alone do
    not authorize note access. Use the exact endpoint URL as the OAuth `resource`.
    Sign in through Cognito, completing MFA. Do not request the Cognito user-admin scope or client-credentials
    grant. See the [OpenAI OIDC-scope requirement](https://developers.openai.com/plugins/build/auth#oidc-scopes).
+
+When upgrading an existing connection from the legacy `obsidian.notes/read`
+scope, wait for approved Apply, refresh the MCP connection metadata in ChatGPT,
+and replace any manually saved legacy default scope with `NotesScope`. Reconnect
+through OAuth to obtain a new token. Keep the existing callback URI configured;
+creating another connection can produce a different callback that needs review.
+
+The resource-server identifier is immutable in Cognito, so this migration
+replaces only the `NotesResourceServer` scope registry and updates the existing
+client scopes and Lambda settings/code. Review this specific replacement in the
+native plan. The [Apply guard](github-actions.md#automatic-deployment-run) permits
+it only for the modeled registry bound to the MCP URL and existing user pool.
+Other resource replacements and removals remain blocked. User accounts and
+owners-group membership are not part of the registry and need no reassignment.
 
 ## Connection verification
 
 The public `/.well-known/oauth-protected-resource/mcp` document identifies the
 exact `/mcp` resource and native Cognito issuer. Anonymous MCP requests must
 return 401 with `WWW-Authenticate` resource metadata, with no S3 reads.
+
+After Apply, `check:cognito` also sends a cookie-free authorization-code request
+with S256, `prompt=none`, the exact callback, resource and read scope. It requires
+Cognito to return `login_required` to that callback with the matching state,
+without following the redirect. This catches resource-binding rejection before
+interactive login; it never signs in, exchanges a code, requests tokens or reads
+notes. It does not prove the user's complete OAuth exchange.
 
 Use the actual ChatGPT connection to browse one root page, choose a returned
 folder, list that folder, choose one note, and read it. Ask for body search only

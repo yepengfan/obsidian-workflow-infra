@@ -52,7 +52,10 @@ function execute(script: string, fixture: Record<string, unknown> = {}, plan = m
       CodeArtifacts: { Type: 'AWS::S3::Bucket', Properties: { BucketName: codeBucketName } },
       } : {}),
       ...(stage === 'runtime' ? {
-      McpFunction: { Type: 'AWS::Lambda::Function', Properties: { FunctionName: 'obsidian-mcp-server', Code: { S3Key: code.key } } },
+      McpFunction: { Type: 'AWS::Lambda::Function', Properties: { FunctionName: 'obsidian-mcp-server', Code: { S3Key: code.key },
+        Environment: { Variables: { MCP_RESOURCE: 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp' } } } },
+      NotesResourceServer: { Type: 'AWS::Cognito::UserPoolResourceServer', Properties: { UserPoolId: { Ref: 'UserPool' },
+        Identifier: fixture.wrongResourceBinding ? 'https://other.example/mcp' : 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp' } },
       } : {}),
     } };
     fs.writeFileSync(path.join(dir, 'cdk.out/ObsidianMcp.template.json'), JSON.stringify(template));
@@ -259,6 +262,16 @@ describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
     if (kind === 'removal') p.Changes[0]!.ResourceChange.Action = 'Remove';
     if (kind === 'IAM') p.Changes[0]!.ResourceChange.ResourceType = 'AWS::IAM::Role';
     const result = execute(applyScript, fixture); expect(result.status).not.toBe(0); expect(executions(result.calls)).toEqual([]);
+  });
+  it.each(['True', 'Conditional'])('permits only the reviewed resource-server scope replacement: %s', Replacement => {
+    const fixture = defaults();
+    fixture.cognito.plan.Changes.push({ ResourceChange: { Action: 'Modify', LogicalResourceId: 'NotesResourceServer',
+      ResourceType: 'AWS::Cognito::UserPoolResourceServer', Replacement } });
+    const result = execute(applyScript, fixture);
+    expect(result.status, result.stderr).toBe(0); expect(executions(result.calls)).toHaveLength(2);
+    const rejected = execute(applyScript, { ...fixture, wrongResourceBinding: true });
+    expect(rejected.status).not.toBe(0); expect(executions(rejected.calls)).toHaveLength(0);
+    expect(rejected.calls.some(call => call.tool === 'npm' && call.args.includes('bin/publish-code.ts'))).toBe(false);
   });
   it.each(['sha', 'account', 'region', 'missing', 'duplicate', 'IAM stack', 'wrong ARN'])('rejects a mismatched combined manifest: %s', kind => {
     const plan = manifest();

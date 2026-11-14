@@ -210,6 +210,27 @@ or establish a completed ChatGPT OAuth exchange. Complete the
 after activation. Keep passwords, MFA secrets and the app-client
 secret out of Git, logs and chat.
 
+## Resource-bound read-scope migration
+
+Cognito resource binding requires the custom scope's resource-server identifier
+to match the requested resource URL. The legacy `obsidian.notes/read` scope
+reproduced Cognito's `invalid_request` before user login when ChatGPT sent the
+HTTPS `/mcp` resource. Register the canonical MCP URL as the identifier and derive
+the read scope from that registration. `NotesScope` is the value for ChatGPT.
+
+This replaces the `NotesResourceServer` registry because its identifier is
+immutable; existing pool, users, owners-group membership, client and API remain
+in place. The ordinary reviewed Plan/Apply uses the existing pool-scoped
+resource-server permissions and needs no IAM expansion. Its replacement guard
+permits only this modeled registry, bound to `MCP_RESOURCE` and `Ref: UserPool`.
+All other replacements and removals remain blocked. The post-Apply public check
+now tests resource-bound authorization parameters without a user session; real
+owner login and note retrieval remain separate checks.
+
+After successful approved Apply, follow the [connection guide](mcp-server.md#owner-setup-and-chatgpt-connection)
+to refresh metadata, update any manually saved legacy scope and reconnect. Do not
+manually change Cognito or disable audience/group checks to bypass the mismatch.
+
 ## Recovering the first runtime Apply
 
 The first runtime Apply failed at `McpStage`: API Gateway rejected

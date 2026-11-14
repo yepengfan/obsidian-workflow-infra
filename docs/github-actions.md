@@ -291,7 +291,12 @@ BucketPolicy changes. MCP accepts only UPDATE, compares the complete native
 change-set template with the exact downloaded template, and permits only
 additions/modifications whose logical IDs and resource types match that model,
 excluding IAM roles/policies. An UPDATE with no resource actions is allowed for
-native metadata/output changes. Removals and replacements are rejected.
+native metadata/output changes. Removals are rejected. The sole replacement
+exception is `NotesResourceServer` of type
+`AWS::Cognito::UserPoolResourceServer` in `ObsidianMcp`: its identifier must match
+the modeled Lambda `MCP_RESOURCE` and its pool must remain `Ref: UserPool`.
+This lets a reviewed scope-registry migration bind custom scopes to the resource
+URL. All other replacements, including conditional replacements, stay blocked.
 
 For a changed MCP stack in the `runtime` stage, Apply checks that live main still matches the verified
 source and that the downloaded code manifest matches the combined plan. It

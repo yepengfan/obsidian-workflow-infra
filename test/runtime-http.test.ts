@@ -25,7 +25,7 @@ describe('authenticated stateless Streamable HTTP', () => {
   });
   it.each([
     { aud: 'https://other.example/mcp' }, { aud: [runtimeSettings().resource] }, { client_id: 'other' }, { token_use: 'id' },
-    { iss: 'https://other.example' }, { exp: 1 }, { scope: 'other/read' }, { iat: 4102444800 }, { nbf: 4102444800 },
+    { iss: 'https://other.example' }, { exp: 1 }, { scope: 'other/read' }, { scope: 'obsidian.notes/read' }, { iat: 4102444800 }, { nbf: 4102444800 },
   ])('rejects invalid token claims %j', async overrides => {
     const verify = tokenVerifier(runtimeSettings(), jwks);
     await expect(verify(`Bearer ${await token(overrides)}`)).rejects.toMatchObject({ status: 401 });

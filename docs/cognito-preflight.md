@@ -70,6 +70,14 @@ protected-resource metadata against that endpoint and Cognito issuer, then
 requires an anonymous MCP initialization request to return 401 with the expected
 resource-metadata challenge. It never authenticates or requests a note. These
 public checks do not establish an authenticated OAuth exchange.
+For configured callbacks, the checker additionally validates `NotesScope` as
+`<McpEndpoint>/read` and sends one cookie-free `prompt=none` authorization request
+with that resource, scope, client ID and callback. It requires a matching-state
+`login_required` redirect, stops before following it, and rejects grants or other
+errors without logging the redirect contents. This detects the custom-scope
+resource-binding mismatch before owner sign-in. Empty-callback bootstrap skips
+this authorization request. Every HTTP request has a five-second timeout; no
+client secret, user credentials, token exchange or note access is involved.
 When the entire infrastructure is unchanged, Plan runs this check once.
 
 To repeat the check locally after an approved deployment:

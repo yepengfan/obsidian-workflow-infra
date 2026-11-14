@@ -20,9 +20,14 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
   template.resourceCountIs('AWS::IAM::Role', 0); template.resourceCountIs('AWS::IAM::Policy', 0);
   template.resourceCountIs('AWS::Lambda::Function', 1); template.resourceCountIs('AWS::ApiGatewayV2::Api', 1);
   const resources = template.toJSON().Resources;
+  const readScope = { 'Fn::Join': ['', [{ Ref: 'NotesResourceServer' }, '/read']] };
   expect(resources.McpFunction.Properties).toMatchObject({ FunctionName: deployment.functionName, Runtime: 'nodejs22.x', Handler: 'index.handler', Timeout: 10,
     Code: { S3Bucket: { Ref: 'CodeArtifacts' }, S3Key: code.key },
-    Environment: { Variables: { NOTE_BUCKET: aws.buckets.vault.name, NOTE_PREFIX: '', OAUTH_CLIENT_ID: { Ref: 'ChatGptClient' }, OAUTH_SCOPE: 'obsidian.notes/read' } } });
+    Environment: { Variables: { NOTE_BUCKET: aws.buckets.vault.name, NOTE_PREFIX: '', OAUTH_CLIENT_ID: { Ref: 'ChatGptClient' }, OAUTH_SCOPE: readScope } } });
+  expect(resources.NotesResourceServer.Properties.Identifier).toEqual(resources.McpFunction.Properties.Environment.Variables.MCP_RESOURCE);
+  expect(resources.NotesResourceServer.Properties.Scopes.map((scope: { ScopeName: string }) => scope.ScopeName)).toEqual(['read']);
+  expect(template.toJSON().Outputs.NotesScope.Value).toEqual(readScope);
+  expect(resources.ChatGptClient.DependsOn).toContain('NotesResourceServer');
   expect(JSON.parse(resources.McpFunction.Properties.Environment.Variables.MCP_OPTIONS).ownerGroup).toBe(options.ownerGroup);
   expect(JSON.parse(resources.McpFunction.Properties.Environment.Variables.MCP_OPTIONS)).not.toHaveProperty('ownerSubjects');
   template.resourceCountIs('AWS::Cognito::UserPoolGroup', 1);
@@ -38,7 +43,7 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
     // Native Cognito advertises these OIDC scopes; ChatGPT requests them by default.
     // The generated client must accept that request without an invalid_scope error.
     expect(new Set(resources.ChatGptClient.Properties.AllowedOAuthScopes)).toEqual(
-      new Set(['openid', 'email', 'phone', 'profile', 'obsidian.notes/read']),
+      new Set(['openid', 'email', 'phone', 'profile', readScope]),
     );
   } else {
     expect(resources.ChatGptClient.Properties.CallbackURLs).toBeUndefined();

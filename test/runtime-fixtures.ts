@@ -6,7 +6,7 @@ export const ownerGroup = 'obsidian-mcp-owners';
 export const runtimeSettings = (overrides: Partial<Settings> = {}): Settings => ({
   ...runtimeOptionsSchema.parse({ ownerGroup }), bucket: 'private-test-vault', prefix: 'Vault/', region: 'ap-southeast-2',
   issuer: 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_Test', clientId: 'test-client',
-  resource: 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp', scope: 'obsidian.notes/read', ...overrides,
+  resource: 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp', scope: 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp/read', ...overrides,
 });
 export class MemoryStore implements NoteStore {
   calls: { kind: 'list' | 'read'; key: string; limit: number; cursor?: string; etag?: string }[] = [];
