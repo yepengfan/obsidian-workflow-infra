@@ -102,3 +102,41 @@ it('requires a resource-bound write scope in addition to read and owner membersh
   await expect(verifyWrite(`Bearer ${await token({ scope: `${settings.resource}/write` })}`)).rejects.toMatchObject({ status: 401 });
   await expect(verifyWrite(`Bearer ${await token({ scope: `${settings.scope} ${settings.resource}/write`, 'cognito:groups': [] })}`)).rejects.toMatchObject({ status: 403 });
 });
+
+it.each([false, true])('injects skill tools, instructions and scopes only when supplied: %s', async injected => {
+  const settings = runtimeSettings({ practice: { enabled: true, writesEnabled: true, timeZone: 'Australia/Brisbane' } });
+  const store = new MemoryStore(), scope = `${settings.resource}/fixture`;
+  const contexts: { owner: string; signal: AbortSignal }[] = [], verifiedScopes: string[] = [];
+  let scopedOwner = 'another-owner';
+  const fetch = createFetchHandler(settings, { store, verify: async () => owner,
+    verifyScope: async (_authorization, requestedScope) => { verifiedScopes.push(requestedScope); return scopedOwner; },
+    skills: injected ? [{ instructions: 'Fixture skill instructions.', scopes: [scope], register: context => {
+      contexts.push({ owner: context.owner, signal: context.signal });
+      context.server.registerTool('fixture_skill', { inputSchema: {} }, () => context.result(async () => {
+        await context.authorizeScope(scope);
+        return { owner: context.owner, aborted: context.signal.aborted };
+      }));
+    } }] : [],
+  });
+  const discovery = await fetch(new Request(new URL('/.well-known/oauth-protected-resource/mcp', settings.resource)));
+  expect((await discovery.json()).scopes_supported).toEqual([settings.scope, ...(injected ? [scope] : [])]);
+  expect(contexts).toHaveLength(0);
+  const client = new Client({ name: 'injected-skill-test', version: '1' });
+  client.onerror = () => {};
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(settings.resource), {
+      fetch: (input, init) => fetch(new Request(input, init)),
+    }));
+    expect(client.getInstructions()?.includes('Fixture skill instructions.')).toBe(injected);
+    const tools = (await client.listTools()).tools.map(tool => tool.name).sort();
+    expect(tools).toEqual(['list_notes', 'read_note', 'search_notes', ...(injected ? ['fixture_skill'] : [])].sort());
+    if (injected) {
+      expect((await client.callTool({ name: 'fixture_skill', arguments: {} })).isError).toBe(true);
+      scopedOwner = owner;
+      expect((await client.callTool({ name: 'fixture_skill', arguments: {} })).structuredContent).toEqual({ owner, aborted: false });
+      expect(verifiedScopes).toEqual([scope, scope]);
+      expect(contexts.every(context => context.owner === owner && !context.signal.aborted)).toBe(true);
+    }
+    expect(store.calls).toHaveLength(0);
+  } finally { await client.close(); }
+});

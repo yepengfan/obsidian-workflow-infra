@@ -5,6 +5,7 @@ import bundle from '../workflows/practice.json' with { type: 'json' };
 import type { Settings } from './config.js';
 import { decodeCursor, encodeCursor, keyFor, NoteError, validPath } from './paths.js';
 import type { NoteStore } from './s3.js';
+import { SkillError } from './skills.js';
 
 export const domainSchema = z.enum(['algorithm']);
 export const slugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(120);
@@ -29,7 +30,7 @@ const moduleSchema = z.object({ enabled: z.boolean(), interval_days: z.array(z.n
 const prefix = 'Learning/Practice/Review/Items/';
 const expectedFlow = '.agents/skills/algo-solve/SKILL.md';
 const documents: Record<string, { text: string; sha256: string }> = bundle.documents;
-export class PracticeError extends Error { constructor(readonly code: string) { super(code); } }
+export class PracticeError extends SkillError {}
 function parseNote(value: string) {
   const match = value.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/u);
   if (!match) throw new PracticeError('invalid_practice_note');

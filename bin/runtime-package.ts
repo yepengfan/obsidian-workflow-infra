@@ -14,7 +14,7 @@ export const bundleSchema = z.strictObject({
 });
 export type CodeBundle = z.infer<typeof bundleSchema>;
 export async function buildRuntime(outputDirectory: string, sourceSha = 'local'): Promise<CodeBundle> {
-  const result = await build({ entryPoints: [fileURLToPath(new URL('../src/handler.ts', import.meta.url))], bundle: true,
+  const result = await build({ entryPoints: [fileURLToPath(new URL('../src/runtime.ts', import.meta.url))], bundle: true,
     platform: 'node', target: 'node22', format: 'esm', write: false, minify: true, legalComments: 'inline',
     banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' } });
   if (result.outputFiles.length !== 1) throw Error('Expected one runtime bundle');

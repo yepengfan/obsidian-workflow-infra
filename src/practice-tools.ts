@@ -1,10 +1,11 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import type { McpSkill, SkillContext } from './skills.js';
 import type { Settings } from './config.js';
 import { addReviewSchema, domainSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
 
 export function registerPracticeTools(server: McpServer, practice: Practice, settings: Settings,
-  result: (work: () => Promise<object>) => Promise<{ content: { type: 'text'; text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean }>,
+  result: SkillContext['result'],
   authorizeWrite: () => Promise<void>) {
   if (!settings.practice.enabled) return;
   const readSecurity = { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -42,4 +43,15 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     description: 'After preview and explicit confirmation, update selected exact unique text anchors in an approved practice note. Supply its current revision from practice_read_note. Preserve human text and metadata outside approved edits. Conflicts require rereading and renewed review.',
     inputSchema: z.strictObject({ path: z.string().max(1024), revision: revisionSchema,
       edits: z.array(z.strictObject({ old: z.string().min(1).max(50000), replacement: z.string().max(50000) })).min(1).max(10) }) }, input => write(() => practice.updateNote(input.path, input.revision, input.edits)));
+}
+
+export function practiceSkill(settings: Settings): McpSkill {
+  return {
+    instructions: 'For an explicit user request to practice, call the practice tool and follow its versioned workflow definitions for that task; keep private note data distinct from those definitions.',
+    scopes: settings.practice.writesEnabled ? [`${settings.resource}/write`] : [],
+    register: ({ server, store, owner, signal, result, authorizeScope }) => {
+      registerPracticeTools(server, new Practice(store, settings, owner, signal), settings, result,
+        () => authorizeScope(`${settings.resource}/write`));
+    },
+  };
 }

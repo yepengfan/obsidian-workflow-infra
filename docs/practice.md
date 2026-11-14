@@ -8,6 +8,16 @@ ChatGPT guides and assesses the conversation; Lambda performs typed data
 operations. Lambda does not host an LLM, execute arbitrary code or run a local
 Python process.
 
+## Runtime composition
+
+`src/practice-tools.ts` defines the practice skill's instructions, scopes and
+registration. `src/skills.ts` defines the small injection contract.
+`src/runtime.ts` composes the enabled skill with the S3 store and HTTP handler;
+it is the Lambda build entrypoint. `src/handler.ts` accepts injected skills and
+provides request context, bounded results and scope authorization without
+importing practice implementation details. A handler without injected skills
+exposes only the ordinary note tools.
+
 ## Rollout state
 
 This PR enables the read-only practice tools in versioned configuration. The
