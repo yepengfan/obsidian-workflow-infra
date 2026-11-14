@@ -16,8 +16,9 @@ export const githubSchema = z.object({
   executionRoleName: roleName,
   mcpExecutionRoleName: roleName,
   runtimeRoleName: z.string().regex(/^obsidian-mcp-[a-z0-9-]+$/u).max(64),
+  codeRetentionRoleName: roleName,
 }).strict().refine(config => new Set([config.executionRoleName, config.mcpExecutionRoleName,
-  config.planRoleName, config.deployRoleName, config.runtimeRoleName].map(name => name.toLowerCase())).size === 5,
+  config.planRoleName, config.deployRoleName, config.runtimeRoleName, config.codeRetentionRoleName].map(name => name.toLowerCase())).size === 6,
   'Role names must be distinct');
 
 /** Reviewed permission foundation; local SSO update procedure: docs/github-actions.md. */
@@ -119,6 +120,23 @@ export class GitHubTrustStack extends Stack {
       'cognito-idp:UpdateManagedLoginBranding', 'cognito-idp:DeleteManagedLoginBranding',
     ], resources: [poolArn], conditions: { StringEquals: { 'aws:ResourceTag/Project': project } } }));
     grantMcpRuntime(this, storage, deployment, mcpExecution, apply, bucketReadActions);
+    const codeBucket = `arn:${this.partition}:s3:::${deployment.codeBucketName}`;
+    const codeObjects = `${codeBucket}/${deployment.codePrefix}*`;
+    mcpExecution.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutLifecycleConfiguration'], resources: [codeBucket] }));
+    apply.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObjectTagging', 's3:GetObjectVersionTagging',
+      's3:PutObjectTagging', 's3:PutObjectVersionTagging'], resources: [codeObjects] }));
+    // Scheduled data retention is separate from Plan/Deploy. The existing main-only
+    // environment provides OIDC; this role cannot access notes or manage infrastructure.
+    const cleanup = new iam.Role(this, 'CodeRetentionRole', { roleName: github.codeRetentionRoleName,
+      assumedBy: principal('production-plan'), maxSessionDuration: Duration.hours(1) });
+    cleanup.addToPolicy(new iam.PolicyStatement({ actions: ['s3:ListBucketVersions'], resources: [codeBucket],
+      conditions: { StringLike: { 's3:prefix': [`${deployment.codePrefix}*`] }, NumericLessThanEquals: { 's3:max-keys': 1000 } } }));
+    cleanup.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObjectTagging', 's3:GetObjectVersionTagging',
+      's3:PutObjectTagging', 's3:PutObjectVersionTagging', 's3:DeleteObjectVersion'], resources: [codeObjects] }));
+    cleanup.addToPolicy(new iam.PolicyStatement({ actions: ['cloudformation:DescribeStacks', 'cloudformation:GetTemplate'],
+      resources: [`arn:${this.partition}:cloudformation:${this.region}:${this.account}:stack/ObsidianMcp/*`] }));
+    cleanup.addToPolicy(new iam.PolicyStatement({ actions: ['lambda:GetFunctionConfiguration'],
+      resources: [`arn:${this.partition}:lambda:${this.region}:${this.account}:function:${deployment.functionName}`] }));
     const changeSetNames = ['obsidian-storage-*', `arn:${this.partition}:cloudformation:${this.region}:${this.account}:changeSet/obsidian-storage-*/*`];
     for (const role of [plan, apply]) {
       role.addToPolicy(new iam.PolicyStatement({

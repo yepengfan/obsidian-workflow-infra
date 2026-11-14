@@ -16,5 +16,6 @@ cdk.context.json
 cdk-outputs*.json
 cdk-storage-outputs.json
 storage-plan-run.json
+code-retention-result.json
 *.log
 .DS_Store

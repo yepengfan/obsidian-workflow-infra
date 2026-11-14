@@ -29,7 +29,10 @@ describe('private Lambda code-artifact storage', () => {
       PublicAccessBlockConfiguration: { BlockPublicAcls: true, IgnorePublicAcls: true, BlockPublicPolicy: true, RestrictPublicBuckets: true },
       BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' }, BlockedEncryptionTypes: { EncryptionType: ['SSE-C'] } }] },
     } });
-    expect(bucket.Properties.LifecycleConfiguration).toBeUndefined();
+    expect(bucket.Properties.LifecycleConfiguration).toEqual({ Rules: [{
+      Id: 'AbortIncompleteMultipartUploads', Status: 'Enabled', Prefix: '',
+      AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+    }] });
     expect(bucket.Properties.ReplicationConfiguration).toBeUndefined();
     const policy = t.toJSON().Resources.CodeArtifactsPolicy;
     expect(policy).toMatchObject({ DeletionPolicy: 'Retain', UpdateReplacePolicy: 'Retain', Properties: {

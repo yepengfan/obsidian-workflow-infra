@@ -107,7 +107,9 @@ policy inside the existing `ObsidianMcp` stack. Its name comes from the shared
 `mcpResources` contract in `infra/mcp-resources.ts`. All public access is blocked; ownership is
 bucket-enforced, default encryption is AES256 with SSE-C blocked, and versioning
 is enabled. Both resources are retained on deletion/replacement. There is no
-auto-empty behavior, lifecycle expiry, object deletion or note replication.
+auto-empty behavior or note replication. See the [resource retention guide](artifact-retention.md)
+for proposed multipart cleanup and deployment-aware code cleanup, including their
+separate activation approvals.
 
 The `code-storage` stage adds only `CodeArtifacts` and
 `CodeArtifactsPolicy`, preserving the original identity and storage resources.
@@ -125,5 +127,5 @@ applied; validation must not modify either original note bucket or its files.
 If a rollout partially fails, inspect native stack events and retained resources
 before retrying. A retained bucket from a failed rollback may need an explicit
 reviewed recovery/import; never delete it or bypass the native binding guards.
-Code versions remain retained initially. Revisit code-only retention if measured
-build growth justifies it, through a reviewed change, without touching notes.
+Follow the [retention activation order](artifact-retention.md#permissions-and-activation-order)
+before enabling code cleanup.

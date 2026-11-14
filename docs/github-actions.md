@@ -1,6 +1,6 @@
 # GitHub Actions: automatic Plan, approval, Apply
 
-The repository uses two workflows. `validate` checks pull requests
+The deployment path uses two workflows. `validate` checks pull requests
 and main without AWS credentials. After a successful validation **push on main**,
 `plan and apply`
 automatically plans the exact verified commit, waits for the owner's native
@@ -11,6 +11,8 @@ manual Apply trigger. First import is planned automatically too.
 The user reviews and merges App-authored PRs and separately approves concrete
 AWS changes. Repository changes alone do not execute the permission foundation,
 import existing buckets, copy objects or activate lifecycle cleanup.
+See the [`artifact retention` guide](artifact-retention.md) for the separate
+maintenance workflow, preview mode and required activation approvals.
 
 ## What to review in CI
 
@@ -32,7 +34,8 @@ moderate CDK-bundled dependency findings.
 The permission foundation is `ObsidianGitHubTrust`, defined in
 `infra/github-stack.ts`. It contains the native GitHub OIDC provider, PlanRole,
 DeployRole, dedicated CloudFormation storage and MCP execution roles, and the
-reserved Lambda runtime role. See [MCP permission scope](mcp-rollout.md#permission-scope)
+reserved Lambda runtime role, and proposed code-only retention role.
+See [MCP permission scope](mcp-rollout.md#permission-scope)
 for the application grants. `config/github.json` contains only the immutable
 GitHub OIDC repository subject and IAM role names. Fixed application resource
 names are defined once in `infra/mcp-resources.ts`; account and Region are in
@@ -297,6 +300,7 @@ verifies the ZIP digest, size, source revision and template code key, then write
 and `If-None-Match: *`. A preexisting-key 412 is accepted only after checking
 stored size, checksum and encryption; conflicts and other upload errors fail.
 No overwrite or delete is attempted.
+Publication also enforces the [artifact protection contract](artifact-retention.md#why-code-cleanup-needs-deployment-awareness).
 
 Apply rechecks live main immediately before each execution, enables termination
 protection, executes the exact approved ARN and waits for the correct import
@@ -313,8 +317,9 @@ inspect actual AWS stack/change-set status before retrying. Do not recreate
 retained resources or blindly re-import. A fresh successful validation of current
 main prepares a new combined plan against actual state.
 
-Workflow concurrency does not interrupt an in-flight apply. Reject or cancel an
-older waiting run when main advances, so the latest revision can plan. The live
+Deployment and code cleanup use the [shared concurrency contract](artifact-retention.md#why-code-cleanup-needs-deployment-awareness).
+Reject or cancel an older waiting run when main advances, so the latest revision
+can plan. The live
 main check rejects stale approvals/reruns. Ordinary CI never uses SSO, expands
 its own permissions, or reads/writes note bodies.
 

@@ -13,7 +13,7 @@ export const mcpAppSchema = runtimeOptionsSchema.extend({ notePrefix: mcpDeploym
 export type McpApplication = { options: ReturnType<typeof mcpAppSchema.parse>; code: CodeBundle; noteBucket: string };
 
 export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig, application: McpApplication,
-  pool: CfnUserPool, domain: CfnUserPoolDomain, bucket: CfnBucket) {
+  pool: CfnUserPool, domain: CfnUserPoolDomain, bucket: CfnBucket, logDays: number) {
   const stack = Stack.of(scope);
   const { notePrefix, ...rawOptions } = application.options;
   if (notePrefix !== deployment.notePrefix) throw Error('Runtime prefix must match the IAM boundary');
@@ -40,7 +40,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   const api = new CfnApi(scope, 'McpApi', { name: deployment.apiName, protocolType: 'HTTP', tags: { Project: 'obsidian-mcp' } });
   api.overrideLogicalId('McpApi');
   const endpoint = `${api.attrApiEndpoint}/mcp`;
-  const logs = new CfnLogGroup(scope, 'RuntimeLogs', { logGroupName: `/aws/lambda/${deployment.functionName}`, retentionInDays: 14 });
+  const logs = new CfnLogGroup(scope, 'RuntimeLogs', { logGroupName: `/aws/lambda/${deployment.functionName}`, retentionInDays: logDays });
   logs.overrideLogicalId('RuntimeLogs');
   const runtime = new CfnFunction(scope, 'McpFunction', { functionName: deployment.functionName,
     runtime: 'nodejs22.x', handler: 'index.handler', architectures: ['x86_64'], memorySize: 512, timeout: 10,

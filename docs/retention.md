@@ -1,13 +1,16 @@
 # Versioning and 90-day historical retention
 
 The desired configuration keeps the original `Vault` and `Library` bucket names
-and logical IDs. It enables versioning on both and requests one native S3
+and logical IDs. It enables versioning on both and uses a native S3
 lifecycle rule per bucket to expire versions 90 days after they become noncurrent.
 The approved storage Apply completed with this policy and versioning enabled on
 both original buckets. Current versions have no expiry action. There is no
 count-based retention floor,
 expired-current-delete-marker cleanup, scheduled Lambda, replication or separate
 backup bucket.
+
+See the [resource retention guide](artifact-retention.md) for proposed multipart
+cleanup, unused code ZIPs, log retention and their activation approvals.
 
 This is version history in the original buckets. It does not provide an
 independent account/Region copy or protection against someone with permission
@@ -88,8 +91,10 @@ aws cloudformation describe-stacks --stack-name ObsidianWorkflowStorage \
   --query 'Stacks[0].{Status:StackStatus,Protection:EnableTerminationProtection,Drift:DriftInformation}'
 ```
 
-Expect `Enabled` for both versioning responses and exactly the reviewed rule
-with `NoncurrentDays: 90`. The CI Apply includes drift detection; require
+Expect `Enabled` for both versioning responses and the reviewed rule
+with `NoncurrentDays: 90`. Verify additional multipart rules using the
+[resource retention checks](artifact-retention.md#preview-and-verification).
+The CI Apply includes drift detection; require
 `UPDATE_COMPLETE`, termination protection enabled and `IN_SYNC`. Version
 metadata can demonstrate history exists, but it is not a restore test.
 Do not upload/delete a test note or restore over an existing file without
@@ -105,7 +110,8 @@ access. Expired versions cannot be recovered by removing the lifecycle rule.
 
 To stop future expiry, remove `noncurrentVersionRetentionDays` from both config
 entries, keep versioning enabled, and review a new resource PR/change set.
-This removes the lifecycle configuration; it cannot undo deletions already
+This removes historical expiration while preserving the separate multipart abort
+rule; it cannot undo deletions already
 processed by S3. First-time versioning enablement cannot return a bucket to
 the never-versioned state. Do not use `unversioned` as a rollback setting.
 

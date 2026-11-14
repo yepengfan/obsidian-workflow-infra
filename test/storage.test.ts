@@ -25,6 +25,9 @@ describe('managed storage retention', () => {
           OwnershipControls: { Rules: [{ ObjectOwnership: 'BucketOwnerEnforced' }] },
           VersioningConfiguration: { Status: 'Enabled' },
           LifecycleConfiguration: { Rules: [{
+            Id: 'AbortIncompleteMultipartUploads', Status: 'Enabled', Prefix: '',
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+          }, {
             Id: 'ExpireNoncurrentVersionsAfter90Days', Status: 'Enabled', Prefix: '',
             NoncurrentVersionExpiration: { NoncurrentDays: 90 },
           }] },
@@ -58,8 +61,8 @@ describe('managed storage retention', () => {
     expect(after.Resources.Library.Properties.BucketName).toBe(before.Resources.Library.Properties.BucketName);
     expect(after.Resources.Library.Properties.VersioningConfiguration).toEqual({ Status: 'Enabled' });
     delete after.Resources.Library.Properties.VersioningConfiguration;
-    delete after.Resources.Library.Properties.LifecycleConfiguration;
-    delete after.Resources.Vault.Properties.LifecycleConfiguration;
+    for (const id of ['Vault', 'Library']) after.Resources[id].Properties.LifecycleConfiguration.Rules =
+      after.Resources[id].Properties.LifecycleConfiguration.Rules.filter((r: { NoncurrentVersionExpiration?: unknown }) => !r.NoncurrentVersionExpiration);
     expect(after).toEqual(before);
   });
 
@@ -75,14 +78,17 @@ describe('managed storage retention', () => {
     } })).toThrow();
   });
 
-  it('allows lifecycle to be removed without changing versioning or other settings', () => {
+  it('allows historical expiry to be removed without changing versioning or other settings', () => {
     const config = structuredClone(baseline);
     for (const settings of Object.values(config.buckets)) delete settings.noncurrentVersionRetentionDays;
     const withoutLifecycle = synth(storageSchema.parse(config));
     const withLifecycle = synth();
     for (const id of ['Vault', 'Library']) {
-      expect(withoutLifecycle.Resources[id].Properties.LifecycleConfiguration).toBeUndefined();
-      delete withLifecycle.Resources[id].Properties.LifecycleConfiguration;
+      expect(withoutLifecycle.Resources[id].Properties.LifecycleConfiguration.Rules).toEqual([{
+        Id: 'AbortIncompleteMultipartUploads', Status: 'Enabled', Prefix: '',
+        AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+      }]);
+      withLifecycle.Resources[id].Properties.LifecycleConfiguration = withoutLifecycle.Resources[id].Properties.LifecycleConfiguration;
     }
     expect(withoutLifecycle).toEqual(withLifecycle);
   });
