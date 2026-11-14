@@ -82,8 +82,10 @@ not expose dynamic client registration.
    After OAuth is configured, complete the password change and required TOTP
    enrollment through managed login. Public signup remains disabled; CI cannot
    create users or administer passwords. Do not send credentials or tokens in
-   chat or PRs. The user's Attributes view supplies the non-secret `sub` UUID
-   needed for the owner allowlist.
+   chat or PRs. The user's Attributes view supplies the non-secret `sub` value
+   needed for the owner allowlist. Copy it exactly; Cognito subjects do not need
+   to follow an RFC UUID format. The server matches the subject exactly after
+   verifying the token and issuer. See the [Cognito subject format guidance](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-attributes.html).
 2. Read `McpEndpoint` and `ChatGptClientId` from the stack outputs. Reveal the
    confidential app client's secret in Cognito Console and enter it directly in
    ChatGPT's custom MCP server configuration. The secret is not in Lambda's

@@ -4,6 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { tokenVerifier } from '../src/auth.js';
 import { createFetchHandler } from '../src/handler.js';
+import { runtimeOptionsSchema } from '../src/config.js';
 import { MemoryStore, owner, runtimeSettings } from './runtime-fixtures.js';
 
 let keys: Awaited<ReturnType<typeof generateKeyPair>>;
@@ -39,8 +40,8 @@ describe('authenticated stateless Streamable HTTP', () => {
     const bad = await new SignJWT({ sub: owner, iat: now, exp: now + 900 }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).sign(other.privateKey);
     await expect(tokenVerifier(runtimeSettings(), jwks)(`Bearer ${bad}`)).rejects.toMatchObject({ status: 401 });
   });
-  it('uses the real SDK client across fresh invocation instances, with structured read-only tools and no sessions', async () => {
-    const settings = runtimeSettings(), store = new MemoryStore(); const bearer = await token(); const logs: unknown[] = []; const statuses: number[] = [];
+  it.each([owner, 'aaaaaaaa-bbbb-7ccc-dddd-eeeeeeeeeeee', 'opaque-cognito-subject'])('uses the real SDK client across fresh invocation instances for subject %s, with structured read-only tools and no sessions', async subject => {
+    const settings = runtimeSettings(runtimeOptionsSchema.parse({ ownerSubjects: [subject] })), store = new MemoryStore(); const bearer = await token({ sub: subject }); const logs: unknown[] = []; const statuses: number[] = [];
     const client = new Client({ name: 'test-chatgpt-client', version: '1' });
     const transport = new StreamableHTTPClientTransport(new URL(settings.resource), {
       requestInit: { headers: { Authorization: `Bearer ${bearer}` } },
