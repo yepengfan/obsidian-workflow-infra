@@ -65,6 +65,10 @@ Implementation-plan approval does not authorize an AWS Apply.
   to an unowned API or remove/change its ownership tag. Verify native handler/tag
   behavior during the approved rollout and pin the physical API ID in a later
   permission reduction if needed. Do not remove tag conditions to fix a failure.
+  Stage creation has one separate tag-on-create grant on regional
+  `/apis/*/stages` collections, requiring the matching `Project` request tag.
+  It cannot tag the API itself, change an existing named stage, or replace the
+  normal project-guarded `POST` permission required to create a stage.
 - The production Deploy role can upload only `releases/*` in the code bucket,
   using AES256 and `If-None-Match: *`. Its code-read permission supports checksum
   verification and safe retries. Plan has no upload or note-body permission.
@@ -132,15 +136,17 @@ before enabling code cleanup.
 
 ## Runtime stage
 
-This revision selects `runtime`. The identity, private code bucket and IAM
-prerequisites are already deployed; this source change does not deploy the
-runtime. Review the current-main CI Plan and approve production Apply separately.
+The configured stage is `runtime`. The identity and private code bucket are
+deployed. Before another runtime Plan or Apply, follow the
+[first-Apply recovery procedure](#recovering-the-first-runtime-apply) for the
+outstanding IAM prerequisite and retained resources.
 
-The Plan adds the Lambda function, API Gateway HTTP API/integration/routes/stage,
-invoke permission, 14-day log group, Cognito read resource server, confidential
-ChatGPT client and managed-login branding. Existing note buckets, pool/domain,
-code bucket, IAM roles and permission documents remain unchanged. Reject resource
-removals, replacements, unexpected IAM changes or a new note bucket.
+The full runtime template models the Lambda function, API Gateway HTTP
+API/integration/routes/stage, invoke permission, 14-day log group, Cognito read
+resource server, confidential ChatGPT client and managed-login branding. The
+application template preserves the existing pool/domain and code bucket; the
+separate foundation owns IAM. Existing note buckets remain unchanged. Reject
+resource removals, replacements, unexpected IAM changes or a new note bucket.
 
 The deployment builds a source-bound, deterministic ZIP and conditionally uploads
 it to the existing private code bucket only after approval. Publication tags
@@ -160,3 +166,59 @@ or establish a completed ChatGPT OAuth exchange. Complete the
 [owner setup and connection checks](mcp-server.md#owner-setup-and-chatgpt-connection)
 in the follow-up configuration. Keep passwords, MFA secrets and the app-client
 secret out of Git, logs and chat.
+
+## Recovering the first runtime Apply
+
+The first runtime Apply failed at `McpStage`: API Gateway rejected
+`apigateway:TagResource` on the stage collection. The regional CloudFormation
+`AWS::ApiGatewayV2::Stage` schema lists that literal action for its create
+handler. IAM Access Analyzer instead reports `INVALID_ACTION`, and the public
+authorization reference maps tagging to HTTP verbs. Treat this discrepancy as
+an explicit compatibility exception, not a clean Analyzer pass. The scoped
+grant in `infra/mcp-permissions.ts` follows the native schema and observed
+denial; its request-tag conditions still need validation during an approved
+live retry. Do not add administrator access or wildcard actions as a workaround.
+The IAM custom-policy simulator also rejected the proposed literal action as
+invalid policy content, so it supplies no authorization evidence for this grant.
+
+Inspect the current registry with `aws cloudformation describe-type --type
+RESOURCE --type-name AWS::ApiGatewayV2::Stage --query Schema --output text` in
+the deployment Region. Recheck this discrepancy when AWS changes the provider.
+
+The stack rolled back to `UPDATE_ROLLBACK_COMPLETE`, retaining the eleven
+successfully created runtime resources outside stack management. The failed
+stage was not present in the subsequent `get-stages` inventory. The original
+pool/domain and code bucket/policy remain managed. A plain CI rerun is unsafe:
+the named function/log group and Cognito resource server already exist, and
+artifact publication correctly refuses a function absent from the native
+stack's template. Do not weaken that guard or delete the retained resources.
+
+Use a one-off native CloudFormation recovery, with separate reviewed plans:
+
+1. Merge the permission correction, then prepare the local-SSO IAM-only UPDATE.
+   Review its concrete diff/change set and obtain approval before execution.
+2. Read the latest stack events and service inventories. Match all retained
+   resources to their logical IDs, original stack, properties and code digest.
+   Read Cognito identifiers only; do not export an app-client secret. Leave the
+   existing user pool, users, notes, code objects and retention rules untouched.
+3. Prepare an unexecuted `IMPORT` change set for the eleven existing runtime
+   resources. Start with the exact approved runtime template, omit only the
+   nonexistent `McpStage`, and preserve the currently deployed resources,
+   outputs and metadata. Use native `get-template-summary` identifiers, not
+   CDK's mapping format. These resource types support
+   [native import](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resource-import-supported-resources.html).
+   Review that the change set contains only those imports. Stop for any
+   unsupported import, unexpected existing-resource change or property mismatch;
+   do not substitute automatic cleanup. Execution requires approval.
+4. After approved import reaches `IMPORT_COMPLETE`, verify physical IDs and
+   the deployed checksum. Rerun current-main `validate` to generate a fresh CI
+   Plan. The expected remaining addition is `McpStage`; review the entire plan
+   and approve Apply separately. Do not rerun the old failed Apply job.
+5. Verify public metadata, anonymous MCP rejection, stage throttles and 14-day
+   log-event retention. The empty owner/callback lists must still deny note
+   access and disable OAuth login. Real owner login remains a later check.
+
+Source validation and IAM simulation do not prove that the service honors an
+undocumented action or that import/retry succeeds. Keep those limits visible
+until the separately approved operations have completed. This recovery uses
+native AWS commands, not a new deployment workflow or control plane.
