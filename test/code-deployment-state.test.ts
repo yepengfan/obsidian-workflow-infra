@@ -4,7 +4,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { execFileSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deployedCode, requireCurrentMain } from '../bin/code-deployment-state.js';
 
 const input = { account: '123456789012', region: 'ap-southeast-2', codeBucketName: 'private-code-only', functionName: 'obsidian-mcp-server' };
@@ -45,14 +45,21 @@ it('observes a stable code-storage deployment with no unmanaged function', () =>
     ['cloudformation', 'describe-stacks'], ['cloudformation', 'get-template'], ['lambda', 'get-function-configuration'],
   ]);
 });
-it('binds the native code key to actual Lambda SHA-256 and includes deployment revision', () => {
+it.each(['UPDATE_COMPLETE', 'UPDATE_ROLLBACK_COMPLETE'])('binds %s native code to actual Lambda SHA-256 and includes deployment revision', status => {
+  fixture.stack = { ...fixture.stack, StackStatus: status };
   withFunction(); const first = read(); expect(first.key).toBe(key);
   fixture.stack = { ...fixture.stack, LastUpdatedTime: '2026-11-15T00:00:00Z' };
   expect(read().revision).not.toBe(first.revision);
 });
-it.each(['unstable', 'wrong account', 'bucket mismatch', 'hash mismatch', 'unmanaged function', 'permission denied', 'missing function', 'wrong function', 'wrong bucket ref'])('fails closed on %s', failure => {
+it.each(['UPDATE_IN_PROGRESS', 'UPDATE_ROLLBACK_IN_PROGRESS', 'UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS', 'UPDATE_ROLLBACK_FAILED', 'ROLLBACK_IN_PROGRESS', 'ROLLBACK_FAILED', 'ROLLBACK_COMPLETE'])('rejects unstable or unrecoverable stack state %s', status => {
   withFunction();
-  if (failure === 'unstable') fixture.stack = { ...fixture.stack, StackStatus: 'UPDATE_IN_PROGRESS' };
+  fixture.stack = { ...fixture.stack, StackStatus: status };
+  expect(read).toThrow('MCP stack is not stable');
+});
+describe.each(['UPDATE_COMPLETE', 'UPDATE_ROLLBACK_COMPLETE'])('%s deployment checks', status => {
+it.each(['wrong account', 'bucket mismatch', 'hash mismatch', 'unmanaged function', 'permission denied', 'missing function', 'wrong function', 'wrong bucket ref', 'inactive function', 'failed function update', 'in-progress function update', 'template key mismatch'])('fails closed on %s with ' + status, failure => {
+  fixture.stack = { ...fixture.stack, StackStatus: status };
+  withFunction();
   if (failure === 'wrong account') fixture.stack = { ...fixture.stack, StackId: 'arn:aws:cloudformation:ap-southeast-2:999999999999:stack/ObsidianMcp/test' };
   if (failure === 'bucket mismatch') fixture.template.Resources.CodeArtifacts!.Properties.BucketName = 'unrelated';
   if (failure === 'hash mismatch') fixture.fn = { state: 'Active', updated: 'Successful', hash: 'changed' };
@@ -61,7 +68,12 @@ it.each(['unstable', 'wrong account', 'bucket mismatch', 'hash mismatch', 'unman
   if (failure === 'missing function') fixture.fn = null;
   if (failure === 'wrong function') fixture.template.Resources.McpFunction!.Properties.FunctionName = 'different-function';
   if (failure === 'wrong bucket ref') fixture.template.Resources.McpFunction!.Properties.Code = { S3Bucket: 'other-bucket', S3Key: key };
+  if (failure === 'inactive function') fixture.fn = { ...fixture.fn, state: 'Inactive' };
+  if (failure === 'failed function update') fixture.fn = { ...fixture.fn, updated: 'Failed' };
+  if (failure === 'in-progress function update') fixture.fn = { ...fixture.fn, updated: 'InProgress' };
+  if (failure === 'template key mismatch') fixture.template.Resources.McpFunction!.Properties.Code = { S3Bucket: { Ref: 'CodeArtifacts' }, S3Key: `releases/${'b'.repeat(64)}.zip` };
   expect(read).toThrow();
+});
 });
 it('requires a trusted current main revision for all mutating runs', () => {
   expect(requireCurrentMain).toThrow('Trusted main');

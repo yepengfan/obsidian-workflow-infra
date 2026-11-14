@@ -20,7 +20,7 @@ export function deployedCode(input: Inputs): DeploymentState {
   const args = ['--region', input.region];
   const stack = awsJson(['cloudformation', 'describe-stacks', '--stack-name', 'ObsidianMcp', '--query', 'Stacks[0]', ...args]) as { StackId: string; StackStatus: string; LastUpdatedTime?: string; CreationTime: string };
   if (!stack.StackId?.startsWith(`arn:aws:cloudformation:${input.region}:${input.account}:stack/ObsidianMcp/`) ||
-      !['CREATE_COMPLETE', 'UPDATE_COMPLETE', 'IMPORT_COMPLETE'].includes(stack.StackStatus)) throw Error('MCP stack is not stable');
+      !['CREATE_COMPLETE', 'UPDATE_COMPLETE', 'UPDATE_ROLLBACK_COMPLETE', 'IMPORT_COMPLETE'].includes(stack.StackStatus)) throw Error('MCP stack is not stable');
   let template = awsJson(['cloudformation', 'get-template', '--stack-name', 'ObsidianMcp', '--template-stage', 'Original', '--query', 'TemplateBody', ...args]);
   if (typeof template === 'string') template = JSON.parse(template);
   const model = template as { Resources: Record<string, { Properties: Record<string, unknown> }> };
