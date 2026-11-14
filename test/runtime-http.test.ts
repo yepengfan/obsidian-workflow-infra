@@ -35,6 +35,12 @@ describe('authenticated stateless Streamable HTTP', () => {
     await expect(tokenVerifier(runtimeSettings(), jwks)(`Bearer ${await token({ sub: 'other-owner' })}`)).rejects.toMatchObject({ status: 403 });
     await expect(tokenVerifier(runtimeSettings({ ownerSubjects: [] }), jwks)(`Bearer ${await token()}`)).rejects.toMatchObject({ status: 403 });
   });
+  it.each(['Opaque-Cognito-Owner', 'opaque-cognito-owner ', ' opaque-cognito-owner'])('denies a signed subject differing in case or whitespace: %s', async subject => {
+    const settings = runtimeSettings(runtimeOptionsSchema.parse({ ownerSubjects: ['opaque-cognito-owner'] }));
+    const verify = tokenVerifier(settings, jwks);
+    await expect(verify(`Bearer ${await token({ sub: 'opaque-cognito-owner' })}`)).resolves.toBe('opaque-cognito-owner');
+    await expect(verify(`Bearer ${await token({ sub: subject })}`)).rejects.toMatchObject({ status: 403 });
+  });
   it('rejects bad signatures', async () => {
     const other = await generateKeyPair('RS256'); const now = Math.floor(Date.now() / 1000);
     const bad = await new SignJWT({ sub: owner, iat: now, exp: now + 900 }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).sign(other.privateKey);

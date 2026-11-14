@@ -75,8 +75,8 @@ The application implements `list_notes`, `search_notes`, and `read_note`.
 ChatGPT browses one folder page, chooses note paths, then retrieves or searches
 only those notes. There is no whole-vault scan, recursive traversal or index.
 The MCP server has read-only access to the vault and no access to the ebook
-library. The committed configuration denies note access until an owner is
-allowlisted and leaves OAuth disabled until the exact ChatGPT callback is configured.
+library. See the [connection guide](docs/mcp-server.md#owner-setup-and-chatgpt-connection)
+for owner authorization and OAuth setup.
 
 Keep these C1 and C2 views aligned with changes to the system's users,
 integrations, applications and data stores. Authoritative definitions and

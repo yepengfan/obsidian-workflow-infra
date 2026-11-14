@@ -75,17 +75,21 @@ This private integration uses a predefined confidential OAuth client; it does
 not expose dynamic client registration.
 
 1. In Cognito Console, open the pool identified by `ObsidianMcp` outputs and
-   create your own user under **Users > Create user**, using your email address.
-   Set a temporary password with at least 14 characters, including uppercase,
+   select your existing owner user. If you do not yet have one, create your own
+   user under **Users > Create user**, using your email address. For a new user,
+   set a temporary password with at least 14 characters, including uppercase,
    lowercase, a number and a symbol. Temporary passwords expire after one day;
    if login is not ready yet, resend/reset the temporary password when connecting.
    After OAuth is configured, complete the password change and required TOTP
    enrollment through managed login. Public signup remains disabled; CI cannot
    create users or administer passwords. Do not send credentials or tokens in
    chat or PRs. The user's Attributes view supplies the non-secret `sub` value
-   needed for the owner allowlist. Copy it exactly; Cognito subjects do not need
-   to follow an RFC UUID format. The server matches the subject exactly after
-   verifying the token and issuer. See the [Cognito subject format guidance](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-attributes.html).
+   needed for the owner allowlist. Copy it exactly; Cognito subjects are opaque,
+   nonempty strings within the bounds in [`src/config.ts`](../src/config.ts),
+   and do not need to follow an RFC UUID format. Ordinary UUID-shaped subjects
+   remain supported. No trimming or case normalization is applied. The server
+   matches the subject case-sensitively after signature verification and all
+   required token checks described under [connection verification](#connection-verification). See the [Cognito subject format guidance](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-settings-attributes.html).
 2. Read `McpEndpoint` and `ChatGptClientId` from the stack outputs. Reveal the
    confidential app client's secret in Cognito Console and enter it directly in
    ChatGPT's custom MCP server configuration. The secret is not in Lambda's

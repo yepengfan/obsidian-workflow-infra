@@ -148,10 +148,10 @@ before enabling code cleanup.
 
 ## Runtime stage
 
-The configured stage is `runtime`. The identity and private code bucket are
-deployed. Before another runtime Plan or Apply, follow the
-[first-Apply recovery procedure](#recovering-the-first-runtime-apply) for the
-outstanding IAM prerequisite and retained resources.
+The configured stage is `runtime`; the private runtime, identity and code bucket
+are already deployed. The [first-Apply recovery procedure](#recovering-the-first-runtime-apply)
+records the earlier failed rollout; inspect current native stack state before
+using any recovery steps.
 
 The full runtime template models the Lambda function, API Gateway HTTP
 API/integration/routes/stage, invoke permission, 14-day log group, Cognito read
@@ -174,18 +174,19 @@ its remaining events. Current notes/books and user-pool accounts are unaffected
 by the runtime deletion policy. See
 [CloudFormation deletion policies](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-attribute-deletionpolicy.html).
 
-The owner list and callback list remain empty. The endpoint exposes public OAuth
-resource metadata and returns 401 to anonymous MCP requests; note access remains
-denied even for otherwise valid tokens while the owner list is empty. OAuth
-authorization-code login remains disabled until a reviewed follow-up supplies
-ChatGPT's exact callback. Do not add placeholder identities or callbacks to make
-bootstrap verification pass.
+The owner and exact ChatGPT callback are now configured in
+[`config/mcp-runtime.json`](../config/mcp-runtime.json). Activating this source
+configuration requires a separately owner-approved native Plan/Apply. Expect
+only updates to the existing `ChatGptClient` OAuth settings and `McpFunction`
+environment/code; no new or replaced resources, IAM, note storage or retention
+changes are intended. Live Cognito authorization-code/PKCE/refresh and actual
+ChatGPT tool interoperability remain pending until that Apply and owner sign-in.
 
 After approved Apply, check the deployed code checksum, public resource metadata,
 anonymous 401 challenge and 14-day log retention. Those checks do not access notes
 or establish a completed ChatGPT OAuth exchange. Complete the
 [owner setup and connection checks](mcp-server.md#owner-setup-and-chatgpt-connection)
-in the follow-up configuration. Keep passwords, MFA secrets and the app-client
+after activation. Keep passwords, MFA secrets and the app-client
 secret out of Git, logs and chat.
 
 ## Recovering the first runtime Apply
