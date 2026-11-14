@@ -93,3 +93,12 @@ describe('authenticated stateless Streamable HTTP', () => {
     expect(large.status).toBe(413); expect(store.calls).toHaveLength(0);
   });
 });
+
+it('requires a resource-bound write scope in addition to read and owner membership', async () => {
+  const settings = runtimeSettings();
+  const verifyWrite = tokenVerifier(settings, jwks, `${settings.resource}/write`);
+  await expect(verifyWrite(`Bearer ${await token()}`)).rejects.toMatchObject({ status: 401 });
+  await expect(verifyWrite(`Bearer ${await token({ scope: `${settings.scope} ${settings.resource}/write` })}`)).resolves.toBe(owner);
+  await expect(verifyWrite(`Bearer ${await token({ scope: `${settings.resource}/write` })}`)).rejects.toMatchObject({ status: 401 });
+  await expect(verifyWrite(`Bearer ${await token({ scope: `${settings.scope} ${settings.resource}/write`, 'cognito:groups': [] })}`)).rejects.toMatchObject({ status: 403 });
+});

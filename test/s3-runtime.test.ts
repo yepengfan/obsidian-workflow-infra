@@ -41,3 +41,25 @@ it('fails closed if the service ignores Range and sends an oversized body', asyn
   try { await expect(new S3NoteStore(client, 'private-test-vault').read('Vault/hello.md', 0, 100, undefined, AbortSignal.timeout(1000))).rejects.toThrow('note_unavailable'); }
   finally { client.destroy(); }
 });
+
+it('serializes encrypted conditional writes and rejects S3 conflicts without an unconditional retry', async () => {
+  const calls: { headers: Record<string, string> }[] = []; let status = 200;
+  const client = new S3Client({ region: 'ap-southeast-2', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
+    requestHandler: { handle: async (request: HttpRequest) => {
+      calls.push({ headers: request.headers });
+      return { response: { statusCode: status, headers: { etag: '"saved"', 'content-type': 'application/xml' },
+        body: Readable.from(status === 200 ? [] : ['<Error><Code>PreconditionFailed</Code></Error>']) } };
+    } },
+  });
+  try {
+    const store = new S3NoteStore(client, 'private-test-vault');
+    await store.put('Vault/Learning/Practice/Review/Items/lc-1.md', 'fixture', undefined, AbortSignal.timeout(1000));
+    await store.put('Vault/Learning/Practice/Review/Items/lc-1.md', 'updated', '"old"', AbortSignal.timeout(1000));
+    expect(calls[0]!.headers).toMatchObject({ 'if-none-match': '*', 'x-amz-server-side-encryption': 'AES256' });
+    expect(calls[1]!.headers).toMatchObject({ 'if-match': '"old"', 'x-amz-server-side-encryption': 'AES256' });
+    expect(calls[1]!.headers).not.toHaveProperty('if-none-match');
+    status = 412;
+    await expect(store.put('Vault/a.md', 'updated', '"old"', AbortSignal.timeout(1000))).rejects.toThrow('revision_conflict');
+    expect(calls).toHaveLength(3);
+  } finally { client.destroy(); }
+});

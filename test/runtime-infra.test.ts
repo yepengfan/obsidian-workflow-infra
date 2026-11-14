@@ -77,3 +77,15 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
 it.each(['https://evil.example/callback', 'https://chatgpt.com/connector/oauth/*', 'https://chatgpt.com/connector_platform/oauth/callback'])('rejects a guessed or broad callback %s', callback => {
   expect(mcpAppSchema.safeParse({ notePrefix: '', callbackUrls: [callback] }).success).toBe(false);
 });
+
+it('adds a write scope only when the separate practice IAM boundary matches', () => {
+  const options = mcpAppSchema.parse({ notePrefix: '', callbackUrls: ['https://chatgpt.com/connector/oauth/exact-callback-id'],
+    practice: { enabled: true, writesEnabled: true, timeZone: 'Australia/Brisbane' } });
+  expect(() => new CognitoStack(new App(), 'Mismatch', aws, cognito, deployment, { options, code, noteBucket: aws.buckets.vault.name })).toThrow('IAM boundary');
+  const stack = new CognitoStack(new App(), 'Matching', aws, cognito, { ...deployment, practiceWrites: true }, { options, code, noteBucket: aws.buckets.vault.name });
+  const resources = Template.fromStack(stack).toJSON().Resources;
+  expect(resources.NotesResourceServer.Properties.Scopes.map((scope: { ScopeName: string }) => scope.ScopeName)).toEqual(['read', 'write']);
+  expect(resources.ChatGptClient.Properties.AllowedOAuthScopes).toHaveLength(6);
+  expect(resources.ChatGptClient.Properties.AllowedOAuthScopes).toContainEqual({ 'Fn::Join': ['', [{ Ref: 'NotesResourceServer' }, '/write']] });
+  expect(resources.RuntimeLogs.Properties.RetentionInDays).toBe(14);
+});

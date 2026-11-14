@@ -1,9 +1,11 @@
+import { practiceWriteResources } from '../src/practice-options.js';
 import { Stack } from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { z } from 'zod';
 import type { StorageConfig } from './storage-config.js';
 
 export const mcpDeploymentSchema = z.strictObject({
+  practiceWrites: z.boolean().optional(),
   functionName: z.string().regex(/^obsidian-mcp-[a-z0-9-]+$/u).max(64),
   runtimeRoleName: z.string().regex(/^obsidian-mcp-[a-z0-9-]+$/u).max(64),
   apiName: z.string().regex(/^obsidian-mcp(?:-[a-z0-9-]+)?$/u).max(64),
@@ -27,11 +29,20 @@ export function grantMcpRuntime(
   const group = arn('logs', `log-group:/aws/lambda/${settings.functionName}`);
   const runtime = new iam.Role(stack, 'McpRuntimeRole', {
     roleName: settings.runtimeRoleName, assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
-    description: 'Read-only selected Obsidian notes and write only MCP execution logs',
+    description: settings.practiceWrites ? 'Read selected Obsidian notes and conditionally save approved practice data' : 'Read-only selected Obsidian notes and write only MCP execution logs',
   });
   runtime.addToPolicy(new iam.PolicyStatement({ actions: ['s3:ListBucket'], resources: [vault],
     conditions: { StringLike: { 's3:prefix': [`${settings.notePrefix}*`] }, StringEquals: { 's3:delimiter': '/' }, NumericLessThanEquals: { 's3:max-keys': 100 } } }));
   runtime.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObject'], resources: [`${vault}/${settings.notePrefix}*`] }));
+  if (settings.practiceWrites) {
+    const resources = practiceWriteResources.map(path => `${vault}/${settings.notePrefix}${path}`);
+    for (const condition of [{ StringEquals: { 's3:if-none-match': '*', 's3:x-amz-server-side-encryption': 'AES256' } },
+      { StringEquals: { 's3:x-amz-server-side-encryption': 'AES256' }, Null: { 's3:if-match': 'false' } }]) {
+      runtime.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject'], resources, conditions: condition }));
+    }
+    runtime.addToPolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY, actions: ['s3:PutObject'],
+      resources: ['AGENTS', 'CLAUDE', 'Guide', '00_index'].map(name => `${vault}/${settings.notePrefix}Learning/Practice/*/${name}.md`) }));
+  }
   runtime.addToPolicy(new iam.PolicyStatement({ actions: ['logs:CreateLogStream', 'logs:PutLogEvents'], resources: [`${group}:log-stream:*`] }));
 
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['iam:PassRole'], resources: [runtime.roleArn],

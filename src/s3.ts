@@ -1,14 +1,29 @@
-import { GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { NoteError } from './paths.js';
 
 export interface CatalogPage { folders: string[]; notes: { key: string; size: number; modified?: string }[]; next?: string }
 export interface NoteChunk { bytes: Uint8Array; total: number; etag: string }
 export interface NoteStore {
+  put?(key: string, text: string, revision: string | undefined, signal: AbortSignal): Promise<string>;
   list(prefix: string, limit: number, cursor: string | undefined, signal: AbortSignal): Promise<CatalogPage>;
   read(key: string, offset: number, length: number, etag: string | undefined, signal: AbortSignal): Promise<NoteChunk>;
 }
 export class S3NoteStore implements NoteStore {
   constructor(private readonly client: S3Client, private readonly bucket: string) {}
+  async put(key: string, text: string, revision: string | undefined, signal: AbortSignal): Promise<string> {
+    try {
+      const result = await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: text,
+        ContentType: 'text/markdown; charset=utf-8', ServerSideEncryption: 'AES256',
+        ...(revision ? { IfMatch: revision } : { IfNoneMatch: '*' }),
+      }), { abortSignal: signal });
+      if (!result.ETag) throw new NoteError('note_unavailable');
+      return result.ETag;
+    } catch (error) {
+      const status = error && typeof error === 'object' && '$metadata' in error ? (error.$metadata as { httpStatusCode?: number }).httpStatusCode : undefined;
+      if (status === 409 || status === 412) throw new NoteError('revision_conflict');
+      throw new NoteError(signal.aborted ? 'timeout' : 'note_unavailable');
+    }
+  }
   async list(prefix: string, limit: number, cursor: string | undefined, signal: AbortSignal): Promise<CatalogPage> {
     const result = await this.client.send(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, Delimiter: '/', MaxKeys: limit, ContinuationToken: cursor }), { abortSignal: signal });
     if (result.IsTruncated && !result.NextContinuationToken) throw new NoteError('note_unavailable');

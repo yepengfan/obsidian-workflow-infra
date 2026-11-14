@@ -22,6 +22,7 @@
     "aws-cdk-lib": "2.276.0",
     "constructs": "10.8.1",
     "jose": "6.2.17",
+    "yaml": "2.9.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -35,8 +36,7 @@
     "tsx": "4.23.15",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.2",
-    "vitest": "5.1.0",
-    "yaml": "2.9.1"
+    "vitest": "5.1.0"
   },
   "overrides": {
     "minimatch": "11.0.1"
