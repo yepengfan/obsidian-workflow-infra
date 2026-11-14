@@ -66,7 +66,9 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
     principal: 'apigateway.amazonaws.com', sourceAccount: stack.account, sourceArn: `arn:${stack.partition}:execute-api:${stack.region}:${stack.account}:${api.ref}/*/*` });
   permission.overrideLogicalId('ApiInvokePermission');
   for (const resource of [resourceServer, client, branding, api, logs, runtime, integration, ...routes, stage, permission]) {
-    resource.applyRemovalPolicy(RemovalPolicy.RETAIN, { applyToUpdateReplacePolicy: true });
+    // Reconstructible runtime resources must roll back with a failed deployment.
+    // The user pool/domain and code storage retain their separate protection.
+    resource.applyRemovalPolicy(RemovalPolicy.DESTROY, { applyToUpdateReplacePolicy: true });
   }
   new CfnOutput(scope, 'McpEndpoint', { value: endpoint });
   new CfnOutput(scope, 'ChatGptClientId', { value: client.ref });

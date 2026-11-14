@@ -37,7 +37,7 @@ export function grantMcpRuntime(
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['iam:PassRole'], resources: [runtime.roleArn],
     conditions: { StringEquals: { 'iam:PassedToService': 'lambda.amazonaws.com' } } }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: [
-    'lambda:CreateFunction', 'lambda:GetFunction', 'lambda:GetFunctionConfiguration',
+    'lambda:CreateFunction', 'lambda:DeleteFunction', 'lambda:GetFunction', 'lambda:GetFunctionConfiguration',
     'lambda:UpdateFunctionCode', 'lambda:UpdateFunctionConfiguration',
     'lambda:ListTags', 'lambda:TagResource', 'lambda:UntagResource',
     'lambda:GetFunctionConcurrency', 'lambda:PutFunctionConcurrency', 'lambda:DeleteFunctionConcurrency',
@@ -46,7 +46,7 @@ export function grantMcpRuntime(
   ], resources: [functionArn] }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['lambda:AddPermission'], resources: [functionArn],
     conditions: { StringEquals: { 'lambda:Principal': 'apigateway.amazonaws.com' } } }));
-  execution.addToPolicy(new iam.PolicyStatement({ actions: ['logs:CreateLogGroup', 'logs:PutRetentionPolicy',
+  execution.addToPolicy(new iam.PolicyStatement({ actions: ['logs:CreateLogGroup', 'logs:DeleteLogGroup', 'logs:PutRetentionPolicy',
     'logs:DeleteRetentionPolicy', 'logs:ListTagsForResource', 'logs:ListTagsLogGroup', 'logs:TagResource', 'logs:TagLogGroup'],
   resources: [group, `${group}:*`] }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['logs:GetDataProtectionPolicy'], resources: [group, `${group}:*`] }));

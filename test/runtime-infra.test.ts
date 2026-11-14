@@ -43,7 +43,12 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
   expect(resources.McpApi.Properties.Tags).toEqual({ Project: 'obsidian-mcp' });
   expect(resources.ApiInvokePermission.Properties.Principal).toBe('apigateway.amazonaws.com');
   expect(resources.UserPool.Properties.AdminCreateUserConfig).toEqual({ AllowAdminCreateUserOnly: true });
-  for (const resource of Object.values(resources) as { DeletionPolicy: string }[]) expect(resource.DeletionPolicy).toBe('Retain');
+  const durable = new Set(['UserPool', 'UserPoolDomain', 'CodeArtifacts', 'CodeArtifactsPolicy']);
+  for (const [id, resource] of Object.entries(resources) as [string, { DeletionPolicy: string; UpdateReplacePolicy: string }][]) {
+    const policy = durable.has(id) ? 'Retain' : 'Delete';
+    expect(resource.DeletionPolicy, id).toBe(policy);
+    expect(resource.UpdateReplacePolicy, id).toBe(policy);
+  }
 });
 it.each(['https://evil.example/callback', 'https://chatgpt.com/connector/oauth/*', 'https://chatgpt.com/connector_platform/oauth/callback'])('rejects a guessed or broad callback %s', callback => {
   expect(mcpAppSchema.safeParse({ notePrefix: '', callbackUrls: [callback] }).success).toBe(false);

@@ -131,6 +131,20 @@ describe('MCP runtime permission boundary', () => {
       }
     }
   });
+  it('allows native rollback to delete only the named function and log group', () => {
+    const { stack, statements } = build();
+    const execution = statements(config.mcpExecutionRoleName);
+    expect(execution.filter(s => actions(s).includes('lambda:DeleteFunction'))).toHaveLength(1);
+    expect(execution.find(s => actions(s).includes('lambda:DeleteFunction'))?.Resource)
+      .toEqual(stack.resolve(`arn:${stack.partition}:lambda:${storage.region}:${storage.account}:function:${settings.functionName}`));
+    const group = `arn:${stack.partition}:logs:${storage.region}:${storage.account}:log-group:/aws/lambda/${settings.functionName}`;
+    expect(execution.filter(s => actions(s).includes('logs:DeleteLogGroup'))).toHaveLength(1);
+    expect(execution.find(s => actions(s).includes('logs:DeleteLogGroup'))?.Resource).toEqual(stack.resolve([group, `${group}:*`]));
+    for (const name of [config.planRoleName, config.deployRoleName, settings.runtimeRoleName, config.codeRetentionRoleName]) {
+      expect(statements(name).flatMap(actions)).not.toContain('lambda:DeleteFunction');
+      expect(statements(name).flatMap(actions)).not.toContain('logs:DeleteLogGroup');
+    }
+  });
   it('isolates recurring retention from deployment and both private note buckets', () => {
     const { stack, statements } = build();
     const cleanup = statements(config.codeRetentionRoleName);
