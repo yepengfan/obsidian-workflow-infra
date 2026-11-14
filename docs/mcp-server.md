@@ -101,8 +101,9 @@ not expose dynamic client registration.
    ChatGPT requests Cognito's advertised OIDC scopes (`openid`, `email`, `phone`,
    `profile`); the client permits these plus `obsidian.notes/read` to avoid an
    `invalid_scope` response. Its readable attribute remains limited to `email`.
-   Use the exact endpoint URL as the OAuth `resource`. Sign in through Cognito,
-   completing MFA. Do not request the Cognito user-admin scope or client-credentials
+   Include `obsidian.notes/read` in the requested scopes; OIDC scopes alone do
+   not authorize note access. Use the exact endpoint URL as the OAuth `resource`.
+   Sign in through Cognito, completing MFA. Do not request the Cognito user-admin scope or client-credentials
    grant. See the [OpenAI OIDC-scope requirement](https://developers.openai.com/plugins/build/auth#oidc-scopes).
 
 ## Connection verification
