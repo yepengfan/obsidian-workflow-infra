@@ -48,9 +48,10 @@ Implementation-plan approval does not authorize an AWS Apply.
   S3 IAM does not express caller-selected note batches; the handler must enforce
   that additional boundary, supported formats, cursor validity and total budgets.
 - The application CloudFormation role can pass only that named runtime role
-  to Lambda. Function management is restricted to the IaC-defined function, logs to
-  its named group, and code reads/bucket configuration to the separate code
-  bucket. It cannot edit IAM policies or read private note bodies.
+  to Lambda. Function management is restricted to the IaC-defined function,
+  log-group operations follow the metadata exceptions below, and code reads/bucket
+  configuration are restricted to the separate code bucket. It cannot edit IAM
+  policies or read private note bodies.
 - Cognito configuration imports the exact ARN of the deployed, tagged user pool. Bootstrap
   pool creation and the unowned-pool initial tagging grant are removed. Client,
   resource-server and managed-login-branding configuration is allowed only there;
@@ -195,10 +196,9 @@ live service honors the action; the Analyzer discrepancy remains unresolved.
 After PR #23 merged, the next Plan failed before Apply: native early validation
 reported that the retained function and Cognito resource server already exist.
 It also skipped the log-group existence check because
-`logs:DescribeIndexPolicies` was denied. The regional `AWS::Logs::LogGroup`
-read-handler schema lists `DescribeLogGroups`, `ListTagsForResource`,
-`GetDataProtectionPolicy`, `DescribeIndexPolicies` and `DescribeResourcePolicies`.
-The foundation must cover these metadata reads before recovery; do not treat
+`logs:DescribeIndexPolicies` was denied. The foundation must cover the native
+log-group metadata reads described in [Permission scope](#permission-scope)
+before recovery; do not treat
 a skipped validation or an available import change set as proof that the
 eventual read handler is authorized. No log policy, index or retention setting
 is changed by the metadata permissions.
@@ -217,7 +217,9 @@ stack's template. Do not weaken that guard or delete the retained resources.
 
 Use a one-off native CloudFormation recovery, with separate reviewed plans:
 
-1. Merge the permission correction, then prepare the local-SSO IAM-only UPDATE.
+1. Merge the permission correction, then prepare a fresh local-SSO IAM-only UPDATE
+   from current main, including both the stage-tagging and log metadata corrections.
+   The earlier stage-tagging-only plan is incomplete; keep it unexecuted.
    Review its concrete diff/change set and obtain approval before execution.
 2. Read the latest stack events and service inventories. Match all retained
    resources to their logical IDs, original stack, properties and code digest.
