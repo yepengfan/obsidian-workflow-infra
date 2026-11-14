@@ -45,7 +45,9 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
     supportedIdentityProviders: ['COGNITO'], explicitAuthFlows: ['ALLOW_REFRESH_TOKEN_AUTH'],
     accessTokenValidity: 15, idTokenValidity: 15, refreshTokenValidity: 7,
     tokenValidityUnits: { accessToken: 'minutes', idToken: 'minutes', refreshToken: 'days' },
-    enableTokenRevocation: true, preventUserExistenceErrors: 'ENABLED', readAttributes: ['email'], writeAttributes: ['email'],
+    enableTokenRevocation: true, preventUserExistenceErrors: 'ENABLED',
+    // Cognito can reject code exchange if an enabled OIDC scope cannot read its claims.
+    readAttributes: ['email', 'email_verified', 'phone_number', 'phone_number_verified'], writeAttributes: ['email'],
   });
   client.overrideLogicalId('ChatGptClient'); client.addResourceDependency(resourceServer);
   const branding = new CfnManagedLoginBranding(scope, 'ChatGptLoginBranding', { userPoolId: pool.ref, clientId: client.ref, useCognitoProvidedValues: true });
