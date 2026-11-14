@@ -76,6 +76,7 @@ it.each(['wrong account', 'bucket mismatch', 'hash mismatch', 'unmanaged functio
 });
 });
 it('requires a trusted current main revision for all mutating runs', () => {
+  vi.stubEnv('GITHUB_ACTIONS', 'false');
   expect(requireCurrentMain).toThrow('Trusted main');
   vi.stubEnv('GITHUB_ACTIONS', 'true'); vi.stubEnv('GITHUB_REF', 'refs/heads/main'); vi.stubEnv('GITHUB_SHA', sha);
   vi.stubEnv('GITHUB_REPOSITORY', 'owner/repository'); vi.stubEnv('STATE_MAIN_SHA', sha);
