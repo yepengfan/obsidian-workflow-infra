@@ -69,12 +69,20 @@ export function grantMcpRuntime(
     conditions: { StringEquals: { 'aws:RequestTag/Project': 'obsidian-mcp', 'apigateway:Request/ApiName': settings.apiName } } }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['apigateway:GET', 'apigateway:POST', 'apigateway:PATCH', 'apigateway:DELETE'],
     resources: [`${apiRoot}/apis/*`], conditions: { StringEquals: { 'aws:ResourceTag/Project': 'obsidian-mcp' } } }));
+  // The regional AWS::ApiGatewayV2::Stage create handler separately checks this
+  // literal action on the collection, before a named stage exists. Its live
+  // schema requires it even though IAM Access Analyzer reports INVALID_ACTION.
+  // Keep the exception separate from normal API management and tag ownership.
+  execution.addToPolicy(new iam.PolicyStatement({ actions: ['apigateway:TagResource'],
+    resources: [`${apiRoot}/apis/*/stages`], conditions: { StringEquals: {
+      'aws:RequestedRegion': stack.region, 'aws:RequestTag/Project': 'obsidian-mcp',
+    } } }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['apigateway:GET', 'apigateway:POST', 'apigateway:PUT', 'apigateway:PATCH', 'apigateway:DELETE'],
     resources: [`${apiRoot}/tags/*`], conditions: { StringEquals: { 'aws:ResourceTag/Project': 'obsidian-mcp' } } }));
   execution.addToPolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY, actions: ['apigateway:DELETE'],
     resources: [`${apiRoot}/tags/*`], conditions: { 'ForAnyValue:StringEquals': { 'aws:TagKeys': ['Project'] } } }));
   execution.addToPolicy(new iam.PolicyStatement({ effect: iam.Effect.DENY,
-    actions: ['apigateway:POST', 'apigateway:PUT', 'apigateway:PATCH'],
+    actions: ['apigateway:POST', 'apigateway:PUT', 'apigateway:PATCH', 'apigateway:TagResource'],
     resources: [`${apiRoot}/apis/*`, `${apiRoot}/tags/*`], conditions: {
       StringNotEquals: { 'aws:RequestTag/Project': 'obsidian-mcp' },
       Null: { 'aws:RequestTag/Project': 'false' },

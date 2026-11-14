@@ -91,6 +91,24 @@ describe('MCP runtime permission boundary', () => {
     template.resourceCountIs('AWS::ApiGatewayV2::Api', 0);
     for (const role of Object.values(template.findResources('AWS::IAM::Role'))) expect(role.Properties.ManagedPolicyArns).toBeUndefined();
   });
+  it('permits the native stage tag-on-create check only on regional stage collections with the project request tag', () => {
+    const { stack, statements } = build();
+    const tagging = statements(config.mcpExecutionRoleName)
+      .filter(s => s.Effect === 'Allow' && actions(s).includes('apigateway:TagResource'));
+    expect(tagging).toEqual([{
+      Effect: 'Allow', Action: 'apigateway:TagResource',
+      Resource: stack.resolve(`arn:${stack.partition}:apigateway:${storage.region}::/apis/*/stages`),
+      Condition: { StringEquals: { 'aws:RequestedRegion': storage.region, 'aws:RequestTag/Project': 'obsidian-mcp' } },
+    }]);
+    for (const name of [config.planRoleName, config.deployRoleName, settings.runtimeRoleName, config.codeRetentionRoleName]) {
+      expect(statements(name).flatMap(actions)).not.toContain('apigateway:TagResource');
+    }
+    const ownershipDeny = statements(config.mcpExecutionRoleName)
+      .find(s => s.Effect === 'Deny' && actions(s).includes('apigateway:TagResource'));
+    expect(ownershipDeny).toMatchObject({
+      Condition: { StringNotEquals: { 'aws:RequestTag/Project': 'obsidian-mcp' }, Null: { 'aws:RequestTag/Project': 'false' } },
+    });
+  });
   it('isolates recurring retention from deployment and both private note buckets', () => {
     const { stack, statements } = build();
     const cleanup = statements(config.codeRetentionRoleName);
