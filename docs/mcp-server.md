@@ -75,9 +75,15 @@ This private integration uses a predefined confidential OAuth client; it does
 not expose dynamic client registration.
 
 1. In Cognito Console, open the pool identified by `ObsidianMcp` outputs and
-   create your own user. Complete password and required TOTP enrollment through
-   managed login. Public signup remains disabled; CI cannot create users or
-   administer passwords. Do not send credentials or tokens in chat or PRs.
+   create your own user under **Users > Create user**, using your email address.
+   Set a temporary password with at least 14 characters, including uppercase,
+   lowercase, a number and a symbol. Temporary passwords expire after one day;
+   if login is not ready yet, resend/reset the temporary password when connecting.
+   After OAuth is configured, complete the password change and required TOTP
+   enrollment through managed login. Public signup remains disabled; CI cannot
+   create users or administer passwords. Do not send credentials or tokens in
+   chat or PRs. The user's Attributes view supplies the non-secret `sub` UUID
+   needed for the owner allowlist.
 2. Read `McpEndpoint` and `ChatGptClientId` from the stack outputs. Reveal the
    confidential app client's secret in Cognito Console and enter it directly in
    ChatGPT's custom MCP server configuration. The secret is not in Lambda's
@@ -92,9 +98,12 @@ not expose dynamic client registration.
    Empty callbacks leave OAuth disabled; an empty owner list denies every note
    request even with an otherwise valid token. No placeholder owner is supplied.
 5. Connect the HTTPS `/mcp` URL in ChatGPT with OAuth and the predefined client.
-   Request `openid` and `obsidian.notes/read`, with the exact endpoint URL as the
-   OAuth `resource`. Sign in through Cognito, completing MFA. Do not request the
-   Cognito user-admin scope or client-credentials grant.
+   ChatGPT requests Cognito's advertised OIDC scopes (`openid`, `email`, `phone`,
+   `profile`); the client permits these plus `obsidian.notes/read` to avoid an
+   `invalid_scope` response. Its readable attribute remains limited to `email`.
+   Use the exact endpoint URL as the OAuth `resource`. Sign in through Cognito,
+   completing MFA. Do not request the Cognito user-admin scope or client-credentials
+   grant. See the [OpenAI OIDC-scope requirement](https://developers.openai.com/plugins/build/auth#oidc-scopes).
 
 ## Connection verification
 
