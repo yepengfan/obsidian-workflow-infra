@@ -1,7 +1,7 @@
 {
   "notePrefix": "",
-  "ownerSubjects": [],
-  "callbackUrls": [],
+  "ownerGroup": "obsidian-mcp-owners",
+  "callbackUrls": ["https://chatgpt.com/connector/oauth/JqeUjWLzAhtd"],
   "allowedOrigins": ["https://chatgpt.com"],
   "limits": {
     "pageSize": 20,

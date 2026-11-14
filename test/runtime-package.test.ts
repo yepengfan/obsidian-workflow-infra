@@ -28,7 +28,7 @@ it('builds byte-identical ZIPs for identical runtime code and executes the emitt
     const file = path.join(directory, 'index.mjs'); await fs.writeFile(file, files['index.mjs']!);
     process.env.AWS_REGION = 'ap-southeast-2'; process.env.NOTE_BUCKET = 'private-test-vault'; process.env.NOTE_PREFIX = '';
     process.env.OAUTH_ISSUER = 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_Test'; process.env.OAUTH_CLIENT_ID = 'test-client';
-    process.env.MCP_RESOURCE = 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp'; process.env.OAUTH_SCOPE = 'obsidian.notes/read'; process.env.MCP_OPTIONS = '{}';
+    process.env.MCP_RESOURCE = 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp'; process.env.OAUTH_SCOPE = 'obsidian.notes/read'; process.env.MCP_OPTIONS = JSON.stringify({ ownerGroup: 'obsidian-mcp-owners' });
     const emitted = await import(pathToFileURL(file).href);
     const result = await emitted.handler({ rawPath: '/.well-known/oauth-protected-resource/mcp', headers: {}, requestContext: { http: { method: 'GET' } } }, { awsRequestId: 'fixture-request' });
     expect(result.statusCode).toBe(200); expect(JSON.parse(result.body).resource).toBe(process.env.MCP_RESOURCE);

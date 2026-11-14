@@ -173,7 +173,7 @@ jobs:
           if jq -e 'any(.stacks[]; .name == "ObsidianMcp" and .hasChanges)' infrastructure-plan.json; then attempts=6; fi
           for ((attempt=1; attempt<=attempts; attempt++)); do
             if npm run check:cognito -- infrastructure-apply/ObsidianMcp.stack.json; then
-              echo 'Live discovery passed, including S256. Real PKCE, exact audience, refresh and ChatGPT connection tests remain required; an empty owner allowlist denies all note access.' >> "$GITHUB_STEP_SUMMARY"
+              echo 'Live discovery passed, including S256. See docs/mcp-server.md#owner-setup-and-chatgpt-connection for required group membership and connection verification.' >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             if [[ "$attempt" -lt "$attempts" ]]; then sleep 10; fi

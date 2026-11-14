@@ -34,9 +34,10 @@ make older plans stale; rerunning an old revision cannot deploy it. If only the
 latest revision's CI needs retrying, rerun its `validate` workflow to generate a
 new Plan rather than approving an older source-bound plan.
 
-If the owner identifier or exact ChatGPT callback is unavailable before the
-runtime PR, keep access denied and make the final configuration change in a
-reviewed follow-up. Never use a placeholder owner or an overly broad callback.
+If the exact ChatGPT callback is unavailable before the runtime PR, leave OAuth
+disabled and make the final configuration change in a reviewed follow-up. Group
+membership is managed in Cognito after successful Apply, not through IaC. Never
+use a placeholder user identifier or an overly broad callback.
 Implementation-plan approval does not authorize an AWS Apply.
 
 ## Permission scope
@@ -57,8 +58,15 @@ Implementation-plan approval does not authorize an AWS Apply.
   and API management scope covers rollback of their runtime child resources.
 - Cognito configuration imports the exact ARN of the deployed, tagged user pool. Bootstrap
   pool creation and the unowned-pool initial tagging grant are removed. Client,
-  resource-server and managed-login-branding configuration is allowed only there;
-  user/password administration is not granted. Pool operations require the
+  resource-server, group and managed-login-branding configuration is allowed only
+  there; user/password administration and adding/removing group members are not
+  granted. The group grants are exactly `cognito-idp:CreateGroup`,
+  `cognito-idp:GetGroup`, `cognito-idp:UpdateGroup`, and `cognito-idp:DeleteGroup`.
+  Group CRUD covers all groups within this one pool because Cognito
+  authorizes these actions on the user-pool ARN, not individual group ARNs.
+  No group `RoleArn` is configured and no new `iam:PassRole` or
+  `iam:PutRolePolicy` permission is granted. Native handler behavior remains an
+  approved deployment check. Pool operations require the
   matching `Project` resource tag; tag removal is not granted. Explicit denies
   prevent changing that tag or claiming a pool owned by another project.
   Tagging the pinned, already-owned pool remains allowed under those guards.
@@ -148,15 +156,15 @@ before enabling code cleanup.
 
 ## Runtime stage
 
-The configured stage is `runtime`. The identity and private code bucket are
-deployed. Before another runtime Plan or Apply, follow the
-[first-Apply recovery procedure](#recovering-the-first-runtime-apply) for the
-outstanding IAM prerequisite and retained resources.
+The configured stage is `runtime`; the private runtime, identity and code bucket
+are already deployed. The [first-Apply recovery procedure](#recovering-the-first-runtime-apply)
+records the earlier failed rollout; inspect current native stack state before
+using any recovery steps.
 
 The full runtime template models the Lambda function, API Gateway HTTP
 API/integration/routes/stage, invoke permission, 14-day log group, Cognito read
-resource server, confidential ChatGPT client and managed-login branding. The
-application template preserves the existing pool/domain and code bucket; the
+resource server, confidential ChatGPT client, owners group and managed-login
+branding. The application template preserves the existing pool/domain and code bucket; the
 separate foundation owns IAM. Existing note buckets remain unchanged. Reject
 resource removals, replacements, unexpected IAM changes or a new note bucket.
 
@@ -174,18 +182,32 @@ its remaining events. Current notes/books and user-pool accounts are unaffected
 by the runtime deletion policy. See
 [CloudFormation deletion policies](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-attribute-deletionpolicy.html).
 
-The owner list and callback list remain empty. The endpoint exposes public OAuth
-resource metadata and returns 401 to anonymous MCP requests; note access remains
-denied even for otherwise valid tokens while the owner list is empty. OAuth
-authorization-code login remains disabled until a reviewed follow-up supplies
-ChatGPT's exact callback. Do not add placeholder identities or callbacks to make
-bootstrap verification pass.
+The owners-group name and exact ChatGPT callback are configured in
+[`config/mcp-runtime.json`](../config/mcp-runtime.json); no individual user
+identifiers or memberships belong in that configuration or Lambda configuration.
+The local-SSO IAM prerequisite adds only the group grants described in
+[Permission scope](#permission-scope) to the application CloudFormation role,
+plus `AWS::Cognito::UserPoolGroup` to Plan's existing change-set allowlist.
+Lambda needs no additional IAM.
+
+Apply that separately approved IAM foundation through the
+[local SSO procedure](github-actions.md#one-time-foundation-and-github-environment-setup)
+before merging/starting the ordinary CI Plan for this change.
+The application plan adds one `OwnersGroup` and updates
+the existing `ChatGptClient` OAuth settings and `McpFunction` environment/code
+and dependency on group creation. It exports `OwnerGroupName` for Console setup.
+There are no storage changes or resource replacements. The group uses
+`RetainExceptOnCreate` with replacement retention: a failed first creation removes
+the empty group, while later stack deletion or replacement preserves externally
+managed membership. It has no associated IAM role. After successful Apply, add
+the owner user to this group in Cognito. Live authorization-code/PKCE/refresh and
+actual ChatGPT interoperability remain pending until Apply and owner sign-in.
 
 After approved Apply, check the deployed code checksum, public resource metadata,
 anonymous 401 challenge and 14-day log retention. Those checks do not access notes
 or establish a completed ChatGPT OAuth exchange. Complete the
 [owner setup and connection checks](mcp-server.md#owner-setup-and-chatgpt-connection)
-in the follow-up configuration. Keep passwords, MFA secrets and the app-client
+after activation. Keep passwords, MFA secrets and the app-client
 secret out of Git, logs and chat.
 
 ## Recovering the first runtime Apply
@@ -243,8 +265,8 @@ Use direct native AWS commands for this one-off recovery, with separate reviews:
    and obtain approval before execution. CI cannot update this foundation.
 2. Read fresh stack events and service inventories. Match the eleven orphaned
    resources to the failed operation and physical identifiers. Confirm the
-   function digest and state, API children, client with OAuth disabled, empty
-   callbacks/owner list, and original four managed resources. Do not export a
+   function digest and state, API children, the client configuration from the
+   failed revision, and original four managed resources. Do not export a
    client secret or read note/log-event bodies. Stop for an active stack update,
    unexpected identity/property, new use, or an ownership mismatch.
 3. Present the exact cleanup list and effects for approval: managed-login
@@ -268,8 +290,10 @@ Use direct native AWS commands for this one-off recovery, with separate reviews:
    complete Plan and approve production Apply separately. Do not rerun the old
    failed Apply job or approve the obsolete import preview.
 6. Verify public metadata, anonymous MCP rejection, throttles, deployed checksum
-   and 14-day log-event retention. The empty owner/callback lists must still deny
-   note access and disable OAuth login. Real owner login remains a later check.
+   and 14-day log-event retention. For authorization and OAuth activation, follow
+   the current [runtime stage](#runtime-stage) and
+   [owner connection guide](mcp-server.md#owner-setup-and-chatgpt-connection),
+   rather than the failed revision's empty owner/callback configuration.
 
 Source validation and IAM simulation do not prove that the service honors an
 undocumented action or that cleanup, rollback or redeployment succeeds. Keep those limits visible

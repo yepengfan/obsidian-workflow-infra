@@ -11,7 +11,7 @@ export const limitsSchema = z.strictObject({
   deadlineMs: z.number().int().min(1000).max(8000).default(5000),
 });
 export const runtimeOptionsSchema = z.strictObject({
-  ownerSubjects: z.array(z.uuid()).max(5).default([]),
+  ownerGroup: z.string().regex(/^obsidian-mcp-[a-z0-9-]+$/u).max(128).default('obsidian-mcp-owners'),
   callbackUrls: z.array(z.url().refine(value => {
     const url = new URL(value);
     return url.origin === 'https://chatgpt.com' && !url.hash && !url.search &&

@@ -112,6 +112,8 @@ export class GitHubTrustStack extends Stack {
       conditions: { StringNotEquals: { 'aws:ResourceTag/Project': project }, Null: { 'aws:ResourceTag/Project': 'false' } },
     }));
     mcpExecution.addToPolicy(new iam.PolicyStatement({ actions: [
+      // Group structure only. Users and membership remain Console-managed.
+      'cognito-idp:CreateGroup', 'cognito-idp:GetGroup', 'cognito-idp:UpdateGroup', 'cognito-idp:DeleteGroup',
       'cognito-idp:CreateUserPoolClient', 'cognito-idp:DescribeUserPoolClient',
       'cognito-idp:UpdateUserPoolClient', 'cognito-idp:DeleteUserPoolClient',
       'cognito-idp:CreateResourceServer', 'cognito-idp:DescribeResourceServer',

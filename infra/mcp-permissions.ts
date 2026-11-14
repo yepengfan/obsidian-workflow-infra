@@ -93,7 +93,7 @@ export function grantMcpRuntime(
 }
 
 export const MCP_RESOURCE_TYPES = [
-  'AWS::Cognito::UserPool', 'AWS::Cognito::UserPoolDomain',
+  'AWS::Cognito::UserPool', 'AWS::Cognito::UserPoolDomain', 'AWS::Cognito::UserPoolGroup',
   'AWS::Cognito::UserPoolClient', 'AWS::Cognito::UserPoolResourceServer', 'AWS::Cognito::ManagedLoginBranding',
   'AWS::S3::Bucket', 'AWS::S3::BucketPolicy', 'AWS::Lambda::Function', 'AWS::Lambda::Permission',
   'AWS::Logs::LogGroup', 'AWS::ApiGatewayV2::Api', 'AWS::ApiGatewayV2::Integration',

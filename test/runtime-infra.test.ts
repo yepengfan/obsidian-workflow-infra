@@ -23,7 +23,13 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
   expect(resources.McpFunction.Properties).toMatchObject({ FunctionName: deployment.functionName, Runtime: 'nodejs22.x', Handler: 'index.handler', Timeout: 10,
     Code: { S3Bucket: { Ref: 'CodeArtifacts' }, S3Key: code.key },
     Environment: { Variables: { NOTE_BUCKET: aws.buckets.vault.name, NOTE_PREFIX: '', OAUTH_CLIENT_ID: { Ref: 'ChatGptClient' }, OAUTH_SCOPE: 'obsidian.notes/read' } } });
-  expect(JSON.parse(resources.McpFunction.Properties.Environment.Variables.MCP_OPTIONS).ownerSubjects).toEqual([]);
+  expect(JSON.parse(resources.McpFunction.Properties.Environment.Variables.MCP_OPTIONS).ownerGroup).toBe(options.ownerGroup);
+  expect(JSON.parse(resources.McpFunction.Properties.Environment.Variables.MCP_OPTIONS)).not.toHaveProperty('ownerSubjects');
+  template.resourceCountIs('AWS::Cognito::UserPoolGroup', 1);
+  template.resourceCountIs('AWS::Cognito::UserPoolUserToGroupAttachment', 0);
+  expect(resources.OwnersGroup.Properties).toEqual({ UserPoolId: { Ref: 'UserPool' }, GroupName: options.ownerGroup,
+    Description: 'Authorized private Obsidian MCP users; membership is managed in Cognito' });
+  expect(resources.McpFunction.DependsOn).toContain('OwnersGroup');
   expect(resources.ChatGptClient.Properties.AllowedOAuthFlowsUserPoolClient).toBe(enabled);
   expect(resources.ChatGptClient.Properties.GenerateSecret).toBe(true);
   if (enabled) {
@@ -45,8 +51,8 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
   expect(resources.UserPool.Properties.AdminCreateUserConfig).toEqual({ AllowAdminCreateUserOnly: true });
   const durable = new Set(['UserPool', 'UserPoolDomain', 'CodeArtifacts', 'CodeArtifactsPolicy']);
   for (const [id, resource] of Object.entries(resources) as [string, { DeletionPolicy: string; UpdateReplacePolicy: string }][]) {
-    const policy = durable.has(id) ? 'Retain' : 'Delete';
-    expect(resource.DeletionPolicy, id).toBe(policy);
+    const policy = durable.has(id) || id === 'OwnersGroup' ? 'Retain' : 'Delete';
+    expect(resource.DeletionPolicy, id).toBe(id === 'OwnersGroup' ? 'RetainExceptOnCreate' : policy);
     expect(resource.UpdateReplacePolicy, id).toBe(policy);
   }
 });

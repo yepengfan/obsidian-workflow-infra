@@ -34,8 +34,10 @@ its read continuation; restart that selected note.
 ## Configuration and bounds
 
 `config/storage.json` supplies account, Region and Vault bucket.
-`config/mcp-runtime.json` supplies the literal note prefix, owner Cognito `sub`
-allowlist, exact ChatGPT callback URLs, allowed browser origins and limits.
+`config/mcp-runtime.json` supplies the literal note prefix, Cognito owners group
+name, exact ChatGPT callback URLs, allowed browser origins and limits.
+CDK manages the group structure; user accounts and membership are application
+access data managed in Cognito, without Git changes or infrastructure deployment.
 Resource identities and IAM are defined by the CDK modules; GitHub role settings
 are in `config/github.json`. No AWS credentials, OAuth secret or token belongs
 in these files.
@@ -65,9 +67,9 @@ immutable ZIP upload and post-Apply verification. Review the templates, native
 change-set ARNs and digest before approving production. Stack execution is not
 atomic; inspect partially completed runs before retrying.
 
-This implementation has not been deployed as part of code validation. Native
-handler permissions, live Cognito OAuth and real ChatGPT compatibility remain
-rollout checks requiring the separate concrete deployment approval.
+The group-based authorization and callback activation have not been deployed
+as part of code validation. Native group handler permissions, live Cognito OAuth
+and real ChatGPT compatibility remain rollout checks requiring separate approval.
 
 ## Owner setup and ChatGPT connection
 
@@ -75,15 +77,17 @@ This private integration uses a predefined confidential OAuth client; it does
 not expose dynamic client registration.
 
 1. In Cognito Console, open the pool identified by `ObsidianMcp` outputs and
-   create your own user under **Users > Create user**, using your email address.
-   Set a temporary password with at least 14 characters, including uppercase,
+   select your existing owner user. If you do not yet have one, create your own
+   user under **Users > Create user**, using your email address. For a new user,
+   set a temporary password with at least 14 characters, including uppercase,
    lowercase, a number and a symbol. Temporary passwords expire after one day;
    if login is not ready yet, resend/reset the temporary password when connecting.
    After OAuth is configured, complete the password change and required TOTP
    enrollment through managed login. Public signup remains disabled; CI cannot
    create users or administer passwords. Do not send credentials or tokens in
-   chat or PRs. The user's Attributes view supplies the non-secret `sub` UUID
-   needed for the owner allowlist.
+   chat or PRs. No user `sub`, email or membership is stored in infrastructure
+   configuration. See [connection verification](#connection-verification) for
+   subject and group-claim requirements.
 2. Read `McpEndpoint` and `ChatGptClientId` from the stack outputs. Reveal the
    confidential app client's secret in Cognito Console and enter it directly in
    ChatGPT's custom MCP server configuration. The secret is not in Lambda's
@@ -93,11 +97,18 @@ not expose dynamic client registration.
    format may be callback-specific; the stable callback requires verified issuer
    identification behavior. This server uses native Cognito discovery and does
    not claim or fabricate additional issuer metadata.
-4. Add your Cognito user's `sub` to `ownerSubjects` and that exact URI to
-   `callbackUrls` in a reviewed configuration PR, then approve its native plan.
-   Empty callbacks leave OAuth disabled; an empty owner list denies every note
-   request even with an otherwise valid token. No placeholder owner is supplied.
-5. Connect the HTTPS `/mcp` URL in ChatGPT with OAuth and the predefined client.
+4. Verify that `callbackUrls` in the committed configuration matches that URI;
+   the owner's callback is already configured. A changed callback requires a
+   reviewed configuration PR; empty callbacks leave OAuth disabled. Keep the
+   CDK-managed `ownerGroup` name. Follow the
+   [runtime deployment order](mcp-rollout.md#runtime-stage) for the separately
+   approved IAM prerequisite before merge/ordinary CI Plan, then production Apply.
+5. After successful Apply, open **Groups** in the same Cognito user pool, select
+   the group named by the `OwnerGroupName` stack output, and add your existing
+   user. Wait for CDK to create the group; do not create it manually.
+   An empty group grants nobody note access.
+   CI creates the group structure but cannot create users or change membership.
+6. Connect the HTTPS `/mcp` URL in ChatGPT with OAuth and the predefined client.
    ChatGPT requests Cognito's advertised OIDC scopes (`openid`, `email`, `phone`,
    `profile`); the client permits these plus `obsidian.notes/read` to avoid an
    `invalid_scope` response. Its readable attribute remains limited to `email`.
@@ -120,10 +131,20 @@ No test needs to create or edit a private note.
 
 Verify authorization-code + S256 PKCE, reject an incorrect verifier, confirm the
 access token's exact resource `aud`, issuer, app-client `client_id`, `token_use:
-access`, expiry, read scope and owner `sub`. ID tokens, other clients, other
-audiences, expired/bad signatures and other users must be rejected. Check that a
-refreshed access token keeps the resource audience and owner restriction.
+access`, expiry, read scope and exact owners-group membership in the signed
+`cognito:groups` array. ID tokens, other clients, other audiences, expired/bad
+signatures, missing/malformed groups (including mixed-type arrays) and nonmembers
+must be rejected before S3 access. Group names are case-sensitive, with no trimming
+or normalization. Subjects must be nonempty strings of at most 2,048 characters,
+without normalization or UUID validation.
+Different user subjects with authorized membership are accepted; pagination
+remains bound to each subject. Check that refreshed access tokens reflect current
+membership and preserve the resource audience and read scope.
 Inspect token claims locally without posting the token or enabling token logs.
+
+Membership changes need no infrastructure deployment. Reconnect to obtain fresh
+tokens after a change. Already-issued access tokens remain valid until their
+15-minute expiry; removing membership does not immediately invalidate them.
 
 The official SDK uses stateless Streamable HTTP with JSON responses. Each Lambda
 invocation creates a fresh server and transport, issues no session ID and closes
@@ -137,4 +158,5 @@ weakening audience checks or adding a whole-vault scan.
 Sources: [OpenAI MCP authentication](https://developers.openai.com/plugins/build/auth),
 [MCP Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports),
 [Cognito resource binding](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-define-resource-servers.html),
+[Cognito group claims](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-user-groups.html),
 [Cognito token and refresh behavior](https://docs.aws.amazon.com/cognito/latest/developerguide/token-endpoint.html).
