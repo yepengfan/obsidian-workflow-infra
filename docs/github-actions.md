@@ -11,10 +11,8 @@ manual Apply trigger. First import is planned automatically too.
 The user reviews and merges App-authored PRs and separately approves concrete
 AWS changes. Repository changes alone do not execute the permission foundation,
 import existing buckets, copy objects or activate lifecycle cleanup.
-The separate [`artifact retention`](artifact-retention.md) maintenance workflow
-applies the reviewed code-retention policy daily once its dedicated IAM role is
-approved and deployed. Manual runs default to preview. Its source PR does not
-authorize that IAM activation or native multipart-upload lifecycle activation.
+See the [`artifact retention` guide](artifact-retention.md) for the separate
+maintenance workflow, preview mode and required activation approvals.
 
 ## What to review in CI
 
@@ -302,9 +300,7 @@ verifies the ZIP digest, size, source revision and template code key, then write
 and `If-None-Match: *`. A preexisting-key 412 is accepted only after checking
 stored size, checksum and encryption; conflicts and other upload errors fail.
 No overwrite or delete is attempted.
-Publication also atomically tags new uploads with their protection metadata,
-verifies the current native deployment, and resets unused age when reusing a
-verified existing code version. See [artifact protection](artifact-retention.md#why-code-cleanup-needs-deployment-awareness).
+Publication also enforces the [artifact protection contract](artifact-retention.md#why-code-cleanup-needs-deployment-awareness).
 
 Apply rechecks live main immediately before each execution, enables termination
 protection, executes the exact approved ARN and waits for the correct import
@@ -321,10 +317,9 @@ inspect actual AWS stack/change-set status before retrying. Do not recreate
 retained resources or blindly re-import. A fresh successful validation of current
 main prepares a new combined plan against actual state.
 
-Deployment and code cleanup share one concurrency group with `queue: max`, so
-maintenance cannot overlap an Apply or evict a queued deployment. Concurrency
-does not interrupt an in-flight apply. Reject or cancel an
-older waiting run when main advances, so the latest revision can plan. The live
+Deployment and code cleanup use the [shared concurrency contract](artifact-retention.md#why-code-cleanup-needs-deployment-awareness).
+Reject or cancel an older waiting run when main advances, so the latest revision
+can plan. The live
 main check rejects stale approvals/reruns. Ordinary CI never uses SSO, expands
 its own permissions, or reads/writes note bodies.
 

@@ -9,11 +9,8 @@ count-based retention floor,
 expired-current-delete-marker cleanup, scheduled Lambda, replication or separate
 backup bucket.
 
-The [resource retention proposal](artifact-retention.md) adds a separate native
-rule to abort incomplete multipart uploads after seven days on both note buckets
-and the code bucket. Activation still requires the reviewed infrastructure Apply.
-It preserves completed current objects and the existing 90-day history rule.
-That guide also covers unused code ZIPs and log retention.
+See the [resource retention guide](artifact-retention.md) for proposed multipart
+cleanup, unused code ZIPs, log retention and their activation approvals.
 
 This is version history in the original buckets. It does not provide an
 independent account/Region copy or protection against someone with permission
@@ -95,8 +92,9 @@ aws cloudformation describe-stacks --stack-name ObsidianWorkflowStorage \
 ```
 
 Expect `Enabled` for both versioning responses and the reviewed rule
-with `NoncurrentDays: 90`. After the additional approved multipart cleanup Apply,
-also expect `AbortIncompleteMultipartUpload.DaysAfterInitiation: 7`. The CI Apply includes drift detection; require
+with `NoncurrentDays: 90`. Verify additional multipart rules using the
+[resource retention checks](artifact-retention.md#preview-and-verification).
+The CI Apply includes drift detection; require
 `UPDATE_COMPLETE`, termination protection enabled and `IN_SYNC`. Version
 metadata can demonstrate history exists, but it is not a restore test.
 Do not upload/delete a test note or restore over an existing file without

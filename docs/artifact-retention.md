@@ -6,8 +6,7 @@ been reviewed and approved. Merging source alone does not grant AWS permissions.
 
 | Data | Policy | Mechanism |
 | --- | --- | --- |
-| Current notes and books | Preserve until the owner deletes them | No current-object expiration |
-| Noncurrent note/book versions | 90 days after supersession, already deployed | Native S3 lifecycle |
+| Notes and books, including version history | [Existing retention and recovery policy](retention.md) | Native S3 lifecycle |
 | Incomplete multipart uploads, all three buckets | Abort after 7 days | Proposed native S3 lifecycle |
 | Unused code ZIP versions | 90 days after first observed unused | Proposed daily GitHub workflow |
 | Deployed and immediate rollback code | Preserve while protected | Native deployment state and object tags |
@@ -32,8 +31,12 @@ group with `queue: max` and no cancellation of in-progress runs. GitHub queues
 these runs together; an approved Apply and cleanup cannot overlap.
 
 Before publication, `bin/publish-code.ts` verifies current main, the stable native
-MCP stack, its bucket/function binding and the actual Lambda code hash. A newly
-uploaded ZIP receives protection tags atomically with its conditional, encrypted
+MCP stack, its bucket/function binding and the actual Lambda code hash. Stable
+states include `UPDATE_ROLLBACK_COMPLETE`, allowing a corrective publication or
+cleanup only when the native template and actual function still match. In-progress
+and failed rollback states are rejected; see the
+[boundary tests](../test/code-deployment-state.test.ts).
+A newly uploaded ZIP receives protection tags atomically with its conditional, encrypted
 upload. A verified existing object receives version-specific protection tags.
 Publication clears that object's unused timestamp. Configuration-only deployment
 preserves the previous rollback key; a different target records the current key
