@@ -62,9 +62,12 @@ export async function checkCognitoResourceBinding(domain: string, resource: stri
   let target: URL;
   try { target = new URL(location); } catch { throw new Error('Cognito returned an invalid authorization redirect'); }
   const expected = new URL(callback);
+  const params = target.searchParams;
   if (target.origin !== expected.origin || target.pathname !== expected.pathname || target.hash || target.username || target.password ||
-      target.searchParams.get('error') !== 'login_required' || target.searchParams.get('state') !== state ||
-      ['code', 'access_token', 'id_token', 'refresh_token'].some(key => target.searchParams.has(key))) {
+      params.getAll('error').length !== 1 || params.get('error') !== 'login_required' ||
+      params.getAll('state').length !== 1 || params.get('state') !== state ||
+      params.getAll('error_description').length > 1 ||
+      [...params.keys()].some(key => !['error', 'state', 'error_description'].includes(key))) {
     throw new Error('Cognito rejected resource-bound authorization parameters or returned an unexpected grant');
   }
 }
