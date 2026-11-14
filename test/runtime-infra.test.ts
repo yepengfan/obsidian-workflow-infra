@@ -13,6 +13,17 @@ const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json
 const deployment = mcpResources(aws, github.runtimeRoleName);
 const cognito = cognitoSchema.parse(JSON.parse(fs.readFileSync('config/cognito.json', 'utf8')));
 const code = { schemaVersion: 1 as const, sourceSha: 'local', sha256: 'a'.repeat(64), sha256Base64: 'a'.repeat(43) + '=', key: 'releases/' + 'a'.repeat(64) + '.zip', bytes: 100 };
+it.each([
+  { scope: 'email', attributes: ['email', 'email_verified'] },
+  { scope: 'phone', attributes: ['phone_number', 'phone_number_verified'] },
+])('grants the claim reads required to exchange the advertised $scope scope', ({ scope, attributes }) => {
+  const options = mcpAppSchema.parse({ notePrefix: '', callbackUrls: ['https://chatgpt.com/connector/oauth/exact-callback-id'] });
+  const stack = new CognitoStack(new App(), 'ObsidianMcp', aws, cognito, deployment, { options, code, noteBucket: aws.buckets.vault.name });
+  const client = Template.fromStack(stack).toJSON().Resources.ChatGptClient.Properties;
+  expect(client.AllowedOAuthScopes).toContain(scope);
+  expect(client.ReadAttributes).toEqual(expect.arrayContaining(attributes));
+  expect(client.WriteAttributes).toEqual(['email']);
+});
 it.each([false, true])('synthesizes the protected runtime with callback enabled: %s', enabled => {
   const options = mcpAppSchema.parse({ notePrefix: '', callbackUrls: enabled ? ['https://chatgpt.com/connector/oauth/exact-callback-id'] : [] });
   const stack = new CognitoStack(new App(), 'ObsidianMcp', aws, cognito, deployment, { options, code, noteBucket: aws.buckets.vault.name });
@@ -37,6 +48,8 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
   expect(resources.McpFunction.DependsOn).toContain('OwnersGroup');
   expect(resources.ChatGptClient.Properties.AllowedOAuthFlowsUserPoolClient).toBe(enabled);
   expect(resources.ChatGptClient.Properties.GenerateSecret).toBe(true);
+  expect(new Set(resources.ChatGptClient.Properties.ReadAttributes)).toEqual(new Set(['email', 'email_verified', 'phone_number', 'phone_number_verified']));
+  expect(resources.ChatGptClient.Properties.WriteAttributes).toEqual(['email']);
   if (enabled) {
     expect(resources.ChatGptClient.Properties.AllowedOAuthFlows).toEqual(['code']);
     expect(resources.ChatGptClient.Properties.CallbackURLs).toEqual(options.callbackUrls);

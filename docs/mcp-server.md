@@ -117,7 +117,13 @@ not expose dynamic client registration.
 6. Connect the HTTPS `/mcp` URL in ChatGPT with OAuth and the predefined client.
    ChatGPT requests Cognito's advertised OIDC scopes (`openid`, `email`, `phone`,
    `profile`); the client permits these plus the `NotesScope` output to avoid an
-   `invalid_scope` response. Its readable attribute remains limited to `email`.
+   `invalid_scope` response. Its attribute reads are limited to `email`,
+   `email_verified`, `phone_number` and `phone_number_verified`, matching the
+   `email` and `phone` scopes; attribute writes remain limited to `email`.
+   Cognito can reject authorization-code exchange with `invalid_grant` when
+   requested scopes lack their required attribute reads, including when `email`
+   is readable but `email_verified` is not. See the
+   [Cognito token endpoint errors](https://docs.aws.amazon.com/cognito/latest/developerguide/token-endpoint.html#token-endpoint-negative).
    Include that exact URL-formatted read scope; OIDC scopes alone do
    not authorize note access. Use the exact endpoint URL as the OAuth `resource`.
    Sign in through Cognito, completing MFA. Do not request the Cognito user-admin scope or client-credentials
