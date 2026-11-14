@@ -48,9 +48,13 @@ Implementation-plan approval does not authorize an AWS Apply.
   S3 IAM does not express caller-selected note batches; the handler must enforce
   that additional boundary, supported formats, cursor validity and total budgets.
 - The application CloudFormation role can pass only that named runtime role
-  to Lambda. Function management is restricted to the IaC-defined function, logs to
-  its named group, and code reads/bucket configuration to the separate code
-  bucket. It cannot edit IAM policies or read private note bodies.
+  to Lambda. Function management is restricted to the IaC-defined function,
+  log-group operations follow the metadata exceptions below, and code reads/bucket
+  configuration are restricted to the separate code bucket. It cannot edit IAM
+  policies or read private note bodies.
+  Native rollback can delete only the configured function and its named log
+  group. The CI roles cannot delete either resource directly. Existing Cognito
+  and API management scope covers rollback of their runtime child resources.
 - Cognito configuration imports the exact ARN of the deployed, tagged user pool. Bootstrap
   pool creation and the unowned-pool initial tagging grant are removed. Client,
   resource-server and managed-login-branding configuration is allowed only there;
@@ -80,6 +84,14 @@ Implementation-plan approval does not authorize an AWS Apply.
 - Metadata APIs without resource-level authorization retain explicit exceptions:
   CloudFormation summary/status reads and regional Cognito-domain/log-group
   discovery. No wildcard action or managed administrator policy is introduced.
+  The native log-group read handler also needs `logs:DescribeIndexPolicies` and
+  `logs:DescribeResourcePolicies`. Like `DescribeLogGroups`, AWS requires
+  `Resource: "*"` for these metadata APIs; `aws:RequestedRegion` limits them to
+  the configured Region. They may expose other log groups' policy metadata in
+  that Region, but grant no log-event reads or policy writes. The companion
+  `logs:GetDataProtectionPolicy` read is restricted to the named MCP log group.
+  These grants belong only to the application CloudFormation role. See the
+  [CloudWatch Logs authorization reference](https://docs.aws.amazon.com/service-authorization/latest/reference/list_logs.html).
 
 The existing storage execution role still manages only the two original note
 buckets. The lifecycle grant's indirect deletion capability is unchanged; see
@@ -153,6 +165,15 @@ it to the existing private code bucket only after approval. Publication tags
 protect the deployed and immediate rollback code from retention cleanup. Inspect
 actual stack events and retained resources before retrying a partial failure.
 
+The pool/domain and code bucket/policy retain their existing protection. The
+twelve reconstructible runtime resources use `Delete` for deletion and
+replacement, so newly created runtime resources can be removed by native failure
+rollback. This includes the log group: its events expire after 14 days during
+normal operation; deleting the group during rollback or stack removal deletes
+its remaining events. Current notes/books and user-pool accounts are unaffected
+by the runtime deletion policy. See
+[CloudFormation deletion policies](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-attribute-deletionpolicy.html).
+
 The owner list and callback list remain empty. The endpoint exposes public OAuth
 resource metadata and returns 401 to anonymous MCP requests; note access remains
 denied even for otherwise valid tokens while the owner list is empty. OAuth
@@ -178,8 +199,21 @@ an explicit compatibility exception, not a clean Analyzer pass. The scoped
 grant in `infra/mcp-permissions.ts` follows the native schema and observed
 denial; its request-tag conditions still need validation during an approved
 live retry. Do not add administrator access or wildcard actions as a workaround.
-The IAM custom-policy simulator also rejected the proposed literal action as
-invalid policy content, so it supplies no authorization evidence for this grant.
+With a structured `--cli-input-json` request, the IAM custom-policy simulator
+evaluates the intended stage-tagging grant as allowed. The earlier invalid-policy
+response came from CLI list-argument parsing, not the literal action. Simulation
+does not establish which request context API Gateway supplies or whether the
+live service honors the action; the Analyzer discrepancy remains unresolved.
+
+After PR #23 merged, the next Plan failed before Apply: native early validation
+reported that the retained function and Cognito resource server already exist.
+It also skipped the log-group existence check because
+`logs:DescribeIndexPolicies` was denied. The foundation must cover the native
+log-group metadata reads described in [Permission scope](#permission-scope)
+before recovery; do not treat
+a skipped validation or an available import change set as proof that the
+eventual read handler is authorized. No log policy, index or retention setting
+is changed by the metadata permissions.
 
 Inspect the current registry with `aws cloudformation describe-type --type
 RESOURCE --type-name AWS::ApiGatewayV2::Stage --query Schema --output text` in
@@ -191,34 +225,53 @@ stage was not present in the subsequent `get-stages` inventory. The original
 pool/domain and code bucket/policy remain managed. A plain CI rerun is unsafe:
 the named function/log group and Cognito resource server already exist, and
 artifact publication correctly refuses a function absent from the native
-stack's template. Do not weaken that guard or delete the retained resources.
+stack's template. Do not weaken that guard or clean up resources without an
+approved physical-resource list.
 
-Use a one-off native CloudFormation recovery, with separate reviewed plans:
+The owner chose to review cleanup of the unused runtime and rebuild it, rather
+than import the retained resources. The available eleven-resource import preview
+must remain unexecuted. The original blanket `Retain` on reconstructible runtime
+resources caused the orphaned state; the runtime deletion policies and tightly
+scoped rollback permissions above prevent repeating that lifecycle mistake.
 
-1. Merge the permission correction, then prepare the local-SSO IAM-only UPDATE.
-   Review its concrete diff/change set and obtain approval before execution.
-2. Read the latest stack events and service inventories. Match all retained
-   resources to their logical IDs, original stack, properties and code digest.
-   Read Cognito identifiers only; do not export an app-client secret. Leave the
-   existing user pool, users, notes, code objects and retention rules untouched.
-3. Prepare an unexecuted `IMPORT` change set for the eleven existing runtime
-   resources. Start with the exact approved runtime template, omit only the
-   nonexistent `McpStage`, and preserve the currently deployed resources,
-   outputs and metadata. Use native `get-template-summary` identifiers, not
-   CDK's mapping format. These resource types support
-   [native import](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resource-import-supported-resources.html).
-   Review that the change set contains only those imports. Stop for any
-   unsupported import, unexpected existing-resource change or property mismatch;
-   do not substitute automatic cleanup. Execution requires approval.
-4. After approved import reaches `IMPORT_COMPLETE`, verify physical IDs and
-   the deployed checksum. Rerun current-main `validate` to generate a fresh CI
-   Plan. The expected remaining addition is `McpStage`; review the entire plan
-   and approve Apply separately. Do not rerun the old failed Apply job.
-5. Verify public metadata, anonymous MCP rejection, stage throttles and 14-day
-   log-event retention. The empty owner/callback lists must still deny note
-   access and disable OAuth login. Real owner login remains a later check.
+Use direct native AWS commands for this one-off recovery, with separate reviews:
+
+1. Review and merge the complete correction. Prepare a fresh local-SSO IAM-only
+   UPDATE from current main, including stage tagging, log metadata reads and
+   deletion of only the named function/log group. The earlier stage-tagging-only
+   plan is incomplete; keep it unexecuted. Review the concrete diff/change set
+   and obtain approval before execution. CI cannot update this foundation.
+2. Read fresh stack events and service inventories. Match the eleven orphaned
+   resources to the failed operation and physical identifiers. Confirm the
+   function digest and state, API children, client with OAuth disabled, empty
+   callbacks/owner list, and original four managed resources. Do not export a
+   client secret or read note/log-event bodies. Stop for an active stack update,
+   unexpected identity/property, new use, or an ownership mismatch.
+3. Present the exact cleanup list and effects for approval: managed-login
+   branding, its app client, the `obsidian.notes` resource server, the HTTP API
+   and its integration/three routes, the function and its invoke permission,
+   and the named log group. API/function deletion removes their children; count
+   those cascades once. The log-group deletion loses any remaining debug logs;
+   metadata reporting zero stored bytes does not prove it contains no events.
+   Rebuilding changes API URL, client ID and client secret. Exclude the user
+   pool and users, domain, all three S3 buckets and objects, retention settings,
+   and IAM resources. Selecting this recovery method is not deletion approval.
+4. After the approved IAM update succeeds, execute only the separately approved
+   cleanup using local SSO, rechecking the reviewed bindings immediately before
+   each operation. Never delete the stack or introduce automatic cleanup. Stop
+   on an unexpected response and inspect partial completion before continuing.
+5. Verify the orphaned resources are absent and the original pool/domain and
+   code bucket/policy remain managed with their original physical IDs. Verify
+   termination protection and stable stack state. Rerun current-main `validate`
+   for a fresh CI Plan; expect the twelve runtime additions with the reviewed
+   deletion policies, no removal/replacement of existing resources. Review the
+   complete Plan and approve production Apply separately. Do not rerun the old
+   failed Apply job or approve the obsolete import preview.
+6. Verify public metadata, anonymous MCP rejection, throttles, deployed checksum
+   and 14-day log-event retention. The empty owner/callback lists must still deny
+   note access and disable OAuth login. Real owner login remains a later check.
 
 Source validation and IAM simulation do not prove that the service honors an
-undocumented action or that import/retry succeeds. Keep those limits visible
+undocumented action or that cleanup, rollback or redeployment succeeds. Keep those limits visible
 until the separately approved operations have completed. This recovery uses
 native AWS commands, not a new deployment workflow or control plane.

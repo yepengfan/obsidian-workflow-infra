@@ -109,6 +109,42 @@ describe('MCP runtime permission boundary', () => {
       Condition: { StringNotEquals: { 'aws:RequestTag/Project': 'obsidian-mcp' }, Null: { 'aws:RequestTag/Project': 'false' } },
     });
   });
+  it('supports the native log-group read handler without allowing log-body reads or policy writes', () => {
+    const { stack, statements } = build();
+    const execution = statements(config.mcpExecutionRoleName);
+    const metadata = execution.find(s => actions(s).includes('logs:DescribeIndexPolicies'));
+    expect(metadata).toEqual({
+      Effect: 'Allow', Action: ['logs:DescribeLogGroups', 'logs:DescribeIndexPolicies', 'logs:DescribeResourcePolicies'],
+      Resource: '*', Condition: { StringEquals: { 'aws:RequestedRegion': storage.region } },
+    });
+    const protection = execution.filter(s => actions(s).includes('logs:GetDataProtectionPolicy'));
+    const group = `arn:${stack.partition}:logs:${storage.region}:${storage.account}:log-group:/aws/lambda/${settings.functionName}`;
+    expect(protection).toEqual([{
+      Effect: 'Allow', Action: 'logs:GetDataProtectionPolicy', Resource: stack.resolve([group, `${group}:*`]),
+    }]);
+    for (const action of ['logs:GetLogEvents', 'logs:FilterLogEvents', 'logs:StartQuery', 'logs:PutIndexPolicy', 'logs:PutResourcePolicy', 'logs:PutDataProtectionPolicy']) {
+      expect(execution.flatMap(actions)).not.toContain(action);
+    }
+    for (const name of [config.planRoleName, config.deployRoleName, settings.runtimeRoleName, config.codeRetentionRoleName]) {
+      for (const action of ['logs:DescribeIndexPolicies', 'logs:DescribeResourcePolicies', 'logs:GetDataProtectionPolicy']) {
+        expect(statements(name).flatMap(actions)).not.toContain(action);
+      }
+    }
+  });
+  it('allows native rollback to delete only the named function and log group', () => {
+    const { stack, statements } = build();
+    const execution = statements(config.mcpExecutionRoleName);
+    expect(execution.filter(s => actions(s).includes('lambda:DeleteFunction'))).toHaveLength(1);
+    expect(execution.find(s => actions(s).includes('lambda:DeleteFunction'))?.Resource)
+      .toEqual(stack.resolve(`arn:${stack.partition}:lambda:${storage.region}:${storage.account}:function:${settings.functionName}`));
+    const group = `arn:${stack.partition}:logs:${storage.region}:${storage.account}:log-group:/aws/lambda/${settings.functionName}`;
+    expect(execution.filter(s => actions(s).includes('logs:DeleteLogGroup'))).toHaveLength(1);
+    expect(execution.find(s => actions(s).includes('logs:DeleteLogGroup'))?.Resource).toEqual(stack.resolve([group, `${group}:*`]));
+    for (const name of [config.planRoleName, config.deployRoleName, settings.runtimeRoleName, config.codeRetentionRoleName]) {
+      expect(statements(name).flatMap(actions)).not.toContain('lambda:DeleteFunction');
+      expect(statements(name).flatMap(actions)).not.toContain('logs:DeleteLogGroup');
+    }
+  });
   it('isolates recurring retention from deployment and both private note buckets', () => {
     const { stack, statements } = build();
     const cleanup = statements(config.codeRetentionRoleName);
