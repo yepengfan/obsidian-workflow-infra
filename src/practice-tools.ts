@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Settings } from './config.js';
-import { addReviewSchema, domainSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
+import { addReviewSchema, dateSchema, domainSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
 
 export function registerPracticeTools(server: McpServer, practice: Practice, settings: Settings,
   result: (work: () => Promise<object>) => Promise<{ content: { type: 'text'; text: string }[]; structuredContent?: Record<string, unknown>; isError?: boolean }>,
@@ -45,5 +45,5 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   server.registerTool('practice_create_design_session', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit user confirmation, create a system-design progress.md and Excalidraw session from the canonical template. Keep session_id and started_on unchanged across retries. Multi-object creation is not atomic; inspect both returned file statuses and report any partial success.',
     inputSchema: z.strictObject({ topic: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 -]{0,79}$/u),
-      session_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u), started_on: z.iso.date() }) }, input => write(() => practice.createDesignSession(input)));
+      session_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u), started_on: dateSchema }) }, input => write(() => practice.createDesignSession(input)));
 }

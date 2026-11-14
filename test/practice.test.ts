@@ -193,7 +193,7 @@ describe('practice storage behavior', () => {
     let originalCanvas = '';
     store.beforePut = key => {
       if (key !== root + canvasPath) return;
-      originalCanvas = store.files.get(key) ?? '---\nmcp_session_id: recovery-failure\n---\nHuman canvas edit';
+      originalCanvas ||= store.files.get(key) ?? '---\nmcp_session_id: recovery-failure\n---\nHuman canvas edit';
       store.files.set(key, content ?? originalCanvas);
     };
     const partial = await practice.createDesignSession(input);
@@ -253,6 +253,46 @@ it('exposes and executes the workflow through the real stateless MCP SDK client'
     expect((await client.callTool({ name: 'practice_record_review', arguments: attempt(revision) })).structuredContent).toMatchObject({ recorded: false });
     expect((await client.callTool({ name: 'practice_record_review', arguments: { ...attempt(revision), reflection: '' } })).isError).toBe(true);
     expect(JSON.stringify(logs)).not.toContain(request.prompt); expect(JSON.stringify(logs)).not.toContain('concatenation');
+  } finally { await client.close(); }
+});
+
+it.each([
+  { date: '0000-01-01', valid: false },
+  { date: '0000-02-29', valid: false },
+  { date: '1900-02-29', valid: false },
+  { date: '0001-01-01', valid: true },
+  { date: '2000-02-29', valid: true },
+  { date: '2024-02-29', valid: true },
+])('validates calendar date $date through MCP before persisting', async ({ date, valid }) => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { store, practice } = await seeded(), options = settings();
+  const revision = (await practice.review(item.id)).revision;
+  const before = new Map(store.files), writesBefore = [...store.writes];
+  const client = new Client({ name: 'practice-date-test', version: '1' });
+  client.onerror = () => {};
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
+      fetch: async (input, init) => createFetchHandler(options, { store, verify: async () => owner,
+        verifyWrite: async () => owner })(new Request(input, init)),
+    }));
+    const review = await client.callTool({ name: 'practice_record_review',
+      arguments: { ...attempt(revision), completed_on: date } });
+    const session = await client.callTool({ name: 'practice_create_design_session',
+      arguments: { topic: 'URL Shortener', session_id: 'calendar-test', started_on: date } });
+    if (!valid) {
+      expect(review.isError).toBe(true); expect(session.isError).toBe(true);
+      expect(store.files).toEqual(before); expect(store.writes).toEqual(writesBefore);
+    } else {
+      expect(review.isError).not.toBe(true); expect(session.isError).not.toBe(true);
+      expect(review.structuredContent).toMatchObject({ recorded: true, last_review: date });
+      expect(session.structuredContent).toMatchObject({ complete: true });
+      expect(parse(store.files.get(items + item.id + '.md')!.split('---\n')[1]!))
+        .toMatchObject({ last_review: date, next_review: date.endsWith('02-29') ? date.slice(0, 4) + '-03-01' : '0001-01-02' });
+      const progress = root + `Learning/Practice/System-Design/Solutions/URL-Shortener-${date}/progress.md`;
+      expect(parse(store.files.get(progress)!.split('---\n')[1]!)).toMatchObject({ started: date });
+    }
   } finally { await client.close(); }
 });
 

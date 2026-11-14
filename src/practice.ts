@@ -11,7 +11,7 @@ export const slugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(12
 export const revisionSchema = z.string().min(1).max(256);
 const text = z.string().max(12000);
 const requiredText = text.refine(value => value.trim().length > 0);
-export const dateSchema = z.iso.date();
+export const dateSchema = z.iso.date().refine(value => !value.startsWith('0000-'), { message: 'Year must be between 0001 and 9999' });
 export const addReviewSchema = z.strictObject({ id: slugSchema, domain: domainSchema, title: requiredText.max(200), prompt: requiredText,
   source: text.optional(), review_focus: text.optional() });
 export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: revisionSchema,
