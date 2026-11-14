@@ -86,8 +86,8 @@ not expose dynamic client registration.
    enrollment through managed login. Public signup remains disabled; CI cannot
    create users or administer passwords. Do not send credentials or tokens in
    chat or PRs. No user `sub`, email or membership is stored in infrastructure
-   configuration. Cognito subjects remain opaque per-user identifiers for
-   pagination; they are not required to follow an RFC UUID format.
+   configuration. See [connection verification](#connection-verification) for
+   subject and group-claim requirements.
 2. Read `McpEndpoint` and `ChatGptClientId` from the stack outputs. Reveal the
    confidential app client's secret in Cognito Console and enter it directly in
    ChatGPT's custom MCP server configuration. The secret is not in Lambda's
@@ -97,15 +97,16 @@ not expose dynamic client registration.
    format may be callback-specific; the stable callback requires verified issuer
    identification behavior. This server uses native Cognito discovery and does
    not claim or fabricate additional issuer metadata.
-4. Keep the CDK-managed `ownerGroup` name and put the exact URI in `callbackUrls`
-   in a reviewed configuration PR. Before its ordinary CI Plan can include
-   `AWS::Cognito::UserPoolGroup`, review and approve the IAM foundation update
-   through the [local SSO procedure](github-actions.md#one-time-foundation-and-github-environment-setup).
-   Then approve the native application plan. Empty callbacks leave OAuth disabled.
+4. Verify that `callbackUrls` in the committed configuration matches that URI;
+   the owner's callback is already configured. A changed callback requires a
+   reviewed configuration PR; empty callbacks leave OAuth disabled. Keep the
+   CDK-managed `ownerGroup` name. Follow the
+   [runtime deployment order](mcp-rollout.md#runtime-stage) for the separately
+   approved IAM prerequisite before merge/ordinary CI Plan, then production Apply.
 5. After successful Apply, open **Groups** in the same Cognito user pool, select
-   the group named by the `OwnerGroupName` stack output (`obsidian-mcp-owners`
-   by default), and add your existing user. Wait for CDK to create the group;
-   do not create it manually. An empty group grants nobody note access.
+   the group named by the `OwnerGroupName` stack output, and add your existing
+   user. Wait for CDK to create the group; do not create it manually.
+   An empty group grants nobody note access.
    CI creates the group structure but cannot create users or change membership.
 6. Connect the HTTPS `/mcp` URL in ChatGPT with OAuth and the predefined client.
    ChatGPT requests Cognito's advertised OIDC scopes (`openid`, `email`, `phone`,
@@ -132,8 +133,10 @@ Verify authorization-code + S256 PKCE, reject an incorrect verifier, confirm the
 access token's exact resource `aud`, issuer, app-client `client_id`, `token_use:
 access`, expiry, read scope and exact owners-group membership in the signed
 `cognito:groups` array. ID tokens, other clients, other audiences, expired/bad
-signatures, missing/malformed groups and nonmembers must be rejected before S3
-access. Group names are case-sensitive, with no trimming or normalization.
+signatures, missing/malformed groups (including mixed-type arrays) and nonmembers
+must be rejected before S3 access. Group names are case-sensitive, with no trimming
+or normalization. Subjects must be nonempty strings of at most 2,048 characters,
+without normalization or UUID validation.
 Different user subjects with authorized membership are accepted; pagination
 remains bound to each subject. Check that refreshed access tokens reflect current
 membership and preserve the resource audience and read scope.
