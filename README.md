@@ -12,7 +12,7 @@ for the current stage and prerequisites.
 ### C1: System context
 
 The owner maintains a private knowledge base and uses ChatGPT to ask questions
-about selected notes.
+about selected notes and complete Algorithm practice with confirmed saving.
 
 ```mermaid
 flowchart LR
@@ -20,9 +20,9 @@ flowchart LR
     ChatGPT["ChatGPT<br/>[External software system]<br/>Conversational client"]
     Platform["Obsidian knowledge platform<br/>[Software system]<br/>Private notes and ebooks"]
 
-    Owner -->|"Asks questions"| ChatGPT
+    Owner -->|"Asks questions; practices algorithms"| ChatGPT
     Owner -->|"Maintains knowledge; authorizes access"| Platform
-    ChatGPT -->|"Authenticates and retrieves selected notes"| Platform
+    ChatGPT -->|"Retrieves notes; saves confirmed Algorithm practice"| Platform
 
     classDef person fill:#08427b,color:#fff,stroke:#052e56
     classDef external fill:#666,color:#fff,stroke:#444
@@ -34,7 +34,7 @@ flowchart LR
 
 ### C2: Containers
 
-The platform separates authentication, the MCP endpoint, note retrieval and
+The platform separates authentication, the MCP endpoint, note access and
 private storage. C4 containers represent applications and data stores, not
 Docker containers.
 
@@ -56,10 +56,10 @@ flowchart TB
     Owner -->|"Maintains notes<br/>[Obsidian sync]"| Vault
     Owner -->|"Maintains private ebooks"| Library
     ChatGPT -->|"Obtains and refreshes tokens<br/>[OAuth 2.0 / PKCE]"| Auth
-    ChatGPT -->|"Calls read-only tools<br/>[MCP Streamable HTTP / HTTPS]"| API
+    ChatGPT -->|"Reads notes; requests confirmed practice saves<br/>[MCP Streamable HTTP / HTTPS]"| API
     API -->|"Invokes handler<br/>[Lambda integration]"| Server
     Server -->|"Fetches signing keys<br/>[HTTPS / JWKS]"| Auth
-    Server -->|"Lists metadata; reads selected notes<br/>[S3 API / IAM]"| Vault
+    Server -->|"Reads selected notes; conditionally saves practice data<br/>[S3 API / IAM]"| Vault
     Server -->|"Writes request metadata<br/>[CloudWatch Logs API]"| Logs
 
     classDef person fill:#08427b,color:#fff,stroke:#052e56
@@ -74,12 +74,14 @@ flowchart TB
 The application implements `list_notes`, `search_notes`, and `read_note`, plus
 an Algorithm-only practice MVP with due reviews followed by new problems.
 Practice coaching and queue reads reuse the same authenticated Lambda and S3
-containers; confirmed saving is implemented behind a disabled write flag. See
+containers. The configuration enables confirmed saving on approved practice
+paths, subject to the separate IAM and application activation steps. See
 [practice through MCP](docs/practice.md) for its tools and activation checks.
 ChatGPT browses one folder page, chooses note paths, then retrieves or searches
 only those notes. There is no whole-vault scan, recursive traversal or index.
-The MCP server has read-only access to the vault and no access to the ebook
-library. See the [connection guide](docs/mcp-server.md#owner-setup-and-chatgpt-connection)
+The MCP server reads selected vault notes and can conditionally write only
+Algorithm practice notes and review records after activation. It has no access
+to the ebook library. See the [connection guide](docs/mcp-server.md#owner-setup-and-chatgpt-connection)
 for owner authorization and OAuth setup.
 
 Keep these C1 and C2 views aligned with changes to the system's users,
