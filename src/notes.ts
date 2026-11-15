@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { Settings } from './config.js';
-import type { NoteStore } from './s3.js';
+import type { NoteStore } from './note-store.js';
 import { catalogCursorSchema, decodeCursor, encodeCursor, keyFor, NoteError, readCursorSchema, validPath } from './paths.js';
 
 const cursor = z.string().min(1).max(8192).optional();

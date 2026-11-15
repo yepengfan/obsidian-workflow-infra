@@ -1,14 +1,8 @@
 import { GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import type { CatalogPage, NoteChunk, NoteStore, NoteWriter } from './note-store.js';
 import { NoteError } from './paths.js';
 
-export interface CatalogPage { folders: string[]; notes: { key: string; size: number; modified?: string }[]; next?: string }
-export interface NoteChunk { bytes: Uint8Array; total: number; etag: string }
-export interface NoteStore {
-  put?(key: string, text: string, revision: string | undefined, signal: AbortSignal): Promise<string>;
-  list(prefix: string, limit: number, cursor: string | undefined, signal: AbortSignal): Promise<CatalogPage>;
-  read(key: string, offset: number, length: number, etag: string | undefined, signal: AbortSignal): Promise<NoteChunk>;
-}
-export class S3NoteStore implements NoteStore {
+export class S3NoteStore implements NoteStore, NoteWriter {
   constructor(private readonly client: S3Client, private readonly bucket: string) {}
   async put(key: string, text: string, revision: string | undefined, signal: AbortSignal): Promise<string> {
     try {

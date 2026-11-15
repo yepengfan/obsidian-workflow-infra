@@ -4,8 +4,8 @@ import { z } from 'zod';
 import bundle from '../workflows/practice.json' with { type: 'json' };
 import type { Settings } from './config.js';
 import { decodeCursor, encodeCursor, keyFor, NoteError, validPath } from './paths.js';
-import type { NoteStore } from './s3.js';
-import { SkillError } from './skill.js';
+import type { NoteStore, NoteWriter } from './note-store.js';
+import { OperationError } from './errors.js';
 
 export const domainSchema = z.enum(['algorithm']);
 export const slugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(120);
@@ -30,7 +30,7 @@ const moduleSchema = z.object({ enabled: z.boolean(), interval_days: z.array(z.n
 const prefix = 'Learning/Practice/Review/Items/';
 const expectedFlow = '.agents/skills/algo-solve/SKILL.md';
 const documents: Record<string, { text: string; sha256: string }> = bundle.documents;
-export class PracticeError extends SkillError {}
+export class PracticeError extends OperationError {}
 function parseNote(value: string) {
   const match = value.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/u);
   if (!match) throw new PracticeError('invalid_practice_note');
@@ -66,9 +66,9 @@ export function nextSchedule(item: z.infer<typeof summarySchema>, outcome: strin
 /** Private note state lives only in S3. Bundled documents contain public workflow definitions. */
 export class Practice {
   constructor(private readonly store: NoteStore, private readonly settings: Settings, private readonly owner: string,
-    private readonly signal: AbortSignal, private readonly now: () => Date = () => new Date()) {}
+    private readonly signal: AbortSignal, private readonly dependencies: { writer?: NoteWriter; now?: () => Date } = {}) {}
   private key(path: string) { return keyFor(this.settings.prefix, validPath(path)); }
-  private today() { return calendarDay(this.settings.practice.timeZone, this.now()); }
+  private today() { return calendarDay(this.settings.practice.timeZone, this.dependencies.now?.() ?? new Date()); }
   async read(path: string) {
     const value = await this.store.read(this.key(path), 0, 65536, undefined, this.signal);
     if (value.total > value.bytes.length) throw new PracticeError('practice_note_too_large');
@@ -141,9 +141,9 @@ export class Practice {
       revision: note.revision, ...(includeHistory ? { history: note.body } : {}) };
   }
   private async put(path: string, value: string, revision?: string) {
-    if (!this.settings.practice.writesEnabled || !this.store.put) throw new PracticeError('practice_writes_disabled');
+    if (!this.settings.practice.writesEnabled || !this.dependencies.writer) throw new PracticeError('practice_writes_disabled');
     if (Buffer.byteLength(value) > 65536) throw new PracticeError('practice_note_too_large');
-    return this.store.put(this.key(path), value, revision, this.signal);
+    return this.dependencies.writer.put(this.key(path), value, revision, this.signal);
   }
   async add(input: z.infer<typeof addReviewSchema>) {
     domainSchema.parse(input.domain);

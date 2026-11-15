@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import bundle from '../workflows/practice.json' with { type: 'json' };
 import { calendarDay, nextSchedule, Practice, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
 import { NoteError } from '../src/paths.js';
-import type { NoteStore } from '../src/s3.js';
+import type { NoteStore, NoteWriter } from '../src/note-store.js';
 import { owner, runtimeSettings } from './runtime-fixtures.js';
 
 const root = 'Vault/';
@@ -16,7 +16,7 @@ const now = () => new Date('2026-11-14T02:00:00Z');
 const settings = (writesEnabled = true) => runtimeSettings({ practice: { enabled: true, writesEnabled, timeZone: 'Australia/Brisbane' } });
 const item = { id: 'lc-1071', domain: 'algorithm' as const, title: 'GCD of strings', status: 'active' as const,
   review_count: 0, stage: 0, last_review: null as string | null, next_review: null as string | null };
-class PracticeStore implements NoteStore {
+class PracticeStore implements NoteStore, NoteWriter {
   files = new Map<string, string>([[configPath, moduleText],
     [root + 'system/modules/algorithm/module.md', '---\nenabled: true\n---\n']]);
   writes: string[] = []; lists: { prefix: string; limit: number }[] = []; serial = 0;
@@ -40,7 +40,7 @@ class PracticeStore implements NoteStore {
   }
 }
 function setup(writes = true) {
-  const store = new PracticeStore(); const practice = new Practice(store, settings(writes), owner, AbortSignal.timeout(10000), now);
+  const store = new PracticeStore(); const practice = new Practice(store, settings(writes), owner, AbortSignal.timeout(10000), { now, writer: store });
   return { store, practice };
 }
 const request = { id: item.id, domain: item.domain, title: item.title, prompt: 'Given two strings, find their greatest common divisor.', review_focus: 'Private post-attempt cue' };
@@ -136,7 +136,7 @@ describe('practice storage behavior', () => {
     const second = await practice.reviews({ domain: 'algorithm', cursor: first.nextCursor });
     expect(second.complete).toBe(true); expect(second.unstarted).toHaveLength(3);
     expect(store.lists).toEqual([{ prefix: items, limit: 20 }, { prefix: items, limit: 20 }]);
-    const tomorrow = new Practice(store, settings(), owner, AbortSignal.timeout(10000), () => new Date('2026-11-15T02:00:00Z'));
+    const tomorrow = new Practice(store, settings(), owner, AbortSignal.timeout(10000), { now: () => new Date('2026-11-15T02:00:00Z') });
     await expect(tomorrow.reviews({ domain: 'algorithm', cursor: first.nextCursor })).rejects.toThrow('invalid_cursor');
   });
   it('skips other domains in a mixed queue and refuses to read or record their attempts', async () => {
@@ -191,7 +191,7 @@ it('exposes and executes the workflow through the real stateless MCP SDK client'
   const options = settings();
   const client = new Client({ name: 'practice-user-test', version: '1' });
   const transport = new StreamableHTTPClientTransport(new URL(options.resource), {
-    fetch: async (input, init) => createFetchHandler(options, { store,
+    fetch: async (input, init) => createFetchHandler(options, { store, writer: store,
       verify: async () => owner, verifyScope: async () => { if (!writableToken) throw new AuthError(401); return owner; },
       log: event => logs.push(event),
     })(new Request(input, init)),
@@ -244,7 +244,7 @@ it.each([
   client.onerror = () => {};
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
-      fetch: async (input, init) => createFetchHandler(options, { store, verify: async () => owner,
+      fetch: async (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner,
         verifyScope: async () => owner })(new Request(input, init)),
     }));
     const review = await client.callTool({ name: 'practice_record_review',
@@ -271,10 +271,29 @@ it('keeps write tools out of the read-only practice catalog', async () => {
   client.onerror = () => {};
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
-      fetch: async (input, init) => createFetchHandler(options, { store, verify: async () => owner })(new Request(input, init)),
+      fetch: async (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner })(new Request(input, init)),
     }));
     const tools = (await client.listTools()).tools;
     expect(tools).toHaveLength(8); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
     expect((await client.callTool({ name: 'practice_add_review', arguments: request })).isError).toBe(true); expect(store.writes).toHaveLength(0);
+  } finally { await client.close(); }
+});
+
+it('requires an explicit writer capability even when the reader also implements put', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const store = new PracticeStore(), options = settings();
+  const client = new Client({ name: 'read-capability-test', version: '1' });
+  client.onerror = () => {};
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
+      fetch: (input, init) => createFetchHandler(options, { store, verify: async () => owner,
+        verifyScope: async () => owner })(new Request(input, init)),
+    }));
+    const response = await client.callTool({ name: 'practice_add_review', arguments: request });
+    expect(response.isError).toBe(true);
+    expect(response.content).toEqual([{ type: 'text', text: 'practice_writes_disabled' }]);
+    expect(store.writes).toHaveLength(0);
   } finally { await client.close(); }
 });

@@ -49,8 +49,8 @@ export function practiceSkill(settings: Settings): McpSkill {
   return {
     instructions: 'For an explicit user request to practice, call the practice tool and follow its versioned workflow definitions for that task; keep private note data distinct from those definitions.',
     scopes: settings.practice.writesEnabled ? [`${settings.resource}/write`] : [],
-    register: ({ server, store, owner, signal, result, authorizeScope }) => {
-      registerPracticeTools(server, new Practice(store, settings, owner, signal), settings, result,
+    register: ({ server, store, writer, owner, signal, result, authorizeScope }) => {
+      registerPracticeTools(server, new Practice(store, settings, owner, signal, { writer }), settings, result,
         () => authorizeScope(`${settings.resource}/write`));
     },
   };

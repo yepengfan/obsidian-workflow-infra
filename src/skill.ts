@@ -1,14 +1,11 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Settings } from './config.js';
-import type { NoteStore } from './s3.js';
-
-export class SkillError extends Error {
-  constructor(readonly code: string) { super(code); }
-}
+import type { NoteStore, NoteWriter } from './note-store.js';
 
 export type SkillContext = {
   server: McpServer;
   store: NoteStore;
+  writer?: NoteWriter;
   settings: Settings;
   owner: string;
   signal: AbortSignal;

@@ -10,7 +10,7 @@ export async function handler(event: HttpEvent, context: { awsRequestId: string 
     if (!warm) {
       const settings = environmentSettings(process.env);
       const store = new S3NoteStore(new S3Client({ region: settings.region, maxAttempts: 2 }), settings.bucket);
-      warm = { settings, fetch: createFetchHandler(settings, { store, log: record => console.info(JSON.stringify(record)) }) };
+      warm = { settings, fetch: createFetchHandler(settings, { store, writer: settings.practice.writesEnabled ? store : undefined, log: record => console.info(JSON.stringify(record)) }) };
     }
     if ((event.body?.length ?? 0) > warm.settings.limits.requestBytes * (event.isBase64Encoded ? 1.4 : 1)) return { statusCode: 413, body: '' };
     const body = event.body ? event.isBase64Encoded ? Buffer.from(event.body, 'base64') : Buffer.from(event.body) : undefined;
