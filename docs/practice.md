@@ -27,14 +27,24 @@ happens to implement `put` is not implicitly treated as a writer.
 
 ## Rollout state
 
-This PR enables the read-only practice tools in versioned configuration. The
-write implementation is included and tested, but `practice.writesEnabled` is
-**false**. No practice write scope or S3 write grant is activated by this PR.
-Until a separately reviewed activation, the assistant can coach, read the queue
-and return drafts, and must explicitly say that drafts have not been saved.
+The versioned configuration enables Algorithm practice writes. Activation
+requires two separately approved infrastructure changes: the local-SSO IAM
+foundation update, followed by the application deployment through GitHub Actions.
+Apply the IAM prerequisite before approving the application Apply. A merged
+configuration change alone does not grant the running Lambda write access.
 
-After merge, inspect CI Plan and approve Apply to install the read-only runtime.
-Refresh the connection's tools in ChatGPT. Start with:
+Once deployed, `practice_add_review`, `practice_record_review`,
+`practice_create_note` and `practice_update_note` are available to owners with
+both read and write OAuth scopes. The workflow previews proposed changes and
+obtains explicit save confirmation. Refresh the connection's tool metadata and
+reauthorize it for the additional scope after deployment.
+
+Follow the activation procedure below and verify save, cancellation, conflict
+and retry behavior in an explicitly approved disposable session. Local tests
+validate the protocol and persistence logic; ChatGPT confirmation behavior and
+live S3 writes still require acceptance checks.
+
+Start with:
 
 > Start my Algorithm practice. Complete due reviews before a new problem.
 
@@ -151,13 +161,13 @@ read or oversized note. No history truncation, archive move or object deletion
 is implemented. Obsidian remains responsible for rendering Dataview views.
 ChatGPT does not gain a Python runner or an Obsidian UI from MCP.
 
-## Activate writes separately
+## Activation procedure
 
 1. Confirm the read-only tools and instruction flow in ChatGPT first.
-2. Prepare a reviewed change setting `practice.writesEnabled: true` in
-   `config/mcp-runtime.json`. Synthesize and review the concrete foundation and
-   application diffs. The same configuration drives the IAM grant and runtime
-   scope; mismatched settings are rejected.
+2. Review `practice.writesEnabled: true` in `config/mcp-runtime.json` and
+   synthesize the concrete foundation and application diffs. The same
+   configuration drives the IAM grant and runtime scope; mismatched settings
+   are rejected.
 3. Apply the approved IAM-only prerequisite through local SSO, following
    [the permission-update procedure](github-actions.md). CI cannot expand its
    own IAM permissions. Grant only encrypted conditional PutObject on the
@@ -166,10 +176,10 @@ ChatGPT does not gain a Python runner or an Obsidian UI from MCP.
    endpoint's `/write` OAuth scope and exposes write tools.
 5. Refresh/reconnect ChatGPT with the additional scope. Keep the client secret
    in its appropriate OAuth field, never in a chat or this repository.
-6. Use an explicitly agreed disposable test session to verify a save, cancelled
-   save, stale concurrent edit and same-attempt retry. Do not
-   claim host confirmation behavior or production writing is validated before
-   observing it. Leave production writes disabled if that check cannot be done.
+6. Use an explicitly agreed disposable session to verify a confirmed save,
+   cancelled save, stale concurrent edit and same-attempt retry. Record the
+   observed host confirmation and S3 results before declaring write acceptance
+   complete.
 
 No AWS activation or private-note test mutation is authorized by the local
 checks or the existence of this code. Obtain approval of the concrete AWS plan.

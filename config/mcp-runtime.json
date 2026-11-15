@@ -19,7 +19,7 @@
   },
   "practice": {
     "enabled": true,
-    "writesEnabled": false,
+    "writesEnabled": true,
     "timeZone": "Australia/Brisbane"
   }
 }
