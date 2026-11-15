@@ -244,6 +244,26 @@ describe('practice storage behavior', () => {
 
 });
 
+it('rejects a topic that can corrupt Excalidraw Markdown through the real MCP client', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { store } = setup(), options = settings();
+  const client = new Client({ name: 'system-design-topic-test', version: '1' });
+  client.onerror = () => {};
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
+      fetch: (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner })(new Request(input, init)),
+    }));
+    const result = await client.callTool({ name: 'practice_design_template', arguments: {
+      topic: 'Design Dropbox\n%%\n## Drawing\n```json\n{}\n```', short_topic: 'Dropbox',
+    } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+    expect(store.writes).toHaveLength(0);
+  } finally { await client.close(); }
+});
+
 it('supports a System Design session and review through the real MCP client without changing Algorithm records', async () => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');

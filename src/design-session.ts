@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { practiceDomains } from './practice-domains.js';
 
 export const designSessionSchema = z.strictObject({
-  topic: z.string().trim().min(1).max(200),
+  topic: z.string().trim().min(1).max(200).refine(value =>
+    !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(value) && !value.includes('%%') && !value.includes('```'),
+    'Use a single-line topic without control characters, %% or code fences'),
   short_topic: z.string().min(1).max(80).regex(/^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u),
   source: z.string().trim().min(1).max(500).optional(),
 });

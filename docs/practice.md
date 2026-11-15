@@ -187,6 +187,8 @@ an independent review; design history is opened only after the attempt ends.
 `practice_design_template` is a read-only draft builder in
 `src/design-session.ts`. It creates a deterministic six-step progress draft and
 valid uncompressed Excalidraw JSON under `Solutions/<short-topic>-<today>/`.
+Topics must be single-line text without control characters, `%%` or code fences
+so the canvas Markdown structure cannot be changed by the title.
 It does not run the canonical CLI, inspect existing sessions, or save files.
 List the relevant catalog first and resume an appropriate existing WIP/planned
 session instead of blindly creating another one. Preview and explicitly confirm

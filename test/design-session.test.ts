@@ -35,7 +35,12 @@ it.each(['../Inbox', 'URL/Shortener', 'URL\\Shortener', 'Bad\nName', '.hidden', 
 });
 
 it('quotes YAML safely and does not invent a problem source', () => {
-  const draft = designSessionTemplate({ topic: 'URL: "shortener"\nwith redirects', short_topic: 'URL-Shortener' }, '2026-11-16');
+  const draft = designSessionTemplate({ topic: 'URL: "shortener" with redirects', short_topic: 'URL-Shortener' }, '2026-11-16');
   expect(parse(draft.files[0]!.content.split('---\n')[1]!)).not.toHaveProperty('source');
-  expect(parse(draft.files[0]!.content.split('---\n')[1]!)).toMatchObject({ topic: 'URL: "shortener"\nwith redirects' });
+  expect(parse(draft.files[0]!.content.split('---\n')[1]!)).toMatchObject({ topic: 'URL: "shortener" with redirects' });
+});
+
+it.each(['Dropbox\n## Drawing', 'Dropbox\rRequirements', 'Dropbox\tRequirements', 'Dropbox\u0000',
+  'Dropbox\u007f', 'Dropbox\u0085Requirements', 'Dropbox\u2028Requirements', 'Dropbox\u2029Requirements', 'Dropbox %% drawing', 'Dropbox ```json'])('rejects unsafe canvas topic %j', topic => {
+  expect(() => designSessionTemplate({ topic, short_topic: 'Dropbox' }, '2026-11-16')).toThrow();
 });
