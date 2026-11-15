@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { McpSkill, SkillContext } from './skills.js';
+import type { McpSkill, SkillContext } from './skill.js';
 import type { Settings } from './config.js';
 import { addReviewSchema, domainSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
 

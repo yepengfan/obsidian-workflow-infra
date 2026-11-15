@@ -11,12 +11,13 @@ Python process.
 ## Runtime composition
 
 `src/practice-tools.ts` defines the practice skill's instructions, scopes and
-registration. `src/skills.ts` defines the small injection contract.
-`src/runtime.ts` composes the enabled skill with the S3 store and HTTP handler;
-it is the Lambda build entrypoint. `src/handler.ts` accepts injected skills and
-provides request context, bounded results and scope authorization without
-importing practice implementation details. A handler without injected skills
-exposes only the ordinary note tools.
+registration. `src/skills.ts` centrally selects enabled skills and is imported
+by `src/handler.ts`. `src/skill.ts` defines their shared contract. The handler
+uses that configured list by default and accepts an explicit override for tests;
+it provides request context, bounded results and scope authorization.
+`src/runtime.ts` is the Lambda adapter and S3 wiring, with no domain-specific
+skill selection. Disabling practice, or explicitly supplying an empty skill
+list, exposes only the ordinary note tools.
 
 ## Rollout state
 

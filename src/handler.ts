@@ -1,4 +1,5 @@
-import { SkillError, type McpSkill } from './skills.js';
+import { SkillError, type McpSkill } from './skill.js';
+import { configuredSkills } from './skills.js';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
@@ -21,7 +22,7 @@ type Audit = { event: 'mcp_request'; requestId: string; status: number; duration
 type Dependencies = { store: NoteStore; skills?: readonly McpSkill[]; verifyScope?: (authorization: string | null, scope: string) => Promise<string>; verify?: (authorization: string | null) => Promise<string>; log?: (record: Audit) => void };
 
 export function createFetchHandler(settings: Settings, dependencies: Dependencies) {
-  const skills = dependencies.skills ?? [];
+  const skills = dependencies.skills ?? configuredSkills(settings);
   const scopes = [...new Set([settings.scope, ...skills.flatMap(skill => skill.scopes)])];
   const origin = new URL(settings.resource).origin;
   const verify = dependencies.verify ?? tokenVerifier(settings);

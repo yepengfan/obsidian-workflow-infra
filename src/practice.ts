@@ -5,7 +5,7 @@ import bundle from '../workflows/practice.json' with { type: 'json' };
 import type { Settings } from './config.js';
 import { decodeCursor, encodeCursor, keyFor, NoteError, validPath } from './paths.js';
 import type { NoteStore } from './s3.js';
-import { SkillError } from './skills.js';
+import { SkillError } from './skill.js';
 
 export const domainSchema = z.enum(['algorithm']);
 export const slugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(120);

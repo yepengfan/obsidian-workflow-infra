@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 import bundle from '../workflows/practice.json' with { type: 'json' };
 import { calendarDay, nextSchedule, Practice, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
-import { practiceSkill } from '../src/practice-tools.js';
 import { NoteError } from '../src/paths.js';
 import type { NoteStore } from '../src/s3.js';
 import { owner, runtimeSettings } from './runtime-fixtures.js';
@@ -192,7 +191,7 @@ it('exposes and executes the workflow through the real stateless MCP SDK client'
   const options = settings();
   const client = new Client({ name: 'practice-user-test', version: '1' });
   const transport = new StreamableHTTPClientTransport(new URL(options.resource), {
-    fetch: async (input, init) => createFetchHandler(options, { store, skills: [practiceSkill(options)],
+    fetch: async (input, init) => createFetchHandler(options, { store,
       verify: async () => owner, verifyScope: async () => { if (!writableToken) throw new AuthError(401); return owner; },
       log: event => logs.push(event),
     })(new Request(input, init)),
@@ -245,7 +244,7 @@ it.each([
   client.onerror = () => {};
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
-      fetch: async (input, init) => createFetchHandler(options, { store, skills: [practiceSkill(options)], verify: async () => owner,
+      fetch: async (input, init) => createFetchHandler(options, { store, verify: async () => owner,
         verifyScope: async () => owner })(new Request(input, init)),
     }));
     const review = await client.callTool({ name: 'practice_record_review',
@@ -272,7 +271,7 @@ it('keeps write tools out of the read-only practice catalog', async () => {
   client.onerror = () => {};
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
-      fetch: async (input, init) => createFetchHandler(options, { store, skills: [practiceSkill(options)], verify: async () => owner })(new Request(input, init)),
+      fetch: async (input, init) => createFetchHandler(options, { store, verify: async () => owner })(new Request(input, init)),
     }));
     const tools = (await client.listTools()).tools;
     expect(tools).toHaveLength(8); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
