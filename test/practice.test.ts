@@ -18,7 +18,7 @@ const item = { id: 'lc-1071', domain: 'algorithm' as const, title: 'GCD of strin
   review_count: 0, stage: 0, last_review: null as string | null, next_review: null as string | null };
 class PracticeStore implements NoteStore, NoteWriter {
   files = new Map<string, string>([[configPath, moduleText],
-    [root + 'system/modules/algorithm/module.md', '---\nenabled: true\n---\n']]);
+    ...['algorithm', 'system-design'].map(domain => [root + `system/modules/${domain}/module.md`, '---\nenabled: true\n---\n'] as [string, string])]);
   writes: string[] = []; lists: { prefix: string; limit: number }[] = []; serial = 0;
   beforePut?: (key: string) => void;
   tag(key: string) { return '"' + createHash('sha256').update(this.files.get(key) ?? '').digest('hex') + '"'; }
@@ -44,6 +44,8 @@ function setup(writes = true) {
   return { store, practice };
 }
 const request = { id: item.id, domain: item.domain, title: item.title, prompt: 'Given two strings, find their greatest common divisor.', review_focus: 'Private post-attempt cue' };
+const designRequest = { id: 'sysd-url-shortener', domain: 'system-design' as const, title: 'Design a URL shortener',
+  prompt: 'Design a service that creates short links and redirects requests. Agree on scale and requirements.', review_focus: 'Compare collision handling after submission.' };
 async function seeded() { const env = setup(); await env.practice.add(request); return env; }
 function attempt(revision: string, extra: object = {}) { return recordReviewSchema.parse({ id: item.id, revision,
   attempt_id: 'attempt-001', outcome: 'independent', reflection: 'I checked string concatenation first.', completed_on: '2026-11-14', ...extra }); }
@@ -73,9 +75,57 @@ describe('canonical spaced review policy', () => {
 });
 
 describe('practice storage behavior', () => {
+  it('routes each domain to its own live mapping, time limit and guard', async () => {
+    const { store, practice } = setup();
+    const workflow = await practice.workflow('system-design');
+    expect(workflow).toMatchObject({ selected_domain: 'system-design', time_limits: { 'system-design': 45 } });
+    expect(workflow.time_limits).not.toHaveProperty('algorithm');
+    expect(workflow.entry).toContain('# System Design practice'); expect(workflow.entry).not.toContain('{{');
+    expect(workflow.documents).toContain('.agents/skills/sysd-solve/SKILL.md');
+    expect(workflow.documents).not.toContain('.agents/skills/algo-solve/SKILL.md');
+    const path = 'Learning/Practice/System-Design/Log/2026-11-14.md';
+    store.files.set(root + 'system/modules/algorithm/module.md', '---\nenabled: false\n---\n');
+    await practice.createNote(path, '# Design log\n');
+    await expect(practice.workflow()).rejects.toThrow('domain_module_disabled');
+    store.files.set(root + 'system/modules/system-design/module.md', '---\nenabled: false\n---\n');
+    await expect(practice.designTemplate({ topic: 'URL shortener', short_topic: 'URL-Shortener' })).rejects.toThrow('domain_module_disabled');
+    await expect(practice.readNote(path)).rejects.toThrow('domain_module_disabled');
+    await expect(practice.add(designRequest)).rejects.toThrow('domain_module_disabled');
+    await expect(practice.instruction('.agents/skills/sysd-solve/SKILL.md', 0)).rejects.toThrow('domain_module_disabled');
+    expect(store.writes).toEqual([root + path]);
+  });
+  it('fails closed for a changed or missing System Design mapping without blocking Algorithm', async () => {
+    const { store, practice } = setup();
+    store.files.set(configPath, moduleText.replace('.agents/skills/sysd-solve/SKILL.md', 'unexpected.md'));
+    await expect(practice.workflow('system-design')).rejects.toThrow('mapping_changed');
+    await expect(practice.workflow()).resolves.toMatchObject({ selected_domain: 'algorithm' });
+    store.files.set(configPath, moduleText.replace('  system-design: 45\n', ''));
+    await expect(practice.workflow('system-design')).rejects.toThrow('invalid_review_time_limit');
+    await expect(practice.workflow()).resolves.toMatchObject({ selected_domain: 'algorithm' });
+    store.files.set(configPath, moduleText.replace('  system-design: 45\n', '  system-design: invalid\n'));
+    await expect(practice.workflow('system-design')).rejects.toThrow('invalid_review_time_limit');
+    await expect(practice.workflow()).resolves.toMatchObject({ selected_domain: 'algorithm' });
+    expect(store.writes).toHaveLength(0);
+  });
+  it('filters mixed domain pages and binds queue cursors to the selected domain', async () => {
+    const { store, practice } = setup();
+    await practice.add(request);
+    for (let i = 0; i < 21; i++) await practice.add({ ...designRequest, id: `sysd-${i}` });
+    const first = await practice.reviews({ domain: 'system-design' });
+    expect(first.complete).toBe(false); expect(first.unstarted).toHaveLength(19);
+    expect(first.unstarted.every(row => row.domain === 'system-design')).toBe(true);
+    await expect(practice.reviews({ domain: 'algorithm', cursor: first.nextCursor })).rejects.toThrow('invalid_cursor');
+    const second = await practice.reviews({ domain: 'system-design', cursor: first.nextCursor });
+    expect(second.complete).toBe(true); expect(second.unstarted).toHaveLength(2);
+    store.files.set(root + 'system/modules/system-design/module.md', '---\nenabled: false\n---\n');
+    await expect(practice.reviews({ domain: 'system-design' })).rejects.toThrow('domain_module_disabled');
+    await expect(practice.review('sysd-0')).rejects.toThrow('domain_module_disabled');
+    await expect(practice.record(attempt(store.tag(items + 'sysd-0.md'), { id: 'sysd-0' }))).rejects.toThrow('domain_module_disabled');
+    expect((await practice.reviews({ domain: 'algorithm' })).unstarted.map(row => row.id)).toEqual([item.id]);
+  });
   it('returns canonical workflow definitions and honors live module guards', async () => {
     const { store, practice } = setup(); const result = await practice.workflow('algorithm');
-    expect(result.domains).toEqual(['algorithm']); expect(result.selected_domain).toBe('algorithm');
+    expect(result.domains).toEqual(['algorithm', 'system-design']); expect(result.selected_domain).toBe('algorithm');
     expect(result.source_commit).toBe(bundle.sourceCommit); expect(result.intervals).toEqual([1, 3, 7, 14, 30]);
     let document = await practice.instruction('.agents/skills/algo-solve/SKILL.md', 0);
     let text = document.text;
@@ -142,7 +192,7 @@ describe('practice storage behavior', () => {
   it('skips other domains in a mixed queue and refuses to read or record their attempts', async () => {
     const { store, practice } = await seeded();
     const algorithmNote = store.files.get(items + item.id + '.md')!;
-    for (const domain of ['system-design', 'behavioral']) {
+    for (const domain of ['behavioral']) {
       const id = `other-${domain}`;
       store.files.set(items + id + '.md', algorithmNote.replace('id: lc-1071', `id: ${id}`).replace('domain: algorithm', `domain: ${domain}`));
       await expect(practice.review(id)).rejects.toThrow('unsupported_practice_domain');
@@ -152,23 +202,36 @@ describe('practice storage behavior', () => {
     expect(queue.complete).toBe(true); expect(queue.unstarted.map(item => item.id)).toEqual([item.id]);
     expect(store.writes).toEqual([items + item.id + '.md']);
   });
-  it('starts Algorithm directly and exposes only its instruction set and note scope', async () => {
+  it('keeps Algorithm as the default with a domain-specific instruction catalog', async () => {
     const { practice } = setup();
-    expect(await practice.workflow()).toMatchObject({ domains: ['algorithm'], selected_domain: 'algorithm', time_limits: { algorithm: expect.any(Number) } });
+    expect(await practice.workflow()).toMatchObject({ domains: ['algorithm', 'system-design'], selected_domain: 'algorithm', time_limits: { algorithm: expect.any(Number) } });
     const workflow = await practice.workflow();
-    expect(workflow.entry).toBe(bundle.entry);
+    expect(workflow.entry).toContain('# Algorithm practice'); expect(workflow.entry).not.toContain('{{');
     for (const path of ['.agents/skills/sysd-solve/SKILL.md', 'Learning/Practice/Review/Flows/behavioral.md']) {
       expect(workflow.documents).not.toContain(path);
-      await expect(practice.instruction(path, 0)).rejects.toThrow('unknown_practice_instruction');
     }
-    await expect(practice.readNote('Learning/Practice/System-Design/Patterns/test.md')).rejects.toThrow('invalid_path');
+    await expect(practice.instruction('Learning/Practice/Review/Flows/behavioral.md', 0)).rejects.toThrow('unknown_practice_instruction');
   });
   it('does not permit private record changes when writes are disabled', async () => {
     const { store, practice } = setup(false); await expect(practice.add(request)).rejects.toThrow('writes_disabled'); expect(store.writes).toHaveLength(0);
   });
   it.each(['system/modules/algorithm/module.md', 'WeRead/a.md', 'Learning/Practice/Algorithm/Patterns/AGENTS.md',
-    'Learning/Practice/Algorithm/Patterns/../AGENTS.md', 'Learning/Practice/Review/Items/lc-1.md', 'Learning/Practice/System-Design/Patterns/queues.md', 'Learning/Practice/System-Design/Solutions/URL-Shortener/progress.md', 'Templates/SD Log.md'])('rejects ordinary edits to %s', path => {
+    'Learning/Practice/Algorithm/Patterns/../AGENTS.md', 'Learning/Practice/Review/Items/lc-1.md',
+    'Learning/Practice/System-Design/Patterns/Guide.md', 'Learning/Practice/System-Design/Solutions/URL-Shortener/AGENTS.md',
+    'Learning/Practice/System-Design/Core Concepts/queues.md', 'Learning/Practice/System-Design/Key Technologies/Redis.md',
+    'Learning/Practice/System-Design/Design Patterns/Caching.md', 'Learning/Practice/System-Design/Attachments/diagram.excalidraw.md',
+    'Learning/Practice/System-Design/Solutions/progress.md', 'Learning/Practice/System-Design/Solutions/URL-Shortener/nested/progress.md',
+    'Learning/Practice/System-Design/Solutions/URL-Shortener/notes.md', 'Learning/Practice/System-Design/Solutions/URL-Shortener/drawing.json.md',
+    'Templates/SD Log.md'])('rejects ordinary edits to %s', path => {
     expect(() => validatePracticeWritePath(path)).toThrow();
+  });
+  it.each(['System-Design/Patterns/Caching.md', 'System-Design/Insights/Read bottleneck.md', 'System-Design/Log/2026-11-14.md',
+    'System-Design/Solutions/URL-Shortener-2026-11-14/progress.md', 'System-Design/Solutions/URL-Shortener-2026-11-14/URL-Shortener.excalidraw.md'])('permits conditional data edits to %s', async relative => {
+    const { practice } = setup(), path = 'Learning/Practice/' + relative;
+    await practice.createNote(path, '# Human note\n');
+    const note = await practice.readNote(path);
+    await practice.updateNote(path, note.revision, [{ old: '# Human note', replacement: '# Human note\nNew learning' }]);
+    expect((await practice.readNote(path)).text).toBe('# Human note\nNew learning\n');
   });
   it('updates only unique anchors and refuses stale or ambiguous note edits', async () => {
     const { store, practice } = setup(); const path = 'Learning/Practice/Algorithm/Log/2026-11-14.md';
@@ -179,6 +242,64 @@ describe('practice storage behavior', () => {
     await expect(practice.updateNote(path, (await practice.readNote(path)).revision, [{ old: 'Missing', replacement: 'Wrong' }])).rejects.toThrow('anchor_not_unique');
   });
 
+});
+
+it('supports a System Design session and review through the real MCP client without changing Algorithm records', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { AuthError } = await import('../src/auth.js');
+  const { store, practice } = await seeded(), options = settings();
+  const algorithm = store.files.get(items + item.id + '.md');
+  const client = new Client({ name: 'system-design-user-test', version: '1' });
+  client.onerror = () => {};
+  let writable = false;
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
+      fetch: (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner,
+        verifyScope: async () => { if (!writable) throw new AuthError(401); return owner; } })(new Request(input, init)),
+    }));
+    const call = (name: string, args: Record<string, unknown>) => client.callTool({ name, arguments: args });
+    const workflow = await call('practice', { domain: 'system-design' });
+    expect(workflow.structuredContent).toMatchObject({ selected_domain: 'system-design', time_limits: { 'system-design': 45 } });
+    const instructions = await call('practice_instruction', { path: '.agents/skills/sysd-solve/SKILL.md' });
+    expect(instructions.isError).not.toBe(true);
+    expect(instructions.structuredContent).toMatchObject({ source_commit: bundle.sourceCommit });
+    const draft = await call('practice_design_template', { topic: 'Design a URL shortener', short_topic: 'URL-Shortener' });
+    const template = z.object({ saved: z.literal(false), files: z.array(z.object({ path: z.string(), content: z.string() })) }).parse(draft.structuredContent);
+    expect(store.writes).toHaveLength(1);
+    expect((await call('practice_create_note', template.files[0]!)).isError).toBe(true);
+    expect(store.writes).toHaveLength(1);
+    writable = true;
+    for (const file of template.files) {
+      expect((await call('practice_create_note', file)).structuredContent).toMatchObject({ created: true });
+      const previous = store.files.get(root + file.path);
+      expect((await call('practice_create_note', file)).isError).toBe(true);
+      expect(store.files.get(root + file.path)).toBe(previous);
+    }
+    const progress = template.files[0]!;
+    const read = await call('practice_read_note', { path: progress.path });
+    const revision = z.object({ revision: z.string() }).parse(read.structuredContent).revision;
+    const edits = [{ old: 'Start Step 1: Requirements.', replacement: 'Resume Step 2: Core Entities.' }];
+    expect((await call('practice_update_note', { path: progress.path, revision, edits })).structuredContent).toMatchObject({ updated: true });
+    expect((await call('practice_update_note', { path: progress.path, revision, edits })).isError).toBe(true);
+    expect((await call('practice_add_review', designRequest)).structuredContent).toMatchObject({ domain: 'system-design', created: true });
+    const prompt = await call('practice_review', { id: designRequest.id });
+    expect(JSON.stringify(prompt.structuredContent)).not.toContain('collision handling');
+    const reviewRevision = z.object({ revision: z.string() }).parse(prompt.structuredContent).revision;
+    const payload = { ...attempt(reviewRevision), id: designRequest.id, reflection: 'The redirect read path drives the latency target.', submission: 'My design and tradeoffs.' };
+    expect((await call('practice_record_review', payload)).structuredContent).toMatchObject({ recorded: true, domain: 'system-design', next_review: '2026-11-15' });
+    expect((await call('practice_record_review', payload)).structuredContent).toMatchObject({ recorded: false, review_count: 1 });
+    const feedback = await call('practice_review', { id: designRequest.id, phase: 'feedback' });
+    expect(feedback.structuredContent).toMatchObject({ history: expect.stringContaining(payload.reflection) });
+    expect((await call('practice_reviews', { domain: 'system-design' })).structuredContent).toMatchObject({ domain: 'system-design', complete: true });
+    expect(store.files.get(items + item.id + '.md')).toBe(algorithm);
+    for (const path of ['Learning/Practice/System-Design/Patterns/AGENTS.md', 'Learning/Practice/System-Design/Core Concepts/Caching.md']) {
+      expect((await call('practice_create_note', { path, content: '# Not allowed' })).isError).toBe(true);
+      expect(store.files.has(root + path)).toBe(false);
+    }
+    expect((await practice.workflow()).selected_domain).toBe('algorithm');
+  } finally { await client.close(); }
 });
 
 it('exposes and executes the workflow through the real stateless MCP SDK client', async () => {
@@ -202,7 +323,7 @@ it('exposes and executes the workflow through the real stateless MCP SDK client'
     const tools = (await client.listTools()).tools;
     expect(tools.some(tool => tool.name === 'practice')).toBe(true);
     expect(tools.map(tool => tool.name)).not.toContain('practice_create_design_session');
-    for (const domain of ['system-design', 'behavioral']) {
+    for (const domain of ['behavioral']) {
       for (const name of ['practice', 'practice_reviews', 'practice_add_review']) {
         expect((await client.callTool({ name, arguments: { ...(name === 'practice_add_review' ? request : {}), domain } })).isError).toBe(true);
       }
@@ -274,7 +395,8 @@ it('keeps write tools out of the read-only practice catalog', async () => {
       fetch: async (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner })(new Request(input, init)),
     }));
     const tools = (await client.listTools()).tools;
-    expect(tools).toHaveLength(8); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
+    expect(tools).toHaveLength(9); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
+    expect((await client.callTool({ name: 'practice_design_template', arguments: { topic: 'Design Dropbox', short_topic: 'Dropbox' } })).structuredContent).toMatchObject({ saved: false });
     expect((await client.callTool({ name: 'practice_add_review', arguments: request })).isError).toBe(true); expect(store.writes).toHaveLength(0);
   } finally { await client.close(); }
 });

@@ -12,7 +12,8 @@ for the current stage and prerequisites.
 ### C1: System context
 
 The owner maintains a private knowledge base and uses ChatGPT to ask questions
-about selected notes and complete Algorithm practice with confirmed saving.
+about selected notes and complete Algorithm and System Design practice with
+confirmed saving.
 
 ```mermaid
 flowchart LR
@@ -20,9 +21,9 @@ flowchart LR
     ChatGPT["ChatGPT<br/>[External software system]<br/>Conversational client"]
     Platform["Obsidian knowledge platform<br/>[Software system]<br/>Private notes and ebooks"]
 
-    Owner -->|"Asks questions; practices algorithms"| ChatGPT
+    Owner -->|"Asks questions; practices algorithms and system design"| ChatGPT
     Owner -->|"Maintains knowledge; authorizes access"| Platform
-    ChatGPT -->|"Retrieves notes; saves confirmed Algorithm practice"| Platform
+    ChatGPT -->|"Retrieves notes; saves confirmed practice"| Platform
 
     classDef person fill:#08427b,color:#fff,stroke:#052e56
     classDef external fill:#666,color:#fff,stroke:#444
@@ -72,7 +73,7 @@ flowchart TB
 ```
 
 The application implements `list_notes`, `search_notes`, and `read_note`, plus
-an Algorithm-only practice MVP with due reviews followed by new problems.
+Algorithm and System Design practice with due reviews followed by new problems.
 Practice coaching and queue reads reuse the same authenticated Lambda and S3
 containers. The configuration enables confirmed saving on approved practice
 paths, subject to the separate IAM and application activation steps. See
@@ -80,8 +81,9 @@ paths, subject to the separate IAM and application activation steps. See
 ChatGPT browses one folder page, chooses note paths, then retrieves or searches
 only those notes. There is no whole-vault scan, recursive traversal or index.
 The MCP server reads selected vault notes and can conditionally write only
-Algorithm practice notes and review records after activation. It has no access
-to the ebook library. See the [connection guide](docs/mcp-server.md#owner-setup-and-chatgpt-connection)
+approved Algorithm and System Design practice notes and review records after
+activation. It has no access to the ebook library. See the
+[connection guide](docs/mcp-server.md#owner-setup-and-chatgpt-connection)
 for owner authorization and OAuth setup.
 
 Keep these C1 and C2 views aligned with changes to the system's users,
