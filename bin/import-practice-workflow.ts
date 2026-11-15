@@ -3,20 +3,14 @@ import { execFileSync } from 'node:child_process';
 import { readFile, writeFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { domainSchema, practiceDocuments } from '../src/practice-domains.js';
 
 // An explicit source refresh, never a deployment-time network fetch.
 const root = await realpath(process.argv[2] ?? '');
 const git = (...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' }).trim();
 const repository = git('remote', 'get-url', 'origin');
 if (!/^(?:https:\/\/github\.com\/|git@github\.com:)yepengfan\/obsidian-workflow(?:\.git)?$/u.test(repository)) throw Error('Expected the canonical workflow repository');
-const paths = [
-  '.agents/skills/practice-review-add/SKILL.md',
-  '.agents/skills/practice-review-today/SKILL.md', '.agents/skills/algo-solve/SKILL.md',
-  'Learning/Practice/Review/AGENTS.md', 'Learning/Practice/Algorithm/AGENTS.md',
-  'Learning/Practice/Review/Content/algorithm.md',
-  ...['practice-review', 'algorithm'].map(module => `system/modules/${module}/module.md`),
-  ...['Algorithm Pattern', 'Algorithm Atom', 'Algorithm Log'].map(name => `Templates/${name}.md`),
-];
+const paths = [...new Set(domainSchema.options.flatMap(practiceDocuments))];
 const dirty = git('status', '--porcelain', '--', ...paths);
 if (dirty) throw Error('Commit the canonical workflow changes before importing');
 const documents: Record<string, { sha256: string; text: string }> = {};

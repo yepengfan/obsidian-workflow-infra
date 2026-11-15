@@ -188,6 +188,8 @@ it('limits optional practice saves to encrypted conditional writes on practice d
     }
     expect(policy.Resource).toEqual(stack.resolve([
       'Review/Items/*.md', 'Algorithm/Patterns/*.md', 'Algorithm/Atoms/*.md', 'Algorithm/Log/*.md',
+      'System-Design/Patterns/*.md', 'System-Design/Insights/*.md', 'System-Design/Log/*.md',
+      'System-Design/Solutions/*/progress.md', 'System-Design/Solutions/*/*.excalidraw.md',
     ].map(path => `arn:${stack.partition}:s3:::${storage.buckets.vault.name}/Knowledge/Learning/Practice/${path}`)));
     expect(policy.Condition?.StringEquals?.['s3:x-amz-server-side-encryption']).toBe('AES256');
   }

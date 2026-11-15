@@ -4,7 +4,4 @@ export const practiceOptionsSchema = z.strictObject({ enabled: z.boolean().defau
   timeZone: z.string().max(100).refine(value => { try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; } catch { return false; } }).default('Australia/Brisbane') }).refine(options => !options.writesEnabled || options.enabled, 'Enable practice before enabling its writes');
 export type PracticeOptions = z.infer<typeof practiceOptionsSchema>;
 
-export const practiceWriteResources = [
-  'Learning/Practice/Review/Items/*.md',
-  'Learning/Practice/Algorithm/Patterns/*.md', 'Learning/Practice/Algorithm/Atoms/*.md', 'Learning/Practice/Algorithm/Log/*.md',
-];
+export { practiceWriteResources } from './practice-domains.js';
