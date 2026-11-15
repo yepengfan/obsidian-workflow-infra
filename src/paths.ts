@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { OperationError } from './errors.js';
 
-export class NoteError extends Error {
-  constructor(readonly code: 'invalid_path' | 'invalid_cursor' | 'note_unavailable' | 'invalid_utf8' | 'result_too_large' | 'timeout') { super(code); }
+export class NoteError extends OperationError {
+  constructor(code: 'invalid_path' | 'invalid_cursor' | 'note_unavailable' | 'invalid_utf8' | 'result_too_large' | 'timeout' | 'revision_conflict') { super(code); }
 }
 export function validPath(path: string, folder = false): string {
   if (folder && path === '') return path;

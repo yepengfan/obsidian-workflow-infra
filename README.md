@@ -71,7 +71,11 @@ flowchart TB
     style Platform fill:none,stroke:#777,stroke-dasharray:6 4
 ```
 
-The application implements `list_notes`, `search_notes`, and `read_note`.
+The application implements `list_notes`, `search_notes`, and `read_note`, plus
+an Algorithm-only practice MVP with due reviews followed by new problems.
+Practice coaching and queue reads reuse the same authenticated Lambda and S3
+containers; confirmed saving is implemented behind a disabled write flag. See
+[practice through MCP](docs/practice.md) for its tools and activation checks.
 ChatGPT browses one folder page, chooses note paths, then retrieves or searches
 only those notes. There is no whole-vault scan, recursive traversal or index.
 The MCP server has read-only access to the vault and no access to the ebook
@@ -102,6 +106,7 @@ generated templates.
 - [Deployment, approvals and permission updates](docs/github-actions.md)
 - [Cognito compatibility and OAuth rollout](docs/cognito-preflight.md)
 - [Selected-note MCP rollout and permission scope](docs/mcp-rollout.md)
+- [Practice workflow, review queues and staged note saving](docs/practice.md)
 - [MCP tools, configuration and ChatGPT connection](docs/mcp-server.md)
 - [Storage retention and recovery verification](docs/retention.md)
 - [GitHub App identity and credential handling](docs/github-app-identity.md)

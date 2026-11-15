@@ -18,6 +18,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   const { notePrefix, ...rawOptions } = application.options;
   if (notePrefix !== deployment.notePrefix) throw Error('Runtime prefix must match the IAM boundary');
   const options = runtimeOptionsSchema.parse(rawOptions);
+  if (options.practice.writesEnabled !== (deployment.practiceWrites ?? false)) throw Error('Practice write configuration must match the IAM boundary');
   const ownerGroup = new CfnUserPoolGroup(scope, 'OwnersGroup', {
     userPoolId: pool.ref, groupName: options.ownerGroup,
     description: 'Authorized private Obsidian MCP users; membership is managed in Cognito',
@@ -31,7 +32,8 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   const endpoint = `${api.attrApiEndpoint}/mcp`;
   const resourceServer = new CfnUserPoolResourceServer(scope, 'NotesResourceServer', {
     userPoolId: pool.ref, identifier: endpoint, name: 'Private Obsidian notes',
-    scopes: [{ scopeName: 'read', scopeDescription: 'Read explicitly selected private Markdown notes' }],
+    scopes: [{ scopeName: 'read', scopeDescription: 'Read explicitly selected private Markdown notes' },
+      ...(options.practice.writesEnabled ? [{ scopeName: 'write', scopeDescription: 'Save confirmed practice notes and review attempts only' }] : [])],
   });
   resourceServer.overrideLogicalId('NotesResourceServer');
   // Cognito binds custom scopes to the requested resource-server identifier.
@@ -41,7 +43,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
     userPoolId: pool.ref, clientName: 'obsidian-chatgpt', generateSecret: true,
     allowedOAuthFlowsUserPoolClient: oauthEnabled,
     // ChatGPT requests the OIDC scopes advertised by native Cognito discovery.
-    ...(oauthEnabled ? { allowedOAuthFlows: ['code'], allowedOAuthScopes: ['openid', 'email', 'phone', 'profile', scopeName], callbackUrLs: options.callbackUrls } : {}),
+    ...(oauthEnabled ? { allowedOAuthFlows: ['code'], allowedOAuthScopes: ['openid', 'email', 'phone', 'profile', scopeName, ...(options.practice.writesEnabled ? [`${resourceServer.ref}/write`] : [])], callbackUrLs: options.callbackUrls } : {}),
     supportedIdentityProviders: ['COGNITO'], explicitAuthFlows: ['ALLOW_REFRESH_TOKEN_AUTH'],
     accessTokenValidity: 15, idTokenValidity: 15, refreshTokenValidity: 7,
     tokenValidityUnits: { accessToken: 'minutes', idToken: 'minutes', refreshToken: 'days' },

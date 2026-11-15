@@ -10,4 +10,4 @@ const aws = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json'
 const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
 const options = mcpAppSchema.parse(JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8')));
 new GitHubTrustStack(app, 'ObsidianGitHubTrust', aws, github,
-  mcpResources(aws, github.runtimeRoleName, options.notePrefix));
+  mcpResources(aws, github.runtimeRoleName, options.notePrefix, options.practice.writesEnabled));

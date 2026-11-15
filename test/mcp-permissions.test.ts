@@ -11,8 +11,8 @@ const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.j
 const config = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
 const settings = mcpResources(storage, config.runtimeRoleName);
 type Statement = { Action: string | string[]; Resource: unknown; Effect: string; Condition?: Record<string, Record<string, unknown>> };
-function build(prefix = '') {
-  const stack = new GitHubTrustStack(new App(), 'Trust', storage, config, { ...settings, notePrefix: prefix });
+function build(prefix = '', practiceWrites = false) {
+  const stack = new GitHubTrustStack(new App(), 'Trust', storage, config, { ...settings, notePrefix: prefix, practiceWrites });
   const template = Template.fromStack(stack);
   const statements = (name: string): Statement[] => {
     const [id] = Object.entries(template.findResources('AWS::IAM::Role')).find(([, r]) => r.Properties.RoleName === name)!;
@@ -174,4 +174,33 @@ describe('MCP runtime permission boundary', () => {
   it('keeps generated resource IDs out of GitHub configuration', () => {
     expect(githubSchema.safeParse({ ...config, mcpUserPoolId: 'ap-southeast-2_Manual' }).success).toBe(false);
   });
+});
+
+it('limits optional practice saves to encrypted conditional writes on practice data only', () => {
+  const { stack, statements } = build('Knowledge/', true);
+  const runtime = statements(settings.runtimeRoleName);
+  const writes = runtime.filter(s => s.Effect === 'Allow' && actions(s).includes('s3:PutObject'));
+  expect(writes).toHaveLength(2);
+  for (const policy of writes) {
+    for (const resource of [policy.Resource].flat() as unknown[]) {
+      expect(JSON.stringify(resource)).toContain(storage.buckets.vault.name + '/Knowledge/Learning/Practice/');
+      expect(JSON.stringify(resource)).not.toContain(storage.buckets.library.name);
+    }
+    expect(policy.Resource).toEqual(stack.resolve([
+      'Review/Items/*.md', 'Algorithm/Patterns/*.md', 'Algorithm/Atoms/*.md', 'Algorithm/Log/*.md',
+    ].map(path => `arn:${stack.partition}:s3:::${storage.buckets.vault.name}/Knowledge/Learning/Practice/${path}`)));
+    expect(policy.Condition?.StringEquals?.['s3:x-amz-server-side-encryption']).toBe('AES256');
+  }
+  expect(writes.some(s => s.Condition?.StringEquals?.['s3:if-none-match'] === '*')).toBe(true);
+  expect(writes.some(s => s.Condition?.Null?.['s3:if-match'] === 'false')).toBe(true);
+  const denied = runtime.filter(s => s.Effect === 'Deny' && actions(s).includes('s3:PutObject'));
+  expect(denied).toHaveLength(1);
+  expect(denied[0]!.Resource).toEqual(stack.resolve(['AGENTS', 'CLAUDE', 'Guide', '00_index'].map(name =>
+    `arn:${stack.partition}:s3:::${storage.buckets.vault.name}/Knowledge/Learning/Practice/*/${name}.md`)));
+  expect(runtime.flatMap(actions)).not.toContain('s3:DeleteObject');
+  for (const name of [config.planRoleName, config.deployRoleName, config.mcpExecutionRoleName]) {
+    for (const policy of statements(name).filter(s => actions(s).includes('s3:PutObject'))) {
+      expect(JSON.stringify(policy.Resource)).not.toContain(storage.buckets.vault.name);
+    }
+  }
 });

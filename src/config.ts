@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { practiceOptionsSchema } from './practice-options.js';
 
 export const limitsSchema = z.strictObject({
   pageSize: z.number().int().min(1).max(100).default(20),
@@ -11,6 +12,7 @@ export const limitsSchema = z.strictObject({
   deadlineMs: z.number().int().min(1000).max(8000).default(5000),
 });
 export const runtimeOptionsSchema = z.strictObject({
+  practice: practiceOptionsSchema.default({ enabled: false, writesEnabled: false, timeZone: 'Australia/Brisbane' }),
   ownerGroup: z.string().regex(/^obsidian-mcp-[a-z0-9-]+$/u).max(128).default('obsidian-mcp-owners'),
   callbackUrls: z.array(z.url().refine(value => {
     const url = new URL(value);

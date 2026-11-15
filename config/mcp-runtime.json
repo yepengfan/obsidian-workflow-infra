@@ -1,8 +1,12 @@
 {
   "notePrefix": "",
   "ownerGroup": "obsidian-mcp-owners",
-  "callbackUrls": ["https://chatgpt.com/connector/oauth/JqeUjWLzAhtd"],
-  "allowedOrigins": ["https://chatgpt.com"],
+  "callbackUrls": [
+    "https://chatgpt.com/connector/oauth/JqeUjWLzAhtd"
+  ],
+  "allowedOrigins": [
+    "https://chatgpt.com"
+  ],
   "limits": {
     "pageSize": 20,
     "selectedNotes": 20,
@@ -12,5 +16,10 @@
     "requestBytes": 65536,
     "responseBytes": 262144,
     "deadlineMs": 5000
+  },
+  "practice": {
+    "enabled": true,
+    "writesEnabled": false,
+    "timeZone": "Australia/Brisbane"
   }
 }
