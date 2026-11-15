@@ -58,7 +58,8 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   logs.overrideLogicalId('RuntimeLogs');
   const runtime = new CfnFunction(scope, 'McpFunction', { functionName: deployment.functionName,
     runtime: 'nodejs22.x', handler: 'index.handler', architectures: ['x86_64'], memorySize: 512, timeout: 10,
-    role: `arn:${stack.partition}:iam::${stack.account}:role/${deployment.runtimeRoleName}`, reservedConcurrentExecutions: 2,
+    // Connection refresh can overlap discovery and handshake requests.
+    role: `arn:${stack.partition}:iam::${stack.account}:role/${deployment.runtimeRoleName}`, reservedConcurrentExecutions: 10,
     code: { s3Bucket: bucket.ref, s3Key: application.code.key },
     environment: { variables: {
       NOTE_BUCKET: application.noteBucket,
