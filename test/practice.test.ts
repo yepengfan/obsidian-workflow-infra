@@ -174,6 +174,45 @@ describe('practice storage behavior', () => {
     expect(store.files.get(items + item.id + '.md')).toContain('User edit');
     expect((await practice.review(item.id)).review_count).toBe(0);
   });
+  it.each([false, true])('keeps multi-day System Design checkpoints separate from scheduling (existing review: %s)', async existing => {
+    const store = new PracticeStore();
+    let day = '2026-11-12';
+    // Each request can construct a fresh service over persisted notes, like Lambda.
+    const session = () => new Practice(store, settings(), owner, AbortSignal.timeout(10000),
+      { writer: store, now: () => new Date(day + 'T02:00:00Z') });
+    if (existing) {
+      day = '2026-11-11';
+      await session().add(designRequest);
+      const review = await session().review(designRequest.id);
+      await session().record(attempt(review.revision, { id: designRequest.id, completed_on: day }));
+      day = '2026-11-12';
+    }
+    const draft = await session().designTemplate({ topic: 'Design a URL shortener', short_topic: 'URL-Shortener' });
+    for (const file of draft.files) await session().createNote(file.path, file.content);
+    const reviewPath = items + designRequest.id + '.md', before = store.files.get(reviewPath);
+    const progress = draft.files[0]!;
+    let previous = 'Start Step 1: Requirements.';
+    for (const [date, next] of [['2026-11-13', 'Resume Step 2: Core Entities.'], ['2026-11-14', 'Resume Step 6: Deep Dives.']]) {
+      day = date!;
+      const checkpoint = await session().readNote(progress.path);
+      await session().updateNote(progress.path, checkpoint.revision, [{ old: previous, replacement: next! }]);
+      previous = next!;
+      expect(store.files.get(root + progress.path)).toContain('started: 2026-11-12');
+      expect(store.files.get(reviewPath)).toBe(before);
+      if (existing) expect(await session().review(designRequest.id)).toMatchObject({ next_review: '2026-11-12', review_count: 1 });
+      else expect([...store.files.keys()].filter(key => key.startsWith(items))).toEqual([]);
+    }
+    // The round ends on the 14th; confirmation/save happens on the 15th.
+    day = '2026-11-15';
+    if (!existing) await session().add(designRequest);
+    const completed = await session().review(designRequest.id);
+    const payload = attempt(completed.revision, { id: designRequest.id, completed_on: '2026-11-14',
+      attempt_id: 'multi-day-design', reflection: 'I separated the redirect path from analytics.' });
+    const saved = await session().record(payload);
+    expect(saved).toMatchObject({ last_review: '2026-11-14', next_review: existing ? '2026-11-17' : '2026-11-15',
+      review_count: existing ? 2 : 1, recorded: true });
+    expect(await session().record(payload)).toMatchObject({ recorded: false, next_review: saved.next_review });
+  });
   it('records the actual completion date on a later save and rejects future dates', async () => {
     const { practice } = await seeded(); const prompt = await practice.review(item.id);
     expect(await practice.record(attempt(prompt.revision, { completed_on: '2026-11-12' }))).toMatchObject({ last_review: '2026-11-12', next_review: '2026-11-13' });

@@ -66,6 +66,16 @@ shell/file/script steps and automatic writes in the upstream skill.
   planned/wip/done transitions, always previewing and confirming the proposed
   edits. The upstream automatic-checkpoint rule does not authorize silent saves.
   If the learner declines, retain the draft in chat and continue coaching.
+- A System Design session can span multiple days. Saving progress or a canvas is
+  a checkpoint, not an ended review round. Preserve the original started date
+  and WIP state; do not call `practice_record_review`, create a due date or advance
+  an existing schedule merely because progress was saved or the day ended.
+  Resume the selected session's saved progress on a later day. A paused attempt
+  is not an `incomplete` outcome. Record an outcome only after the round actually
+  ends, reflection is collected and saving is explicitly confirmed. Set
+  `completed_on` to the local date the round ended, even if confirmation and
+  saving happen later. A paused existing review retains its due date until an
+  ended round is recorded.
 - After assessment and reflection, confirm pattern classification, preview each
   Pattern/Insight/Log edit, then save using practice note tools. Preserve existing
   daily entries and metadata. Save Insights only when supported by actual learning

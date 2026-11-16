@@ -220,6 +220,27 @@ later save. Future dates and dates preceding the last recorded review are
 rejected. Learner reflections are stored verbatim, separate from observations
 and submitted work.
 
+## Multi-day System Design practice
+
+Progress checkpoints and completed review rounds have separate lifecycles. A
+session may remain WIP across multiple days. Confirmed updates to progress.md or
+the canvas save the current work without creating a review item or changing an
+existing item's due date, stage or review count. Preserve the session's original
+started date and resume its saved progress when the learner continues.
+
+Pausing or reaching the end of a day is not an `incomplete` outcome. That outcome
+is for an actually ended round assessed as incomplete. Only
+`practice_record_review`, after an ended round, learner reflection and confirmed
+saving, calculates the next due date. A paused existing review may remain due or
+overdue until that recording succeeds.
+
+For example, start on November 12, save checkpoints on November 13 and 14, and
+end the first independent round on November 14. Its first review is due November
+15. If confirmation and saving happen on November 15, retain
+`completed_on: 2026-11-14`; do not count from the start or save date. Checkpoint
+saves alone start no countdown. A later successful due review uses its applicable
+stage interval, still measured from that round's actual completion date.
+
 ## Concurrency and note edits
 
 S3 creation uses `If-None-Match: *`; updates use the previously read ETag in
