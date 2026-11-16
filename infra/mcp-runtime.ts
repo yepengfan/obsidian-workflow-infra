@@ -15,6 +15,8 @@ export type McpApplication = { options: ReturnType<typeof mcpAppSchema.parse>; c
 export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig, application: McpApplication,
   pool: CfnUserPool, domain: CfnUserPoolDomain, bucket: CfnBucket, logDays: number) {
   const stack = Stack.of(scope);
+  // Admit metadata/handshake bursts within the Lambda concurrency budget.
+  const requestBurstCapacity = 10;
   const { notePrefix, ...rawOptions } = application.options;
   if (notePrefix !== deployment.notePrefix) throw Error('Runtime prefix must match the IAM boundary');
   const options = runtimeOptionsSchema.parse(rawOptions);
@@ -58,8 +60,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   logs.overrideLogicalId('RuntimeLogs');
   const runtime = new CfnFunction(scope, 'McpFunction', { functionName: deployment.functionName,
     runtime: 'nodejs22.x', handler: 'index.handler', architectures: ['x86_64'], memorySize: 512, timeout: 10,
-    // Connection refresh can overlap discovery and handshake requests.
-    role: `arn:${stack.partition}:iam::${stack.account}:role/${deployment.runtimeRoleName}`, reservedConcurrentExecutions: 10,
+    role: `arn:${stack.partition}:iam::${stack.account}:role/${deployment.runtimeRoleName}`, reservedConcurrentExecutions: requestBurstCapacity,
     code: { s3Bucket: bucket.ref, s3Key: application.code.key },
     environment: { variables: {
       NOTE_BUCKET: application.noteBucket,
@@ -74,7 +75,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
     const route = new CfnRoute(scope, id!, { apiId: api.ref, routeKey: key!, authorizationType: 'NONE', target: `integrations/${integration.ref}` });
     route.overrideLogicalId(id!); return route;
   });
-  const stage = new CfnStage(scope, 'McpStage', { apiId: api.ref, stageName: '$default', autoDeploy: true, tags: { Project: 'obsidian-mcp' }, defaultRouteSettings: { throttlingBurstLimit: 5, throttlingRateLimit: 2 } });
+  const stage = new CfnStage(scope, 'McpStage', { apiId: api.ref, stageName: '$default', autoDeploy: true, tags: { Project: 'obsidian-mcp' }, defaultRouteSettings: { throttlingBurstLimit: requestBurstCapacity, throttlingRateLimit: 2 } });
   stage.overrideLogicalId('McpStage'); routes.forEach(route => stage.addResourceDependency(route));
   const permission = new CfnPermission(scope, 'ApiInvokePermission', { action: 'lambda:InvokeFunction', functionName: runtime.ref,
     principal: 'apigateway.amazonaws.com', sourceAccount: stack.account, sourceArn: `arn:${stack.partition}:execute-api:${stack.region}:${stack.account}:${api.ref}/*/*` });

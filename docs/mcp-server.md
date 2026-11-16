@@ -183,12 +183,16 @@ completed real ChatGPT or Cognito exchange. If the live client fails, inspect
 safe request/status logs and fix compatibility without disabling authentication,
 weakening audience checks or adding a whole-vault scan.
 
-The runtime reserves ten concurrent Lambda executions so overlapping discovery
-and handshake requests can complete. If refresh intermittently fails and public
-metadata returns 503, inspect Lambda `Throttles` and `ConcurrentExecutions`
+The runtime reserves ten concurrent Lambda executions and uses the same API
+Gateway burst target so overlapping discovery and handshake requests can
+complete. The steady-state gateway rate remains two requests per second.
+If refresh intermittently fails and public metadata returns 503, inspect
+Lambda `Throttles` and `ConcurrentExecutions`
 alongside the configured reserved concurrency. Confirm the live metadata burst
 again after an approved capacity update; a successful single request does not
 establish reliable refresh behavior.
+For metadata 429 responses, check the
+[API Gateway stage and regional rate/burst targets](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-throttling.html).
 
 Sources: [OpenAI MCP authentication](https://developers.openai.com/plugins/build/auth),
 [MCP Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports),

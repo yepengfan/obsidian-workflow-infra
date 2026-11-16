@@ -16,10 +16,15 @@ const code = { schemaVersion: 1 as const, sourceSha: 'local', sha256: 'a'.repeat
 it('reserves bounded capacity for a parallel MCP metadata refresh burst', () => {
   const options = mcpAppSchema.parse({ notePrefix: '', callbackUrls: ['https://chatgpt.com/connector/oauth/exact-callback-id'] });
   const stack = new CognitoStack(new App(), 'ObsidianMcp', aws, cognito, deployment, { options, code, noteBucket: aws.buckets.vault.name });
-  const concurrency = Template.fromStack(stack).toJSON().Resources.McpFunction.Properties.ReservedConcurrentExecutions;
+  const resources = Template.fromStack(stack).toJSON().Resources;
+  const concurrency = resources.McpFunction.Properties.ReservedConcurrentExecutions;
+  const gateway = resources.McpStage.Properties.DefaultRouteSettings;
   // Eight concurrent public metadata requests reproduced live Lambda throttles.
   expect(concurrency).toBeGreaterThanOrEqual(8);
   expect(concurrency).toBeLessThanOrEqual(20);
+  expect(gateway.ThrottlingBurstLimit).toBeGreaterThanOrEqual(8);
+  expect(gateway.ThrottlingBurstLimit).toBeLessThanOrEqual(concurrency);
+  expect(gateway.ThrottlingRateLimit).toBe(2);
 });
 it.each([
   { scope: 'email', attributes: ['email', 'email_verified'] },
