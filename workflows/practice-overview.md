@@ -54,7 +54,11 @@ assessment with System Design assessment.
 Keep independent attempts neutral, preserve learner reflections verbatim, and
 preview and confirm every proposed save. After saving, refresh the selected
 queue. An unsaved or paused attempt must not be presented as recorded or
-completed. Honor an explicit request to continue without saving, retaining the
+completed. A session may span multiple days: a saved progress/canvas checkpoint
+is not completion or an `incomplete` outcome. Resume the selected WIP session;
+only recording an actually ended round updates its schedule, using the local
+completion date rather than checkpoint, start or later save dates.
+Honor an explicit request to continue without saving, retaining the
 unsaved draft and distinguishing it from the persisted queue. Re-fetch the
 chosen queue before claiming its due work is complete. A failed or capped scan
 does not authorize an automatic new-problem handoff.

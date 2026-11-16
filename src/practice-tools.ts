@@ -38,7 +38,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     description: 'After preview and explicit user confirmation, register a neutral review object without overwriting an existing one. Never invent an attempt or reflection. New entries have no scheduled date until a round is recorded.',
     inputSchema: addReviewSchema }, input => write(() => practice.add(input)));
   server.registerTool('practice_record_review', { ...writeSecurity, outputSchema,
-    description: 'After an ended round, learner reflection and explicit save confirmation, append the observed outcome and original reflection and calculate the next date. Preserve attempt_id across retries. completed_on is the actual local completion date; never the retry date. A stale revision is rejected.',
+    description: 'After an actually ended round, learner reflection and explicit save confirmation, append the observed outcome and original reflection and calculate the next date. Preserve attempt_id across retries. Paused or multi-day WIP checkpoints are not ended rounds; save progress with note tools. completed_on is the actual local completion date, never a checkpoint or later save date. A stale revision is rejected.',
     inputSchema: recordReviewSchema }, input => write(() => practice.record(input)));
   server.registerTool('practice_create_note', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit save confirmation, create an approved Algorithm Pattern/Atom/Log or System Design Pattern/Insight/Log/session progress/canvas file. Create-if-absent only; files save independently. No configuration, guide, template or arbitrary vault writes.',
