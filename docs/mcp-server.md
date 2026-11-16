@@ -151,8 +151,10 @@ the user's complete OAuth exchange.
 
 Use the actual ChatGPT connection to browse one root page, choose a returned
 folder, list that folder, choose one note, and read it. Ask for body search only
-over selected note paths. Confirm the tool list contains exactly the three
-read-only tools and returned completion flags/cursors behave as documented.
+over selected note paths. Confirm the tool list contains the three ordinary
+note tools plus any enabled [practice tools](practice.md), and that returned
+completion flags/cursors behave as documented. Refresh the connection metadata
+after an approved deployment to load updated tool definitions.
 No test needs to create or edit a private note.
 
 Verify authorization-code + S256 PKCE, reject an incorrect verifier, confirm the
@@ -180,6 +182,17 @@ instances and signed JWT fixtures. That proves local protocol behavior, not a
 completed real ChatGPT or Cognito exchange. If the live client fails, inspect
 safe request/status logs and fix compatibility without disabling authentication,
 weakening audience checks or adding a whole-vault scan.
+
+The runtime reserves ten concurrent Lambda executions and uses the same API
+Gateway burst target so overlapping discovery and handshake requests can
+complete. The steady-state gateway rate remains two requests per second.
+If refresh intermittently fails and public metadata returns 503, inspect
+Lambda `Throttles` and `ConcurrentExecutions`
+alongside the configured reserved concurrency. Confirm the live metadata burst
+again after an approved capacity update; a successful single request does not
+establish reliable refresh behavior.
+For metadata 429 responses, check the
+[API Gateway stage and regional rate/burst targets](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-throttling.html).
 
 Sources: [OpenAI MCP authentication](https://developers.openai.com/plugins/build/auth),
 [MCP Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports),
