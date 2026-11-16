@@ -1,10 +1,11 @@
 # Practice through MCP
 
 The practice integration adapts the existing `obsidian-workflow` skill for the
-ChatGPT connection. It supports Algorithm and System Design: start the selected
-domain directly, complete its due reviews, then start a new problem. Algorithm
-remains the default when a client omits the domain. Behavioral Interview is
-outside this rollout.
+ChatGPT connection. It supports Algorithm and System Design. Generic practice
+shows a combined due overview and waits for an item or domain choice; an explicit
+domain starts directly. When only one domain is conclusively enabled, it starts
+automatically. Complete the chosen domain's due reviews before new practice.
+Behavioral Interview is outside this rollout.
 ChatGPT guides and assesses the conversation; Lambda performs typed data
 operations. Lambda does not host an LLM, execute arbitrary code or run a local
 Python process.
@@ -47,7 +48,11 @@ and retry behavior in an explicitly approved disposable session. Local tests
 validate the protocol and persistence logic; ChatGPT confirmation behavior and
 live S3 writes still require acceptance checks.
 
-Start with either:
+Start with a generic request:
+
+> Let's practice. Show my due work across available domains.
+
+Or explicitly choose a domain:
 
 > Start my Algorithm practice. Complete due reviews before a new problem.
 
@@ -67,9 +72,13 @@ test; deterministic tests prove the protocol and persistence behavior.
 `workflows/practice.json` is a generated, versioned snapshot of the canonical
 workflow repository's public tracked definitions, including guides, templates
 and review content definitions for both domains.
-`workflows/practice-entry.md` is the maintained MCP adaptation; the importer
-includes it in the snapshot. The service fills its domain placeholders and
-returns only the selected domain's instruction catalog. Shared upstream review
+`workflows/practice-entry.md`, `workflows/practice-overview.md` and
+`workflows/practice-adapter.md` are the maintained MCP adaptations; the importer
+includes them in the snapshot. The service fills domain-entry placeholders and
+returns a shared catalog for generic entry or a domain-specific catalog for
+ready results. The shared catalog now includes the canonical top-level practice
+skill. The MCP adapter explicitly overrides its module-menu and new-problem
+handoff rules with the entry policy described below. Shared upstream review
 guides retain their original domain references, but Behavioral is unsupported.
 The snapshot contains no private review items, submissions, notes, credentials
 or environment files.
@@ -103,9 +112,9 @@ practice write tools.
 
 | Tool | Behavior |
 | --- | --- |
-| `practice` | Start Algorithm or System Design; return its workflow, instruction catalog and current configuration. |
+| `practice` | With no domain, discover availability and return an overview or sole-domain workflow. With an explicit domain, return its guarded workflow. |
 | `practice_instruction` | Read a bounded chunk of one packaged instruction document. |
-| `practice_reviews` | Read one bounded review queue page for the selected domain. |
+| `practice_reviews` | Read one bounded review queue page. An explicit domain is required on every call. |
 | `practice_review` | Return a neutral prompt and revision; feedback phase may include history. |
 | `practice_read_note` | Read one complete bounded Algorithm or System Design note and its revision for a potential edit. |
 | `practice_design_template` | Draft unsaved session progress and Excalidraw files for a new System Design topic. |
@@ -122,6 +131,61 @@ obtaining explicit confirmation before saving. Verify that behavior in ChatGPT
 before activating production writes; never use a `confirmed: true` argument as
 an authorization mechanism.
 
+## Entry policy and compatibility
+
+`practice` no longer defaults to Algorithm. Its result has `status`:
+
+| State | Meaning |
+| --- | --- |
+| `overview` | At least one domain is available; build a combined overview and wait for the learner's choice. |
+| `ready` | An explicit domain passed its checks, or discovery confirmed exactly one enabled domain with all other checks conclusive. |
+| `unavailable` | No supported domain is usable. Explain the reasons and stop before queue reads. |
+
+Discovery reads the shared manifest once and at most two registry-defined module
+guards, with bounded parallelism and the existing abort signal. The entry call
+reads no learner records or review queues. `available_domains` lists usable
+choices; `unavailable_domains` distinguishes confirmed `disabled` from
+`unavailable`, with public reason codes. `availability: partial` means a missing,
+unreadable or invalid guard, mapping or time limit prevented a conclusive check.
+It never permits sole-domain auto-entry. Global practice disablement and invalid
+shared configuration remain errors. Cancellation and unexpected failures are
+propagated rather than converted into successful availability results.
+For explicit-domain calls, availability describes that requested domain only;
+other modules need not be enabled or checked.
+
+For generic entry, ChatGPT composes existing `practice_reviews` calls with an
+explicit domain for each available module. It gathers all pages, up to ten per
+domain, groups due items by domain, sorts each group by next date and stable ID,
+and initially shows up to five neutral titles per domain plus complete counts.
+Unstarted items are reported separately; upcoming items are not due. An
+incomplete or failed scan is marked partial with lower-bound counts and missing
+coverage. It cannot establish zero due work or complete ordering. Retry or an
+explicit narrower-domain selection is offered; scans restart on local-date
+changes. Availability and queue completeness are separate: a complete guard
+check does not imply a complete queue scan.
+
+When due work exists, wait for an item or domain choice. An explicitly selected
+item is reviewed first after verifying its active state and persisted domain,
+then the remaining due items in that domain follow date/ID order. Other domains'
+outstanding work stays visible as a summary. Each review uses its own domain's
+workflow and time limit. Pause, resume, stop and direction changes take precedence.
+
+After the chosen scope is complete, ask which available domain to use for a new
+problem, rechecking availability at the handoff. A sole confirmed enabled domain
+needs no question. Preserve explicit pending new-practice intent instead of
+asking again. If the learner chooses a different domain, finish its due reviews
+before its new problem and retain the explicit choice through that handoff.
+A complete empty overview goes straight to the new-practice domain question.
+Explicit-domain invocations keep their direct domain-specific handoff.
+
+This is an intentional compatibility change for callers omitting domain:
+`practice_reviews` now rejects a missing domain rather than querying Algorithm.
+Refresh tool metadata after deployment. Stable-ID prompt and record calls still
+use the persisted item's domain; they need no additional argument. No server-side
+session or preference store is introduced. The agent retains conversational
+intent; Lambda remains stateless. No write paths, IAM grants or OAuth scopes are
+added by this entry change.
+
 ## Queue and schedule
 
 The queue scans only `Learning/Practice/Review/Items/`, twenty objects per call,
@@ -131,7 +195,8 @@ records are skipped when listing and rejected by selected-review and record
 operations. Cursors are bound to the selected domain as well as owner and date.
 Results and ordering are page-local.
 Collect all pages before claiming a complete queue or global review order;
-after ten pages, stop and ask to narrow the task rather than reading indefinitely.
+after ten pages per domain, report partial coverage and ask to narrow the task
+rather than reading indefinitely.
 Pagination is not a transaction or a frozen snapshot. Refresh after recording a
 round. Malformed/oversized records produce an error, never a false empty queue.
 
@@ -252,4 +317,11 @@ catalogs, scope enforcement, encrypted conditional writes, retries, conflicts,
 neutral prompts, preserved history, mixed-domain queues, System Design session
 drafts and domain-specific permissions. The HTTP handler and S3 adapter remain
 domain-independent.
-It does not use real notes, user credentials or a live AWS deployment.
+It does not use real notes, user credentials or a live AWS deployment. Entry
+tests cover both enabled, each sole enabled, all disabled, missing/invalid
+guards, mapping/limit errors, cancellation and explicit-domain isolation. A real
+MCP client exercises generic entry, required queue domains, mixed-domain pages
+and cursor isolation. Instructions define the conversational overview and
+handoff behavior; tests do not execute an LLM. After deployment and metadata
+refresh, verify those decisions in a fresh ChatGPT conversation before claiming
+host acceptance.

@@ -3,7 +3,9 @@
 Start {{domain}} directly without offering a domain or practice/review menu.
 Apply the shared English conversation and clarification rules in
 `Learning/Practice/Review/AGENTS.md`. Behavioral practice is outside this
-integration. The selected domain governs the entire session.
+integration. The selected domain governs its review scope and new practice. If
+this call follows a generic combined overview, retain that overview's new-practice domain
+question and pending explicit intent; calling this tool does not erase them.
 
 Read `{{flow}}`, its domain guide and
 `Learning/Practice/Review/Content/{{domain}}.md` using `practice_instruction`.
@@ -25,8 +27,11 @@ Paused attempts and pending reflections stay on the current item. With writes
 disabled, explain that the round is unsaved and keep its draft in chat; do not
 pretend the persisted queue advanced. Honor a request to continue without saving.
 
-When no due reviews remain, enter `{{flow}}` for a new problem. Preserve an
-explicitly supplied new topic until this handoff. Otherwise ask for a new problem;
+For an explicit domain request, when no due reviews remain, enter `{{flow}}`
+for a new problem. For a generic overview, return to its new-practice domain
+choice unless explicit new-practice intent is pending or only one domain is
+confirmed enabled. Preserve an explicitly supplied new topic until this handoff.
+Otherwise ask for a new problem;
 do not reuse the last reviewed problem or resume an unrelated WIP session.
 The domain workflow owns guidance and assessment. Register a review item if
 needed using `.agents/skills/practice-review-add/SKILL.md` with

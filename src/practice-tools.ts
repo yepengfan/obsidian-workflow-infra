@@ -13,13 +13,13 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     _meta: { securitySchemes: [{ type: 'oauth2', scopes: [settings.scope] }] } };
   const outputSchema = z.looseObject({});
   server.registerTool('practice', { ...readSecurity, outputSchema,
-    description: 'Start Algorithm or System Design practice, complete that domain\'s due reviews, then start a new problem. Pass domain system-design for system design; omitted domain preserves Algorithm behavior. Returns instructions and document catalog, not an assessment or saved attempt.',
+    description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm and System Design modules, then wait for an item or domain choice. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability, workflow and instruction catalog; never an assessment or saved attempt.',
     inputSchema: z.strictObject({ domain: domainSchema.optional() }) }, input => result(() => practice.workflow(input.domain)));
   server.registerTool('practice_instruction', { ...readSecurity, outputSchema,
     description: 'Read one chunk of a versioned practice instruction document listed by practice. Use for skill definitions and their shared guides; private learner records remain in S3.',
     inputSchema: z.strictObject({ path: z.string().max(1024), offset: z.number().int().nonnegative().max(200000).default(0) }) }, input => result(() => practice.instruction(input.path, input.offset)));
   server.registerTool('practice_reviews', { ...readSecurity, outputSchema,
-    description: 'List one bounded page of review metadata for the selected practice domain. Ordering and counts are page-local. Collect all pages before declaring a global due order or no due items. Never expose old solutions before an independent attempt.',
+    description: 'List one bounded page of review metadata. Always supply domain explicitly, including each domain of a combined overview. Ordering and counts are page-local. Collect all pages before declaring a global due order or no due items. Never expose old solutions before an independent attempt.',
     inputSchema: listReviewsSchema }, input => result(() => practice.reviews(input)));
   server.registerTool('practice_review', { ...readSecurity, outputSchema,
     description: 'Read an active review prompt, source and revision. Prompt phase excludes prior attempts and review focus. Request feedback phase only after the learner submits or ends the independent attempt.',

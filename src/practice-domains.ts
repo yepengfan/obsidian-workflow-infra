@@ -5,6 +5,7 @@ export const domainSchema = z.enum(['algorithm', 'system-design']);
 export type PracticeDomain = z.infer<typeof domainSchema>;
 
 export const sharedPracticeDocuments = [
+  '.agents/skills/practice/SKILL.md',
   '.agents/skills/practice-review-add/SKILL.md', '.agents/skills/practice-review-today/SKILL.md',
   'Learning/Practice/Review/AGENTS.md', 'system/modules/practice-review/module.md',
 ];

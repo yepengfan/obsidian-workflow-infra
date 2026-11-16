@@ -19,7 +19,7 @@ const item = { id: 'lc-1071', domain: 'algorithm' as const, title: 'GCD of strin
 class PracticeStore implements NoteStore, NoteWriter {
   files = new Map<string, string>([[configPath, moduleText],
     ...['algorithm', 'system-design'].map(domain => [root + `system/modules/${domain}/module.md`, '---\nenabled: true\n---\n'] as [string, string])]);
-  writes: string[] = []; lists: { prefix: string; limit: number }[] = []; serial = 0;
+  reads: string[] = []; writes: string[] = []; lists: { prefix: string; limit: number }[] = []; serial = 0;
   beforePut?: (key: string) => void;
   tag(key: string) { return '"' + createHash('sha256').update(this.files.get(key) ?? '').digest('hex') + '"'; }
   async list(prefix: string, limit: number, cursor: string | undefined, signal: AbortSignal) {
@@ -29,7 +29,7 @@ class PracticeStore implements NoteStore, NoteWriter {
     return { folders: [], notes: page.map(key => ({ key, size: Buffer.byteLength(this.files.get(key)!) })), next: keys.length > start + limit ? String(start + limit) : undefined };
   }
   async read(key: string, offset: number, length: number, etag: string | undefined, signal: AbortSignal) {
-    signal.throwIfAborted();
+    signal.throwIfAborted(); this.reads.push(key);
     if (!this.files.has(key) || (etag && etag !== this.tag(key))) throw new NoteError('note_unavailable');
     const data = Buffer.from(this.files.get(key)!); return { bytes: data.subarray(offset, offset + length), total: data.length, etag: this.tag(key) };
   }
@@ -83,10 +83,11 @@ describe('practice storage behavior', () => {
     expect(workflow.entry).toContain('# System Design practice'); expect(workflow.entry).not.toContain('{{');
     expect(workflow.documents).toContain('.agents/skills/sysd-solve/SKILL.md');
     expect(workflow.documents).not.toContain('.agents/skills/algo-solve/SKILL.md');
+    expect(store.reads).toEqual([configPath, root + 'system/modules/system-design/module.md']);
     const path = 'Learning/Practice/System-Design/Log/2026-11-14.md';
     store.files.set(root + 'system/modules/algorithm/module.md', '---\nenabled: false\n---\n');
     await practice.createNote(path, '# Design log\n');
-    await expect(practice.workflow()).rejects.toThrow('domain_module_disabled');
+    await expect(practice.workflow()).resolves.toMatchObject({ status: 'ready', selected_domain: 'system-design' });
     store.files.set(root + 'system/modules/system-design/module.md', '---\nenabled: false\n---\n');
     await expect(practice.designTemplate({ topic: 'URL shortener', short_topic: 'URL-Shortener' })).rejects.toThrow('domain_module_disabled');
     await expect(practice.readNote(path)).rejects.toThrow('domain_module_disabled');
@@ -98,13 +99,13 @@ describe('practice storage behavior', () => {
     const { store, practice } = setup();
     store.files.set(configPath, moduleText.replace('.agents/skills/sysd-solve/SKILL.md', 'unexpected.md'));
     await expect(practice.workflow('system-design')).rejects.toThrow('mapping_changed');
-    await expect(practice.workflow()).resolves.toMatchObject({ selected_domain: 'algorithm' });
+    await expect(practice.workflow('algorithm')).resolves.toMatchObject({ status: 'ready', selected_domain: 'algorithm' });
     store.files.set(configPath, moduleText.replace('  system-design: 45\n', ''));
     await expect(practice.workflow('system-design')).rejects.toThrow('invalid_review_time_limit');
-    await expect(practice.workflow()).resolves.toMatchObject({ selected_domain: 'algorithm' });
+    await expect(practice.workflow('algorithm')).resolves.toMatchObject({ status: 'ready', selected_domain: 'algorithm' });
     store.files.set(configPath, moduleText.replace('  system-design: 45\n', '  system-design: invalid\n'));
     await expect(practice.workflow('system-design')).rejects.toThrow('invalid_review_time_limit');
-    await expect(practice.workflow()).resolves.toMatchObject({ selected_domain: 'algorithm' });
+    await expect(practice.workflow('algorithm')).resolves.toMatchObject({ status: 'ready', selected_domain: 'algorithm' });
     expect(store.writes).toHaveLength(0);
   });
   it('filters mixed domain pages and binds queue cursors to the selected domain', async () => {
@@ -202,15 +203,81 @@ describe('practice storage behavior', () => {
     expect(queue.complete).toBe(true); expect(queue.unstarted.map(item => item.id)).toEqual([item.id]);
     expect(store.writes).toEqual([items + item.id + '.md']);
   });
-  it('keeps Algorithm as the default with a domain-specific instruction catalog', async () => {
-    const { practice } = setup();
-    expect(await practice.workflow()).toMatchObject({ domains: ['algorithm', 'system-design'], selected_domain: 'algorithm', time_limits: { algorithm: expect.any(Number) } });
+  it('discovers both domains without reading learner data or selecting a default', async () => {
+    const { store, practice } = setup();
     const workflow = await practice.workflow();
-    expect(workflow.entry).toContain('# Algorithm practice'); expect(workflow.entry).not.toContain('{{');
-    for (const path of ['.agents/skills/sysd-solve/SKILL.md', 'Learning/Practice/Review/Flows/behavioral.md']) {
+    expect(workflow).toMatchObject({ status: 'overview', availability: 'complete', selected_domain: null,
+      available_domains: [{ domain: 'algorithm', label: 'Algorithm' }, { domain: 'system-design', label: 'System Design' }],
+      unavailable_domains: [], time_limits: { algorithm: 30, 'system-design': 45 }, writes_enabled: true });
+    expect(store.reads).toEqual([configPath, root + 'system/modules/algorithm/module.md', root + 'system/modules/system-design/module.md']);
+    expect(store.lists).toEqual([]); expect(store.writes).toEqual([]);
+    expect(workflow.documents).toContain('.agents/skills/practice/SKILL.md');
+    for (const path of ['.agents/skills/sysd-solve/SKILL.md', '.agents/skills/algo-solve/SKILL.md', 'Learning/Practice/Review/Flows/behavioral.md']) {
       expect(workflow.documents).not.toContain(path);
     }
+    expect((await practice.instruction('.agents/skills/practice/SKILL.md', 0)).text).toBe(bundle.documents['.agents/skills/practice/SKILL.md'].text);
     await expect(practice.instruction('Learning/Practice/Review/Flows/behavioral.md', 0)).rejects.toThrow('unknown_practice_instruction');
+  });
+  it.each(['algorithm', 'system-design'] as const)('auto-enters the sole confirmed enabled domain %s', async domain => {
+    const { store, practice } = setup();
+    const disabled = domain === 'algorithm' ? 'system-design' : 'algorithm';
+    store.files.set(root + `system/modules/${disabled}/module.md`, '---\nenabled: false\n---\n');
+    expect(await practice.workflow()).toMatchObject({ status: 'ready', availability: 'complete', selected_domain: domain,
+      available_domains: [{ domain }], unavailable_domains: [{ domain: disabled, status: 'disabled', reason: 'domain_module_disabled' }] });
+    expect(store.lists).toEqual([]); expect(store.writes).toEqual([]);
+  });
+  it.each([
+    { guard: undefined, reason: 'note_unavailable' },
+    { guard: '# Missing frontmatter', reason: 'invalid_practice_note' },
+    { guard: '---\nenabled: [\n---\n', reason: 'invalid_practice_note' },
+    { guard: '---\nenabled: "false"\n---\n', reason: 'invalid_domain_module' },
+    { guard: '---\nname: module\n---\n', reason: 'invalid_domain_module' },
+  ])('keeps unreadable/invalid guard $reason distinct from disabled without auto-entry', async ({ guard, reason }) => {
+    const { store, practice } = setup(), path = root + 'system/modules/system-design/module.md';
+    if (guard === undefined) store.files.delete(path); else store.files.set(path, guard);
+    expect(await practice.workflow()).toMatchObject({ status: 'overview', availability: 'partial', selected_domain: null,
+      available_domains: [{ domain: 'algorithm' }], unavailable_domains: [{ domain: 'system-design', status: 'unavailable', reason }] });
+    expect(store.lists).toEqual([]); expect(store.writes).toEqual([]);
+  });
+  it.each([
+    { from: '.agents/skills/sysd-solve/SKILL.md', to: 'unexpected.md', reason: 'workflow_mapping_changed_refresh_required' },
+    { from: '  system-design: 45\n', to: '', reason: 'invalid_review_time_limit' },
+  ])('reports invalid mappings and limits as partial: $reason', async ({ from, to, reason }) => {
+    const { store, practice } = setup(); store.files.set(configPath, moduleText.replace(from, to));
+    expect(await practice.workflow()).toMatchObject({ status: 'overview', availability: 'partial', selected_domain: null,
+      unavailable_domains: [{ domain: 'system-design', status: 'unavailable', reason }] });
+    await expect(practice.workflow('system-design')).rejects.toThrow(reason);
+  });
+  it('returns unavailable without queue reads when both domains are disabled or unknown', async () => {
+    const { store, practice } = setup();
+    for (const domain of ['algorithm', 'system-design']) store.files.set(root + `system/modules/${domain}/module.md`, '---\nenabled: false\n---\n');
+    expect(await practice.workflow()).toMatchObject({ status: 'unavailable', availability: 'complete', selected_domain: null,
+      available_domains: [], unavailable_domains: [{ status: 'disabled' }, { status: 'disabled' }] });
+    store.files.delete(root + 'system/modules/algorithm/module.md');
+    expect(await practice.workflow()).toMatchObject({ status: 'unavailable', availability: 'partial', available_domains: [] });
+    expect(store.lists).toEqual([]); expect(store.writes).toEqual([]);
+  });
+  it('reports invalid UTF-8 and storage timeouts as unavailable without masking cancellation', async () => {
+    const { store, practice } = setup(), read = store.read.bind(store);
+    store.read = async (...args) => args[0].includes('/system-design/')
+      ? { bytes: Buffer.from([255]), total: 1, etag: 'revision' } : read(...args);
+    expect(await practice.workflow()).toMatchObject({ status: 'overview', availability: 'partial', selected_domain: null,
+      unavailable_domains: [{ domain: 'system-design', status: 'unavailable', reason: 'invalid_utf8' }] });
+    store.read = async (...args) => { if (args[0].includes('/system-design/')) throw new NoteError('timeout'); return read(...args); };
+    expect(await practice.workflow()).toMatchObject({ availability: 'partial', unavailable_domains: [{ reason: 'timeout' }] });
+  });
+  it('does not turn cancellation or unexpected storage failures into partial availability', async () => {
+    const store = new PracticeStore(), controller = new AbortController(), original = store.read.bind(store);
+    const practice = new Practice(store, settings(), owner, controller.signal);
+    store.read = async (...args) => {
+      if (args[0].includes('/algorithm/')) { controller.abort(new Error('cancel discovery')); controller.signal.throwIfAborted(); }
+      return original(...args);
+    };
+    await expect(practice.workflow()).rejects.toThrow('cancel discovery');
+    const healthy = setup(), read = healthy.store.read.bind(healthy.store);
+    healthy.store.read = async (...args) => { if (args[0].includes('/algorithm/')) throw new Error('unexpected failure'); return read(...args); };
+    await expect(healthy.practice.workflow()).rejects.toThrow('unexpected failure');
+    expect(store.lists).toEqual([]); expect(healthy.store.lists).toEqual([]);
   });
   it('does not permit private record changes when writes are disabled', async () => {
     const { store, practice } = setup(false); await expect(practice.add(request)).rejects.toThrow('writes_disabled'); expect(store.writes).toHaveLength(0);
@@ -318,7 +385,7 @@ it('supports a System Design session and review through the real MCP client with
       expect((await call('practice_create_note', { path, content: '# Not allowed' })).isError).toBe(true);
       expect(store.files.has(root + path)).toBe(false);
     }
-    expect((await practice.workflow()).selected_domain).toBe('algorithm');
+    expect((await practice.workflow()).selected_domain).toBeNull();
   } finally { await client.close(); }
 });
 
@@ -352,7 +419,7 @@ it('exposes and executes the workflow through the real stateless MCP SDK client'
     expect(tools.find(tool => tool.name === 'practice_record_review')?._meta?.securitySchemes)
       .toEqual([{ type: 'oauth2', scopes: [options.scope, `${options.resource}/write`] }]);
     const workflow = await client.callTool({ name: 'practice', arguments: {} });
-    expect(workflow.structuredContent).toMatchObject({ selected_domain: 'algorithm', source_commit: bundle.sourceCommit });
+    expect(workflow.structuredContent).toMatchObject({ status: 'overview', selected_domain: null, source_commit: bundle.sourceCommit });
     const denied = await client.callTool({ name: 'practice_add_review', arguments: request });
     expect(denied.isError).toBe(true); expect(denied._meta?.['mcp/www_authenticate']).toContain('/write'); expect(store.writes).toHaveLength(0);
     writableToken = true;
@@ -437,5 +504,52 @@ it('requires an explicit writer capability even when the reader also implements 
     expect(response.isError).toBe(true);
     expect(response.content).toEqual([{ type: 'text', text: 'practice_writes_disabled' }]);
     expect(store.writes).toHaveLength(0);
+  } finally { await client.close(); }
+});
+
+it('starts generic practice with an overview through the real MCP client, then reads explicitly scoped queue pages', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const store = new PracticeStore(), options = settings();
+  for (let index = 0; index < 23; index++) {
+    const domain = index % 2 ? 'system-design' : 'algorithm';
+    const id = `mixed-${String(index).padStart(2, '0')}`;
+    store.files.set(items + id + '.md', '---\n' + JSON.stringify({ ...item, id, domain, prompt: 'Neutral prompt',
+      next_review: index % 3 ? '2001-01-02' : '2001-01-01' }) + '\n---\nPrivate old solution');
+  }
+  const before = new Map(store.files);
+  const client = new Client({ name: 'practice-overview-user', version: '1' });
+  client.onerror = () => {};
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
+      fetch: (input, init) => createFetchHandler(options, { store, verify: async () => owner })(new Request(input, init)),
+    }));
+    const tools = (await client.listTools()).tools;
+    expect(tools.find(tool => tool.name === 'practice_reviews')?.inputSchema.required).toContain('domain');
+    expect((await client.callTool({ name: 'practice_reviews', arguments: {} })).isError).toBe(true);
+    expect(store.reads).toEqual([]); expect(store.lists).toEqual([]);
+    const overview = await client.callTool({ name: 'practice', arguments: {} });
+    expect(overview.structuredContent).toMatchObject({ status: 'overview', availability: 'complete', selected_domain: null,
+      available_domains: [{ domain: 'algorithm', label: 'Algorithm' }, { domain: 'system-design', label: 'System Design' }] });
+    expect(store.reads).toHaveLength(3); expect(store.lists).toEqual([]);
+    expect(JSON.stringify(overview.structuredContent)).not.toContain('Private old solution');
+    for (const domain of ['algorithm', 'system-design']) {
+      const first = await client.callTool({ name: 'practice_reviews', arguments: { domain } });
+      const page = z.object({ domain: z.string(), complete: z.boolean(), nextCursor: z.string(), overdue: z.array(z.object({ domain: z.string() })) }).parse(first.structuredContent);
+      expect(page.complete).toBe(false); expect(page.overdue.every(row => row.domain === domain)).toBe(true);
+      const other = domain === 'algorithm' ? 'system-design' : 'algorithm';
+      expect((await client.callTool({ name: 'practice_reviews', arguments: { domain: other, cursor: page.nextCursor } })).isError).toBe(true);
+      const last = await client.callTool({ name: 'practice_reviews', arguments: { domain, cursor: page.nextCursor } });
+      expect(last.structuredContent).toMatchObject({ domain, complete: true });
+      const lastPage = z.object({ overdue: z.array(z.object({ domain: z.string() })) }).parse(last.structuredContent);
+      expect([...page.overdue, ...lastPage.overdue]).toHaveLength(domain === 'algorithm' ? 12 : 11);
+      expect(lastPage.overdue.every(row => row.domain === domain)).toBe(true);
+      expect(JSON.stringify([first.structuredContent, last.structuredContent])).not.toContain('Private old solution');
+    }
+    expect(store.lists).toEqual(Array.from({ length: 4 }, () => ({ prefix: items, limit: 20 })));
+    const selected = await client.callTool({ name: 'practice', arguments: { domain: 'system-design' } });
+    expect(selected.structuredContent).toMatchObject({ status: 'ready', selected_domain: 'system-design', time_limits: { 'system-design': 45 } });
+    expect(store.files).toEqual(before); expect(store.writes).toEqual([]);
   } finally { await client.close(); }
 });

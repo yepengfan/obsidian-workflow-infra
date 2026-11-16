@@ -74,6 +74,8 @@ flowchart TB
 
 The application implements `list_notes`, `search_notes`, and `read_note`, plus
 Algorithm and System Design practice with due reviews followed by new problems.
+Generic practice shows due work across available domains and waits for a choice;
+explicit domain requests start directly.
 Practice coaching and queue reads reuse the same authenticated Lambda and S3
 containers. The configuration enables confirmed saving on approved practice
 paths, subject to the separate IAM and application activation steps. See

@@ -6,7 +6,7 @@ import type { Settings } from './config.js';
 import { decodeCursor, encodeCursor, keyFor, NoteError, validPath } from './paths.js';
 import type { NoteStore, NoteWriter } from './note-store.js';
 import { OperationError } from './errors.js';
-import { domainSchema, practiceDocuments, practiceDomains, practiceNoteDomain, sharedPracticeDocuments, validatePracticeWritePath } from './practice-domains.js';
+import { type PracticeDomain, domainSchema, practiceDocuments, practiceDomains, practiceNoteDomain, sharedPracticeDocuments, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
 
 export { domainSchema, validatePracticeWritePath } from './practice-domains.js';
@@ -21,7 +21,7 @@ export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: rev
   attempt_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u).max(128),
   outcome: z.enum(['independent', 'assisted', 'incomplete']), reflection: requiredText,
   completed_on: dateSchema, submission: text.optional(), observations: text.optional() });
-export const listReviewsSchema = z.strictObject({ domain: domainSchema.default('algorithm'), cursor: z.string().max(8192).optional() });
+export const listReviewsSchema = z.strictObject({ domain: domainSchema, cursor: z.string().max(8192).optional() });
 const summarySchema = z.object({ id: slugSchema, domain: z.enum(['algorithm', 'system-design', 'behavioral']), title: z.string().min(1).max(200), status: z.enum(['active', 'archived']),
   review_count: z.number().int().nonnegative(), stage: z.number().int().nonnegative(),
   last_review: dateSchema.nullable(), next_review: dateSchema.nullable() });
@@ -29,6 +29,9 @@ const itemSchema = summarySchema.extend({ prompt: requiredText, source: text.opt
 const moduleSchema = z.object({ enabled: z.boolean(), interval_days: z.array(z.number().int().min(1).max(3650)).min(1).max(20),
   retry_days: z.number().int().min(1).max(3650), practice_flows: z.record(z.string(), z.unknown()),
   review_time_limits: z.record(z.string(), z.unknown()) });
+type ModuleConfig = z.infer<typeof moduleSchema>;
+type DomainAvailability = { domain: PracticeDomain; label: string } & (
+  { status: 'enabled'; time_limit: number } | { status: 'disabled' | 'unavailable'; reason: string });
 const prefix = 'Learning/Practice/Review/Items/';
 const documents: Record<string, { text: string; sha256: string }> = bundle.documents;
 export class PracticeError extends OperationError {}
@@ -73,34 +76,71 @@ export class Practice {
   async read(path: string) {
     const value = await this.store.read(this.key(path), 0, 65536, undefined, this.signal);
     if (value.total > value.bytes.length) throw new PracticeError('practice_note_too_large');
-    return { text: new TextDecoder('utf-8', { fatal: true }).decode(value.bytes), revision: value.etag };
+    let text: string;
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(value.bytes); }
+    catch { throw new NoteError('invalid_utf8'); }
+    return { text, revision: value.etag };
   }
   private async config(domain?: z.infer<typeof domainSchema>) {
     if (!this.settings.practice.enabled) throw new PracticeError('practice_disabled');
     const note = await this.read('system/modules/practice-review/module.md');
     const config = moduleSchema.parse(parseNote(note.text).metadata);
     if (!config.enabled) throw new PracticeError('practice_module_disabled');
-    let timeLimit: number | undefined;
-    if (domain !== undefined) {
-      const definition = practiceDomains[domainSchema.parse(domain)];
-      if (config.practice_flows[domain] !== definition.flow) throw new PracticeError('workflow_mapping_changed_refresh_required');
-      const limit = z.number().positive().max(240).safeParse(config.review_time_limits[domain]);
-      if (!limit.success) throw new PracticeError('invalid_review_time_limit');
-      timeLimit = limit.data;
-      const guard = await this.read(definition.module);
-      if (parseNote(guard.text).metadata.enabled !== true) throw new PracticeError('domain_module_disabled');
-    }
-    return { ...config, time_limit: timeLimit };
+    return { ...config, time_limit: domain === undefined ? undefined : await this.checkDomain(config, domain) };
   }
-  async workflow(domain: z.infer<typeof domainSchema> = 'algorithm') {
-    domainSchema.parse(domain);
-    const config = await this.config(domain), definition = practiceDomains[domain];
-    return { domains: domainSchema.options, selected_domain: domain, source_commit: bundle.sourceCommit,
-      entry: bundle.entry.replaceAll('{{domain}}', domain).replaceAll('{{label}}', definition.label).replaceAll('{{flow}}', definition.flow),
-      documents: practiceDocuments(domain),
-      time_limits: { [domain]: config.time_limit }, intervals: config.interval_days, retry_days: config.retry_days,
+  private async checkDomain(config: ModuleConfig, domain: PracticeDomain) {
+    const definition = practiceDomains[domainSchema.parse(domain)];
+    if (config.practice_flows[domain] !== definition.flow) throw new PracticeError('workflow_mapping_changed_refresh_required');
+    const limit = z.number().positive().max(240).safeParse(config.review_time_limits[domain]);
+    if (!limit.success) throw new PracticeError('invalid_review_time_limit');
+    const guard = await this.read(definition.module);
+    const enabled = parseNote(guard.text).metadata.enabled;
+    if (typeof enabled !== 'boolean') throw new PracticeError('invalid_domain_module');
+    if (!enabled) throw new PracticeError('domain_module_disabled');
+    return limit.data;
+  }
+  private async domainAvailability(config: ModuleConfig, domain: PracticeDomain): Promise<DomainAvailability> {
+    const definition = { domain, label: practiceDomains[domain].label };
+    try {
+      return { ...definition, status: 'enabled', time_limit: await this.checkDomain(config, domain) };
+    } catch (error) {
+      // Cancellation and unexpected implementation failures must retain their semantics.
+      this.signal.throwIfAborted();
+      if (!(error instanceof PracticeError || error instanceof NoteError)) throw error;
+      return { ...definition, status: error.code === 'domain_module_disabled' ? 'disabled' : 'unavailable', reason: error.code };
+    }
+  }
+  private workflowMetadata(config: ModuleConfig) {
+    return { domains: domainSchema.options, source_commit: bundle.sourceCommit,
+      intervals: config.interval_days, retry_days: config.retry_days,
       today: this.today(), time_zone: this.settings.practice.timeZone, writes_enabled: this.settings.practice.writesEnabled,
-      adapter: 'Use the selected domain throughout this workflow. Algorithm remains the default for clients omitting domain. Behavioral practice is unsupported. Use practice_instruction for listed workflow definitions and read_note/list_notes for private S3 notes. Replace review.py due/show/add/record with practice_reviews/practice_review/practice_add_review/practice_record_review, supplying the selected domain to queue and add calls. Collect all queue pages before claiming the full due order or no due items; stop after 10 pages and ask to narrow the task if still incomplete. Sort overdue/today by next_review and stable id. Complete due reviews before new practice. Use neutral prompts until the independent submission ends. Keep learner reflections verbatim. Obtain explicit save confirmation before every write call, including initialization, checkpoints and status transitions; never treat a submission as consent. Use practice_create_note/practice_update_note for approved practice notes after preview and confirmation. No local shell, Python, Git or arbitrary program execution is available. If writes are disabled, coach and draft in chat and explicitly report that nothing was saved. Do not claim a timer or code execution occurred unless an actual host tool performed it. Do not toggle modules through note writes.' };
+      adapter: bundle.adapter };
+  }
+  private readyWorkflow(config: ModuleConfig, domain: PracticeDomain, timeLimit: number) {
+    const definition = practiceDomains[domain];
+    return { ...this.workflowMetadata(config), status: 'ready' as const, availability: 'complete' as const,
+      selected_domain: domain, available_domains: [{ domain, label: definition.label }], unavailable_domains: [] as DomainAvailability[],
+      entry: bundle.entry.replaceAll('{{domain}}', domain).replaceAll('{{label}}', definition.label).replaceAll('{{flow}}', definition.flow),
+      documents: practiceDocuments(domain), time_limits: { [domain]: timeLimit } };
+  }
+  async workflow(domain?: PracticeDomain) {
+    if (domain !== undefined) domainSchema.parse(domain);
+    const config = await this.config();
+    if (domain !== undefined) return this.readyWorkflow(config, domain, await this.checkDomain(config, domain));
+    // The registry bounds discovery. Shared config is read once; no learner data is read.
+    const states = await Promise.all(domainSchema.options.map(value => this.domainAvailability(config, value)));
+    this.signal.throwIfAborted();
+    const available = states.filter(state => state.status === 'enabled');
+    const unavailable = states.filter(state => state.status !== 'enabled');
+    const availability = unavailable.some(state => state.status === 'unavailable') ? 'partial' as const : 'complete' as const;
+    if (available.length === 1 && availability === 'complete') {
+      const only = available[0]!;
+      return { ...this.readyWorkflow(config, only.domain, only.time_limit), unavailable_domains: unavailable };
+    }
+    return { ...this.workflowMetadata(config), status: available.length ? 'overview' as const : 'unavailable' as const, availability,
+      selected_domain: null, available_domains: available.map(({ domain, label }) => ({ domain, label })), unavailable_domains: unavailable,
+      entry: bundle.overview, documents: sharedPracticeDocuments,
+      time_limits: Object.fromEntries(available.map(state => [state.domain, state.time_limit])) };
   }
   async instruction(path: string, offset: number) {
     const doc = documents[path];
