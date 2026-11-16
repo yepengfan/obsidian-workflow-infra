@@ -34,6 +34,12 @@ it.each(['../Inbox', 'URL/Shortener', 'URL\\Shortener', 'Bad\nName', '.hidden', 
   expect(() => designSessionTemplate({ topic: 'A topic', short_topic }, '2026-11-16')).toThrow();
 });
 
+it.each(['Café', '缓存', '設計 2026', 'Δίκτυο'])('preserves safe Unicode session name %j', short_topic => {
+  const draft = designSessionTemplate({ topic: 'Design a cache', short_topic }, '2026-11-16');
+  expect(draft.files[0]!.path).toBe(`Learning/Practice/System-Design/Solutions/${short_topic}-2026-11-16/progress.md`);
+  expect(draft.files[1]!.path).toBe(`Learning/Practice/System-Design/Solutions/${short_topic}-2026-11-16/${short_topic}.excalidraw.md`);
+});
+
 it('quotes YAML safely and does not invent a problem source', () => {
   const draft = designSessionTemplate({ topic: 'URL: "shortener" with redirects', short_topic: 'URL-Shortener' }, '2026-11-16');
   expect(parse(draft.files[0]!.content.split('---\n')[1]!)).not.toHaveProperty('source');

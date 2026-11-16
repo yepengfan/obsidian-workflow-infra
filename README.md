@@ -101,6 +101,9 @@ npm run check
 npm run synth
 ```
 
+The tool-schema interoperability test also uses Python 3's standard-library
+regex engine. It needs no Python packages and is not part of the Lambda runtime.
+
 Synthesis writes the cloud assembly for the configured stage to `cdk.out`;
 these commands do not deploy. Edit the TypeScript/configuration sources, never
 generated templates.
