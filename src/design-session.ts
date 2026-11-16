@@ -6,7 +6,10 @@ export const designSessionSchema = z.strictObject({
   topic: z.string().trim().min(1).max(200).refine(value =>
     !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(value) && !value.includes('%%') && !value.includes('```'),
     'Use a single-line topic without control characters, %% or code fences'),
-  short_topic: z.string().min(1).max(80).regex(/^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u),
+  // Keep Unicode filename validation server-side; property escapes are not
+  // portable across the regex engines used to import JSON Schema metadata.
+  short_topic: z.string().min(1).max(80).refine(value => /^[\p{L}\p{N}][\p{L}\p{N} _-]*$/u.test(value),
+    'Start with a letter or digit; use only letters, digits, spaces, underscores and hyphens'),
   source: z.string().trim().min(1).max(500).optional(),
 });
 
