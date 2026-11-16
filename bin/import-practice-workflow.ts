@@ -23,6 +23,8 @@ for (const name of paths) {
   documents[name] = { sha256: createHash('sha256').update(bytes).digest('hex'), text: bytes.toString('utf8').replaceAll('\u2014', '-') };
 }
 await writeFile(fileURLToPath(new URL('../workflows/practice.json', import.meta.url)), JSON.stringify({
-  schemaVersion: 1, generatedBy: 'bin/import-practice-workflow.ts - do not edit manually', entry: await readFile(new URL('../workflows/practice-entry.md', import.meta.url), 'utf8'), repository: 'https://github.com/yepengfan/obsidian-workflow', sourceCommit: git('rev-parse', 'HEAD'), documents,
+  schemaVersion: 2, generatedBy: 'bin/import-practice-workflow.ts - do not edit manually', entry: await readFile(new URL('../workflows/practice-entry.md', import.meta.url), 'utf8'),
+  adapter: await readFile(new URL('../workflows/practice-adapter.md', import.meta.url), 'utf8'),
+  overview: await readFile(new URL('../workflows/practice-overview.md', import.meta.url), 'utf8'), repository: 'https://github.com/yepengfan/obsidian-workflow', sourceCommit: git('rev-parse', 'HEAD'), documents,
 }, null, 2) + '\n');
 console.log('Imported canonical practice workflow definitions. No private review items or notes included.');
