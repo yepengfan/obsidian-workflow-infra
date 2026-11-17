@@ -12,6 +12,7 @@ export const limitsSchema = z.strictObject({
   deadlineMs: z.number().int().min(1000).max(8000).default(5000),
 });
 export const runtimeOptionsSchema = z.strictObject({
+  metadataSearch: z.boolean().default(false),
   practice: practiceOptionsSchema.default({ enabled: false, writesEnabled: false, timeZone: 'Australia/Brisbane' }),
   ownerGroup: z.string().regex(/^obsidian-mcp-[a-z0-9-]+$/u).max(128).default('obsidian-mcp-owners'),
   callbackUrls: z.array(z.url().refine(value => {

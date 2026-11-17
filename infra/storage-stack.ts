@@ -5,7 +5,7 @@ import type { StorageConfig } from './storage-config.js';
 
 /** Managed resource definitions. Bind them to the existing buckets with import. */
 export class StorageStack extends Stack {
-  constructor(scope: Construct, id: string, config: StorageConfig) {
+  constructor(scope: Construct, id: string, config: StorageConfig, metadataSearch = false) {
     super(scope, id, {
       env: { account: config.account, region: config.region },
       synthesizer: new DefaultStackSynthesizer({ generateBootstrapVersionRule: false }),
@@ -20,6 +20,10 @@ export class StorageStack extends Stack {
       // the live SSE-C block. No reference-only fromBucketName constructs.
       const bucket = new s3.CfnBucket(this, logicalId, {
         bucketName: settings.name,
+        ...(logicalId === 'Vault' && metadataSearch ? { metadataConfiguration: {
+          journalTableConfiguration: { recordExpiration: { expiration: 'ENABLED', days: 7 }, encryptionConfiguration: { sseAlgorithm: 'AES256' } },
+          inventoryTableConfiguration: { configurationState: 'ENABLED', encryptionConfiguration: { sseAlgorithm: 'AES256' } },
+        } } : {}),
         bucketEncryption: {
           serverSideEncryptionConfiguration: [{
             serverSideEncryptionByDefault: { sseAlgorithm: settings.encryption.algorithm },

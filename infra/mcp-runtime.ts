@@ -8,6 +8,7 @@ import type { Construct } from 'constructs';
 import { runtimeOptionsSchema } from '../src/config.js';
 import type { CodeBundle } from '../bin/runtime-package.js';
 import { mcpDeploymentSchema, type McpDeploymentConfig } from './mcp-permissions.js';
+import { addMetadataSearch } from './metadata-search.js';
 
 export const mcpAppSchema = runtimeOptionsSchema.extend({ notePrefix: mcpDeploymentSchema.shape.notePrefix });
 export type McpApplication = { options: ReturnType<typeof mcpAppSchema.parse>; code: CodeBundle; noteBucket: string };
@@ -20,6 +21,8 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   const { notePrefix, ...rawOptions } = application.options;
   if (notePrefix !== deployment.notePrefix) throw Error('Runtime prefix must match the IAM boundary');
   const options = runtimeOptionsSchema.parse(rawOptions);
+  if (options.metadataSearch !== (deployment.metadataSearch ?? false)) throw Error('Metadata search configuration must match the IAM boundary');
+  const metadata = options.metadataSearch ? addMetadataSearch(scope) : undefined;
   if (options.practice.writesEnabled !== (deployment.practiceWrites ?? false)) throw Error('Practice write configuration must match the IAM boundary');
   const ownerGroup = new CfnUserPoolGroup(scope, 'OwnersGroup', {
     userPoolId: pool.ref, groupName: options.ownerGroup,
@@ -69,6 +72,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
     } }, tags: [{ key: 'Project', value: 'obsidian-mcp' }],
   });
   runtime.overrideLogicalId('McpFunction'); runtime.addResourceDependency(logs); runtime.addResourceDependency(ownerGroup);
+  if (metadata) { runtime.addResourceDependency(metadata.catalog); runtime.addResourceDependency(metadata.workgroup); }
   const integration = new CfnIntegration(scope, 'McpIntegration', { apiId: api.ref, integrationType: 'AWS_PROXY', integrationUri: runtime.attrArn, payloadFormatVersion: '2.0', timeoutInMillis: 11000 });
   integration.overrideLogicalId('McpIntegration');
   const routes = [ ['McpRoute', 'ANY /mcp'], ['MetadataRoute', 'GET /.well-known/oauth-protected-resource'], ['MetadataPathRoute', 'GET /.well-known/oauth-protected-resource/mcp'] ].map(([id, key]) => {

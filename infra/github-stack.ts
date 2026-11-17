@@ -6,6 +6,7 @@ import type { Construct } from 'constructs';
 import { z } from 'zod';
 import { STORAGE_STACK_NAME, type StorageConfig } from './storage-config.js';
 import { grantMcpRuntime, mcpDeploymentSchema, MCP_RESOURCE_TYPES } from './mcp-permissions.js';
+import { grantMetadataConfiguration } from './metadata-search.js';
 
 const roleName = z.string().regex(/^obsidian-[A-Za-z0-9+=,.@_-]+$/u).max(64);
 
@@ -79,6 +80,7 @@ export class GitHubTrustStack extends Stack {
       resources: bucketArns,
     }));
     const executionRole = execution.roleArn;
+    if (deployment.metadataSearch) grantMetadataConfiguration(this, storage.buckets.vault.name, execution);
     // Dedicated application service role. IAM itself remains foundation-owned.
     const mcpExecution = new iam.Role(this, 'McpExecutionRole', {
       roleName: github.mcpExecutionRoleName,

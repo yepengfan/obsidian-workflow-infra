@@ -3,9 +3,11 @@ import { Stack } from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { z } from 'zod';
 import type { StorageConfig } from './storage-config.js';
+import { grantMetadataSearch } from './metadata-search.js';
 
 export const mcpDeploymentSchema = z.strictObject({
   practiceWrites: z.boolean().optional(),
+  metadataSearch: z.boolean().optional(),
   functionName: z.string().regex(/^obsidian-mcp-[a-z0-9-]+$/u).max(64),
   runtimeRoleName: z.string().regex(/^obsidian-mcp-[a-z0-9-]+$/u).max(64),
   apiName: z.string().regex(/^obsidian-mcp(?:-[a-z0-9-]+)?$/u).max(64),
@@ -34,6 +36,7 @@ export function grantMcpRuntime(
   runtime.addToPolicy(new iam.PolicyStatement({ actions: ['s3:ListBucket'], resources: [vault],
     conditions: { StringLike: { 's3:prefix': [`${settings.notePrefix}*`] }, StringEquals: { 's3:delimiter': '/' }, NumericLessThanEquals: { 's3:max-keys': 100 } } }));
   runtime.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObject'], resources: [`${vault}/${settings.notePrefix}*`] }));
+  if (settings.metadataSearch) grantMetadataSearch(stack, storage.buckets.vault.name, runtime, execution);
   if (settings.practiceWrites) {
     const resources = practiceWriteResources.map(path => `${vault}/${settings.notePrefix}${path}`);
     for (const condition of [{ StringEquals: { 's3:if-none-match': '*', 's3:x-amz-server-side-encryption': 'AES256' } },
@@ -109,4 +112,5 @@ export const MCP_RESOURCE_TYPES = [
   'AWS::S3::Bucket', 'AWS::S3::BucketPolicy', 'AWS::Lambda::Function', 'AWS::Lambda::Permission',
   'AWS::Logs::LogGroup', 'AWS::ApiGatewayV2::Api', 'AWS::ApiGatewayV2::Integration',
   'AWS::ApiGatewayV2::Route', 'AWS::ApiGatewayV2::Stage',
+  'AWS::Athena::WorkGroup', 'AWS::Glue::Catalog',
 ];

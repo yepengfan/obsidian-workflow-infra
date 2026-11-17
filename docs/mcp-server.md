@@ -11,6 +11,7 @@ private; no public objects or presigned note URLs are generated.
 | `list_notes` | One explicit `folder`, optionally `limit` and returned `cursor`. Empty folder means root children. One S3 page, delimiter `/`, no body reads or recursion. |
 | `search_notes`, filename | `mode: "filename"`, explicit folder and literal query. Filters one metadata page, with a continuation cursor and completion flag. |
 | `search_notes`, body | `mode: "body"`, nonempty selected `paths` and a literal query. Reads only that bounded batch in parallel; never expands folders. |
+| `search_note_metadata` (when enabled) | Literal path text, explicit folder and descendants, optional UTC date/byte-size ranges. Queries S3 Metadata through Athena without body reads. Continue pending executions or later pages with unchanged filters and the returned cursor. See [metadata search](metadata-search.md). |
 | `read_note` | One selected Markdown `path`, optionally the returned cursor. Reads a bounded UTF-8 chunk, pinned to the object's ETag while continuing. |
 
 Results use MCP `structuredContent` and output schemas. Paths are stable resource

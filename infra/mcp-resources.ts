@@ -5,10 +5,10 @@ export const mcpRolloutSchema = z.strictObject({ stage: z.enum(['identity', 'cod
 /** Shared IaC identities. Application resources and their IAM scopes use this contract. */
 export const MCP_POOL_ARN_EXPORT = 'ObsidianMcp:UserPoolArn';
 
-export function mcpResources(aws: { account: string; region: string }, runtimeRoleName: string, notePrefix = '', practiceWrites = false) {
+export function mcpResources(aws: { account: string; region: string }, runtimeRoleName: string, notePrefix = '', practiceWrites = false, metadataSearch = false) {
   return {
     functionName: 'obsidian-mcp-server', runtimeRoleName, apiName: 'obsidian-mcp',
     codeBucketName: `obsidian-mcp-code-${aws.account}-${aws.region}`,
-    codePrefix: 'releases/', notePrefix, ...(practiceWrites ? { practiceWrites: true } : {}),
+    codePrefix: 'releases/', notePrefix, ...(practiceWrites ? { practiceWrites: true } : {}), ...(metadataSearch ? { metadataSearch: true } : {}),
   };
 }
