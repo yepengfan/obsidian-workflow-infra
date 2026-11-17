@@ -1,5 +1,6 @@
 {
   "notePrefix": "",
+  "metadataSearch": true,
   "ownerGroup": "obsidian-mcp-owners",
   "callbackUrls": [
     "https://chatgpt.com/connector/oauth/JqeUjWLzAhtd"

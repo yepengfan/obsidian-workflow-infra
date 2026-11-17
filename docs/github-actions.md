@@ -27,7 +27,11 @@ import, never replacement. The separate [code-storage stage](mcp-rollout.md#code
 deployment storage only after approval. CI has only Contents read,
 no AWS OIDC permission and no App private key. Type checking, lint, tests,
 actionlint and dependency audit remain in Verify; see README for the known
-moderate CDK-bundled dependency findings.
+moderate CDK-bundled dependency findings and the currently unpatched high-severity
+picomatch build dependency finding, which fails the unchanged audit gate.
+For metadata search, review the additional vault metadata configuration,
+regional Glue catalog, Athena workgroup and foundation grants. Check/import an
+existing regional catalog before applying; see [activation](metadata-search.md#infrastructure-and-deployment-order).
 
 ## One-time foundation and GitHub environment setup
 

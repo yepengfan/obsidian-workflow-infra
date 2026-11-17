@@ -7,7 +7,7 @@ import { parse } from 'yaml';
 it.each([
   { stage: 'identity', resources: 2 },
   { stage: 'code-storage', resources: 4 },
-  { stage: 'runtime', resources: 17 },
+  { stage: 'runtime', resources: 19 },
 ])('synthesizes the $stage stage through the public command', ({ stage, resources }) => {
   const directory = fs.mkdtempSync(path.resolve('.infrastructure-entrypoint-test-'));
   try {

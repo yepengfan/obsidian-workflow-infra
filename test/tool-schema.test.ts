@@ -6,7 +6,7 @@ import { createFetchHandler } from '../src/handler.js';
 import { MemoryStore, owner, runtimeSettings } from './runtime-fixtures.js';
 
 it('exports tool patterns that non-JavaScript metadata validators can compile', async () => {
-  const settings = runtimeSettings({ practice: { enabled: true, writesEnabled: true, timeZone: 'Australia/Brisbane' } });
+  const settings = runtimeSettings({ metadataSearch: true, practice: { enabled: true, writesEnabled: true, timeZone: 'Australia/Brisbane' } });
   const store = new MemoryStore();
   const handler = createFetchHandler(settings, { store, verify: async () => owner });
   const client = new Client({ name: 'refresh-schema-test', version: '1' });

@@ -51,6 +51,8 @@ flowchart TB
         Vault[("Obsidian vault<br/>[Container: Amazon S3]<br/>Private Markdown notes")]
         Library[("Ebook library<br/>[Container: Amazon S3]<br/>Private ebooks; no MCP access")]
         Logs[("Operational logs<br/>[Container: CloudWatch Logs]<br/>Request status and timing only")]
+        Athena["Metadata queries<br/>[Container: Amazon Athena]<br/>On-demand SQL; managed results"]
+        Inventory[("File catalog<br/>[Container: S3 Metadata / Iceberg]<br/>AWS-maintained vault metadata")]
     end
 
     Owner -->|"Signs in with MFA<br/>[HTTPS]"| Auth
@@ -62,17 +64,21 @@ flowchart TB
     Server -->|"Fetches signing keys<br/>[HTTPS / JWKS]"| Auth
     Server -->|"Reads selected notes; conditionally saves practice data<br/>[S3 API / IAM]"| Vault
     Server -->|"Writes request metadata<br/>[CloudWatch Logs API]"| Logs
+    Vault -->|"Updates file catalog<br/>[S3 Metadata]"| Inventory
+    Server -->|"Searches paths, dates and sizes<br/>[Athena API / IAM]"| Athena
+    Athena -->|"Queries live inventory<br/>[Glue catalog / S3 Tables]"| Inventory
 
     classDef person fill:#08427b,color:#fff,stroke:#052e56
     classDef external fill:#666,color:#fff,stroke:#444
     classDef container fill:#438dd5,color:#fff,stroke:#2e6295
     class Owner person
     class ChatGPT external
-    class Auth,API,Server,Vault,Library,Logs container
+    class Auth,API,Server,Vault,Library,Logs,Athena,Inventory container
     style Platform fill:none,stroke:#777,stroke-dasharray:6 4
 ```
 
-The application implements `list_notes`, `search_notes`, and `read_note`, plus
+The application implements `list_notes`, `search_notes`, and `read_note`, with
+optional `search_note_metadata` through Athena over S3 Metadata, plus
 Algorithm and System Design practice with due reviews followed by new problems.
 Generic practice shows due work across available domains and waits for a choice;
 explicit domain requests start directly.
@@ -81,7 +87,10 @@ containers. The configuration enables confirmed saving on approved practice
 paths, subject to the separate IAM and application activation steps. See
 [practice through MCP](docs/practice.md) for its tools and activation checks.
 ChatGPT browses one folder page, chooses note paths, then retrieves or searches
-only those notes. There is no whole-vault scan, recursive traversal or index.
+only those notes. Metadata search can discover paths across the vault without
+reading bodies or recursively listing folders. Its inventory typically updates
+within one hour. See [metadata search](docs/metadata-search.md) for continuation,
+costs and activation prerequisites. No content index is built.
 The MCP server reads selected vault notes and can conditionally write only
 approved Algorithm and System Design practice notes and review records after
 activation. It has no access to the ebook library. See the
@@ -117,6 +126,7 @@ generated templates.
 - [Selected-note MCP rollout and permission scope](docs/mcp-rollout.md)
 - [Practice workflow, review queues and staged note saving](docs/practice.md)
 - [MCP tools, configuration and ChatGPT connection](docs/mcp-server.md)
+- [Athena and S3 Metadata file discovery](docs/metadata-search.md)
 - [Storage retention and recovery verification](docs/retention.md)
 - [GitHub App identity and credential handling](docs/github-app-identity.md)
 
@@ -127,3 +137,11 @@ as two moderate findings (minimatch and aws-cdk-lib). The npm override fixes the
 separately installed copy, not the bundled one. CDK remains a build-time dependency and is not bundled into the Lambda runtime. Do not use
 `npm audit fix --force` to silently downgrade CDK or claim the bundled finding
 is resolved. Recheck upstream before publishing.
+
+The build tools also inherit the high-severity picomatch advisory
+[GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf), affecting
+all published versions through 4.0.7 with no patched release as of 2026-11-18.
+This predates metadata search and is not in the Lambda bundle. The unchanged
+high-severity CI audit fails until an upstream fix is available. Do not suppress
+the check, downgrade unrelated tools, or claim it passes. Recheck upstream and
+update when a patch is published.
