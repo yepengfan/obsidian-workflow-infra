@@ -12,6 +12,19 @@ import { mcpAppSchema } from '../infra/mcp-runtime.js';
 const load = (name: string) => JSON.parse(fs.readFileSync(`config/${name}.json`, 'utf8'));
 const storage = storageSchema.parse(load('storage')), github = githubSchema.parse(load('github'));
 const code = { schemaVersion: 1 as const, sourceSha: 'local', sha256: 'a'.repeat(64), sha256Base64: 'a'.repeat(43) + '=', key: 'releases/' + 'a'.repeat(64) + '.zip', bytes: 100 };
+type Statement = { Action: string | string[]; Resource: unknown; Condition?: unknown };
+type Resource = { Type: string; Properties: { RoleName?: string; Roles?: { Ref: string }[]; PolicyDocument?: { Statement: Statement[] } } };
+function foundationPolicies() {
+  const deployment = mcpResources(storage, github.runtimeRoleName, '', false, true);
+  const resources = Template.fromStack(new GitHubTrustStack(new App(), 'Foundation', storage, github, deployment)).toJSON().Resources as Record<string, Resource>;
+  return (name: string) => {
+    const role = Object.entries(resources).find(([, r]) => r.Type === 'AWS::IAM::Role' && r.Properties.RoleName === name)![0];
+    return Object.values(resources).filter(r => r.Type === 'AWS::IAM::Policy' && r.Properties.Roles?.some(ref => ref.Ref === role))
+      .flatMap(r => r.Properties.PolicyDocument!.Statement);
+  };
+}
+const actions = (statement: Statement) => Array.isArray(statement.Action) ? statement.Action : [statement.Action];
+const tableResource = (path: string) => ({ 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, `:s3tables:${storage.region}:${storage.account}:bucket/${path}`]] });
 
 it('enables inventory only on the vault and expires the required journal after seven days', () => {
   const template = Template.fromStack(new StorageStack(new App(), 'Storage', storage, true)).toJSON();
@@ -38,12 +51,33 @@ it('uses a capped on-demand workgroup with managed results and a retained native
 });
 
 it('limits runtime table access to this vault inventory and query access to its workgroup', () => {
-  const deployment = mcpResources(storage, github.runtimeRoleName, '', false, true);
-  const template = Template.fromStack(new GitHubTrustStack(new App(), 'Foundation', storage, github, deployment)).toJSON();
-  const policies = Object.values(template.Resources).filter((r: unknown) => (r as { Type: string }).Type === 'AWS::IAM::Policy') as { Properties: { Roles: unknown[]; PolicyDocument: { Statement: { Action: string | string[]; Resource: string | string[]; Condition?: unknown }[] } } }[];
-  const statement = policies.flatMap(p => p.Properties.PolicyDocument.Statement).find(s => JSON.stringify(s.Action).includes('s3tables:GetTableData'))!;
+  const policies = foundationPolicies()(github.runtimeRoleName);
+  const statement = policies.find(s => actions(s).includes('s3tables:GetTableData'))!;
   expect(statement.Condition).toEqual({ StringEquals: { 's3tables:namespace': `b_${storage.buckets.vault.name}`, 's3tables:tableName': 'inventory' } });
-  const query = policies.flatMap(p => p.Properties.PolicyDocument.Statement).find(s => JSON.stringify(s.Action).includes('athena:StartQueryExecution'))!;
+  const query = policies.find(s => actions(s).includes('athena:StartQueryExecution'))!;
   expect(JSON.stringify(query.Resource)).toContain('workgroup/obsidian-mcp-metadata');
-  expect(JSON.stringify(template)).not.toContain('s3tables:*');
+  expect(JSON.stringify(policies)).not.toContain('s3tables:*');
+});
+
+it('allows first-time namespace creation without an unsupported namespace condition', () => {
+  const policies = foundationPolicies()(github.executionRoleName);
+  const namespace = policies.find(s => actions(s).includes('s3tables:CreateNamespace'))!;
+  // AWS supplies no s3tables:namespace context for CreateNamespace. A StringEquals
+  // check on it denies the first metadata configuration before tables exist.
+  expect(namespace.Condition).toBeUndefined();
+  expect(namespace.Resource).toEqual(tableResource('aws-s3'));
+  const table = policies.find(s => actions(s).includes('s3tables:CreateTable'))!;
+  expect(table.Condition).toEqual({ StringEquals: { 's3tables:namespace': `b_${storage.buckets.vault.name}` } });
+});
+
+it('grants the catalog deployment role the regional read prerequisites without table writes', () => {
+  const policies = foundationPolicies()(github.mcpExecutionRoleName);
+  const readActions = ['s3tables:GetTableBucket', 's3tables:GetNamespace', 's3tables:GetTable', 's3tables:GetTableMetadataLocation', 's3tables:GetTableData'];
+  const statements = policies.filter(s => actions(s).some(action => action.startsWith('s3tables:')));
+  expect(statements.flatMap(actions).sort()).toEqual(readActions.sort());
+  for (const action of readActions) {
+    const statement = statements.find(s => actions(s).includes(action))!;
+    expect(statement.Resource).toEqual(tableResource(`*${['s3tables:GetTableBucket', 's3tables:GetNamespace'].includes(action) ? '' : '/table/*'}`));
+  }
+  expect(policies.flatMap(actions)).toEqual(expect.arrayContaining(['glue:GetDatabase', 'glue:GetTable']));
 });

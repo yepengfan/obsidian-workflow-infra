@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm test",
+    "audit:ci": "npm audit --omit=dev --audit-level=high && audit-ci --config audit-ci.jsonc",
     "synth": "cdk synth --no-lookups",
     "check:cognito": "tsx bin/check-cognito.ts",
     "diff": "cdk diff --method=template --no-lookups"
@@ -30,6 +31,7 @@
     "@eslint/js": "10.0.1",
     "@smithy/types": "4.20.0",
     "@types/node": "26.6.6",
+    "audit-ci": "7.1.0",
     "aws-cdk": "2.1148.1",
     "esbuild": "0.28.2",
     "eslint": "10.14.0",

@@ -27,8 +27,11 @@ import, never replacement. The separate [code-storage stage](mcp-rollout.md#code
 deployment storage only after approval. CI has only Contents read,
 no AWS OIDC permission and no App private key. Type checking, lint, tests,
 actionlint and dependency audit remain in Verify; see README for the known
-moderate CDK-bundled dependency findings and the currently unpatched high-severity
-picomatch build dependency finding, which fails the unchanged audit gate.
+moderate CDK-bundled dependency findings and the unpatched picomatch build finding.
+`npm run audit:ci` audits runtime dependencies without exceptions, then audits
+all dependencies with the single advisory exception in `audit-ci.jsonc`, expiring
+2026-12-18 UTC. Other high/critical findings and every runtime high/critical
+finding remain blocking; the allowed build advisory stays visible in logs.
 For metadata search, review the additional vault metadata configuration,
 regional Glue catalog, Athena workgroup and foundation grants. Check/import an
 existing regional catalog before applying; see [activation](metadata-search.md#infrastructure-and-deployment-order).

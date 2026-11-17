@@ -141,7 +141,16 @@ is resolved. Recheck upstream before publishing.
 The build tools also inherit the high-severity picomatch advisory
 [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf), affecting
 all published versions through 4.0.7 with no patched release as of 2026-11-18.
-This predates metadata search and is not in the Lambda bundle. The unchanged
-high-severity CI audit fails until an upstream fix is available. Do not suppress
-the check, downgrade unrelated tools, or claim it passes. Recheck upstream and
-update when a patch is published.
+It is not in the Lambda bundle; its lint/test glob patterns come from this
+repository. This remains an unresolved vulnerability, not a dependency fix.
+
+Run `npm run audit:ci` locally and in CI. It first runs the runtime dependency
+audit without exceptions, failing on every high/critical advisory. It then uses
+pinned `audit-ci` to check the entire dependency tree at the same threshold,
+with one explicit build-tool exception in [audit-ci.jsonc](audit-ci.jsonc).
+That exception names only GHSA-fc5q-39xc-vjpf, remains visible in audit output,
+and expires on 2026-12-18 UTC. Every other high/critical advisory still fails.
+A runtime occurrence of the same advisory also fails the first audit. Remove
+the exception and upgrade when an upstream patch is published; expiry requires
+renewed review if there is still no fix. Do not use a package-wide exemption,
+raise the severity threshold, or blanket-ignore audit failures.

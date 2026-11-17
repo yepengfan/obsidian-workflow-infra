@@ -35,17 +35,30 @@ export function grantMetadataSearch(stack: Stack, vault: string, runtime: iam.Ro
   const rootCatalog = arn('glue', 'catalog');
   const catalog = arn('glue', 'catalog/s3tablescatalog');
   const namespace = `b_${vault}`;
+  const tableBucket = arn('s3tables', 'bucket/aws-s3');
   runtime.addToPolicy(new iam.PolicyStatement({ actions: ['athena:StartQueryExecution', 'athena:GetQueryExecution', 'athena:GetQueryResults'], resources: [workgroup] }));
   runtime.addToPolicy(new iam.PolicyStatement({ actions: ['athena:GetDataCatalog'], resources: [arn('athena', 'datacatalog/AwsDataCatalog'), arn('athena', 'datacatalog/s3tablescatalog/aws-s3')] }));
   runtime.addToPolicy(new iam.PolicyStatement({ actions: ['glue:GetCatalog', 'glue:GetDatabase', 'glue:GetTable'], resources: [rootCatalog, catalog,
     arn('glue', 'catalog/s3tablescatalog/aws-s3'), arn('glue', `database/s3tablescatalog/aws-s3/${namespace}`), arn('glue', `table/s3tablescatalog/aws-s3/${namespace}/inventory`)] }));
   runtime.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:GetTable', 's3tables:GetTableMetadataLocation', 's3tables:GetTableData'],
-    resources: [arn('s3tables', 'bucket/aws-s3/table/*')],
+    resources: [`${tableBucket}/table/*`],
     conditions: { StringEquals: { 's3tables:namespace': namespace, 's3tables:tableName': 'inventory' } } }));
+  runtime.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:GetTableBucket'], resources: [tableBucket] }));
+  runtime.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:GetNamespace'], resources: [tableBucket],
+    conditions: { StringEquals: { 's3tables:namespace': namespace } } }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['athena:CreateWorkGroup', 'athena:GetWorkGroup', 'athena:UpdateWorkGroup', 'athena:DeleteWorkGroup',
     'athena:TagResource', 'athena:UntagResource', 'athena:ListTagsForResource'], resources: [workgroup] }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['glue:CreateCatalog', 'glue:GetCatalog', 'glue:UpdateCatalog', 'glue:DeleteCatalog', 'glue:GetTags', 'glue:TagResource', 'glue:UntagResource'], resources: [rootCatalog, catalog] }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['glue:PassConnection'], resources: [arn('glue', 'connection/aws:s3tables')] }));
+  // The regional federated catalog's Identifier is bucket/*, so its native
+  // registration role needs the regional read prerequisites. This is NOT the
+  // Lambda role: runtime reads above remain limited to the vault inventory.
+  // https://docs.aws.amazon.com/glue/latest/dg/s3tables-catalog-prerequisites.html
+  execution.addToPolicy(new iam.PolicyStatement({ actions: ['glue:GetCatalog', 'glue:GetDatabase', 'glue:GetTable'],
+    resources: [rootCatalog, catalog, arn('glue', 'catalog/s3tablescatalog/*'),
+      arn('glue', 'database/s3tablescatalog/*/*'), arn('glue', 'table/s3tablescatalog/*/*/*')] }));
+  execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:GetTableBucket', 's3tables:GetNamespace'], resources: [arn('s3tables', 'bucket/*')] }));
+  execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:GetTable', 's3tables:GetTableMetadataLocation', 's3tables:GetTableData'], resources: [arn('s3tables', 'bucket/*/table/*')] }));
 }
 
 export function grantMetadataConfiguration(stack: Stack, vault: string, execution: iam.Role) {
@@ -53,7 +66,9 @@ export function grantMetadataConfiguration(stack: Stack, vault: string, executio
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3:CreateBucketMetadataTableConfiguration', 's3:DeleteBucketMetadataTableConfiguration',
     's3:UpdateBucketMetadataJournalTableConfiguration', 's3:UpdateBucketMetadataInventoryTableConfiguration'], resources: [`arn:${stack.partition}:s3:::${vault}`] }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:CreateTableBucket', 's3tables:GetTableBucket', 's3tables:PutTableBucketPolicy'], resources: [tableBucket] }));
-  execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:CreateNamespace', 's3tables:CreateTable'], resources: [tableBucket],
+  // CreateNamespace does not supply the s3tables:namespace condition key.
+  execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:CreateNamespace'], resources: [tableBucket] }));
+  execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:CreateTable'], resources: [tableBucket],
     conditions: { StringEquals: { 's3tables:namespace': `b_${vault}` } } }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:GetTable', 's3tables:PutTablePolicy', 's3tables:PutTableEncryption'], resources: [`${tableBucket}/table/*`],
     conditions: { StringEquals: { 's3tables:namespace': `b_${vault}`, 's3tables:tableName': ['inventory', 'journal'] } } }));

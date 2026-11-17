@@ -58,8 +58,12 @@ enabling it; this PR does not deploy it.
 - Permission foundation: propose scoped configuration and query grants. Runtime
   Athena access is limited to the workgroup and S3 Tables reads to this vault's
   inventory table and namespace. SQL and path validation enforce the configured
-  prefix. Table writes are not granted. Note reads and practice writes remain
-  separate responsibilities.
+  prefix. The separate CloudFormation MCP execution role receives the regional
+  S3 Tables and Glue read prerequisites for registering the regional catalog,
+  whose federated identifier is `bucket/*`. It cannot write table data. Namespace
+  creation is restricted to the managed `aws-s3` bucket without an unsupported
+  namespace condition; table creation retains its vault namespace condition.
+  Note reads and practice writes remain separate responsibilities.
 
 Before applying, check whether the regional `s3tablescatalog` already exists.
 If so, inspect ownership and access mode, then import the native catalog into
