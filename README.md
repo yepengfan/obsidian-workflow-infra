@@ -11,9 +11,9 @@ for the current stage and prerequisites.
 
 ### C1: System context
 
-The owner maintains a private knowledge base and uses ChatGPT to ask questions
-about selected notes and complete Algorithm and System Design practice with
-confirmed saving.
+The owner maintains a private knowledge base and uses ChatGPT to discover notes
+by path, date and size, ask questions about selected notes, and complete
+Algorithm and System Design practice with confirmed saving.
 
 ```mermaid
 flowchart LR
@@ -23,7 +23,7 @@ flowchart LR
 
     Owner -->|"Asks questions; practices algorithms and system design"| ChatGPT
     Owner -->|"Maintains knowledge; authorizes access"| Platform
-    ChatGPT -->|"Retrieves notes; saves confirmed practice"| Platform
+    ChatGPT -->|"Discovers notes by metadata; reads selected notes; saves confirmed practice"| Platform
 
     classDef person fill:#08427b,color:#fff,stroke:#052e56
     classDef external fill:#666,color:#fff,stroke:#444
@@ -35,9 +35,9 @@ flowchart LR
 
 ### C2: Containers
 
-The platform separates authentication, the MCP endpoint, note access and
-private storage. C4 containers represent applications and data stores, not
-Docker containers.
+The platform separates authentication, the MCP endpoint, note access, metadata
+queries and private storage. C4 containers represent applications and data
+stores, not Docker containers.
 
 ```mermaid
 flowchart TB
@@ -51,29 +51,33 @@ flowchart TB
         Vault[("Obsidian vault<br/>[Container: Amazon S3]<br/>Private Markdown notes")]
         Library[("Ebook library<br/>[Container: Amazon S3]<br/>Private ebooks; no MCP access")]
         Logs[("Operational logs<br/>[Container: CloudWatch Logs]<br/>Request status and timing only")]
-        Athena["Metadata queries<br/>[Container: Amazon Athena]<br/>On-demand SQL; managed results"]
-        Inventory[("File catalog<br/>[Container: S3 Metadata / Iceberg]<br/>AWS-maintained vault metadata")]
+        Athena["Metadata queries<br/>[Container: Amazon Athena]<br/>Dedicated workgroup; on-demand SQL"]
+        Catalog["Metadata catalog<br/>[Container: AWS Glue Data Catalog]<br/>Regional S3 Tables integration"]
+        Inventory[("Vault metadata tables<br/>[Container: S3 Metadata / Iceberg]<br/>Live inventory; seven-day journal")]
     end
 
+    Owner -->|"Asks questions and practices"| ChatGPT
     Owner -->|"Signs in with MFA<br/>[HTTPS]"| Auth
     Owner -->|"Maintains notes<br/>[Obsidian sync]"| Vault
     Owner -->|"Maintains private ebooks"| Library
     ChatGPT -->|"Obtains and refreshes tokens<br/>[OAuth 2.0 / PKCE]"| Auth
-    ChatGPT -->|"Reads notes; requests confirmed practice saves<br/>[MCP Streamable HTTP / HTTPS]"| API
+    ChatGPT -->|"Discovers notes; reads and saves<br/>[MCP Streamable HTTP / HTTPS]"| API
     API -->|"Invokes handler<br/>[Lambda integration]"| Server
     Server -->|"Fetches signing keys<br/>[HTTPS / JWKS]"| Auth
-    Server -->|"Reads selected notes; conditionally saves practice data<br/>[S3 API / IAM]"| Vault
+    Server -->|"Reads notes; saves confirmed practice<br/>[S3 API / IAM]"| Vault
     Server -->|"Writes request metadata<br/>[CloudWatch Logs API]"| Logs
-    Vault -->|"Updates file catalog<br/>[S3 Metadata]"| Inventory
+    Vault -->|"AWS maintains file metadata<br/>[S3 Metadata]"| Inventory
     Server -->|"Searches paths, dates and sizes<br/>[Athena API / IAM]"| Athena
-    Athena -->|"Queries live inventory<br/>[Glue catalog / S3 Tables]"| Inventory
+    Athena -->|"Resolves inventory schema and location<br/>[Glue API / IAM]"| Catalog
+    Catalog -.->|"Registers vault namespace and tables"| Inventory
+    Athena -->|"Reads live inventory<br/>[S3 Tables / Iceberg]"| Inventory
 
     classDef person fill:#08427b,color:#fff,stroke:#052e56
     classDef external fill:#666,color:#fff,stroke:#444
     classDef container fill:#438dd5,color:#fff,stroke:#2e6295
     class Owner person
     class ChatGPT external
-    class Auth,API,Server,Vault,Library,Logs,Athena,Inventory container
+    class Auth,API,Server,Vault,Library,Logs,Athena,Catalog,Inventory container
     style Platform fill:none,stroke:#777,stroke-dasharray:6 4
 ```
 
@@ -90,7 +94,13 @@ ChatGPT browses one folder page, chooses note paths, then retrieves or searches
 only those notes. Metadata search can discover paths across the vault without
 reading bodies or recursively listing folders. Its inventory typically updates
 within one hour. See [metadata search](docs/metadata-search.md) for continuation,
-costs and activation prerequisites. No content index is built.
+costs, activation prerequisites and
+[recovery from failed initialization](docs/metadata-search.md#recovering-a-failed-initial-configuration).
+The journal expires change records after seven days; the live inventory keeps
+tracking existing files regardless of age. The dedicated Athena workgroup caps
+each query at 256 MiB scanned and deletes managed results after 24 hours.
+CloudFormation completion alone does not establish metadata readiness; inventory
+must reach `ACTIVE` before accepting metadata search. No content index is built.
 The MCP server reads selected vault notes and can conditionally write only
 approved Algorithm and System Design practice notes and review records after
 activation. It has no access to the ebook library. See the
