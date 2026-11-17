@@ -100,19 +100,40 @@ explicit AES256 encryption checks `s3tables:PutTableEncryption` against the
 dependent permission on that exact bucket as well as the existing scoped table
 grant. Table creation remains limited to the vault namespace.
 
+AWS does not recover a failed configuration just because IAM was corrected.
 After the corrected foundation has been reviewed, merged and approved for
-deployment, recreate the failed metadata configuration. AWS does not recover a
-failed configuration just because IAM was corrected. Review this recovery
-operation before executing it: capture the existing configuration, confirm
-that no journal/inventory tables exist in the vault namespace, delete only the
-vault's metadata configuration with `delete-bucket-metadata-configuration`, then
-use `create-bucket-metadata-configuration` with the same reviewed settings
-(AES256, seven-day journal expiration, inventory enabled). If tables already
-exist, inspect them and review their removal separately before recreating.
-Do not delete the shared `aws-s3` table bucket, regional Glue catalog, or source
-notes. This direct recovery restores the modeled configuration without changing
-bucket identity or adding a new deployment mechanism. Monitor for `FAILED`,
-then wait for inventory `ACTIVE` before a live metadata-search acceptance check.
+deployment, recreate the configuration through the existing
+[Plan, approval and Apply workflow](github-actions.md#automatic-deployment-run).
+CloudFormation performs both writes through `obsidian-workflow-storage-execution`.
+The local SSO session remains for the approved IAM foundation update; do not run
+direct S3 configuration writes with that session or expand the CI roles.
+
+1. Capture the current configuration and confirm through read-only inspection
+   that the vault namespace contains no metadata tables. Deleting a metadata
+   configuration does not delete its tables. If tables already exist, stop and
+   review their removal and execution permissions separately before proceeding.
+2. Open a recovery PR that changes only the fourth argument of `new StorageStack`
+   in `bin/infrastructure.ts` from `options.metadataSearch` to `false`. Keep
+   `metadataSearch: true` in the runtime configuration, so the IAM grants,
+   Athena workgroup and retained Glue catalog stay modeled. Review and merge the
+   PR, then approve its concrete native plan: the storage change must remove only
+   `Vault.MetadataConfiguration`, preserve both bucket identities and other
+   bucket properties, and require no replacement. Wait for successful Apply and
+   verify that the metadata configuration is absent.
+3. Only after step 2 has completed, open a second PR restoring that argument to
+   `options.metadataSearch`. Review, merge and approve its concrete native plan
+   to restore the same AES256, seven-day journal and enabled inventory settings.
+   Do not combine the two source changes before the removal deployment finishes;
+   a no-change template does not retry failed initialization.
+4. Monitor journal and inventory for `FAILED`, then wait for inventory `ACTIVE`
+   before a live metadata-search acceptance check. Backfill starts again after
+   successful recreation.
+
+Both recovery phases use the existing GitHub approval and CloudFormation role
+path. Edit CDK source, never generated templates. Do not delete the shared
+`aws-s3` table bucket, regional Glue catalog, or source notes. See AWS's
+[configuration deletion behavior](https://docs.aws.amazon.com/AmazonS3/latest/userguide/metadata-tables-delete-configuration.html)
+for retained-table requirements.
 
 ## Cost and acceptance checks
 
