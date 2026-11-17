@@ -86,6 +86,34 @@ within one hour, without a strict maximum guarantee. Stale paths can temporarily
 remain after renames/deletes; a current-object read can fail. Initial backfill
 takes at least 15 minutes and can take hours.
 
+### Recovering a failed initial configuration
+
+CloudFormation can report a successful bucket update while asynchronous S3
+Metadata initialization later fails. Inspect both journal and inventory status
+with `aws s3api get-bucket-metadata-configuration`; accept search only when the
+inventory is `ACTIVE`. A successful CI run alone does not establish readiness.
+
+For `AccessDeniedCreatingResources`, inspect the underlying S3 Tables event in
+CloudTrail before changing permissions. In particular, `CreateTable` with
+explicit AES256 encryption checks `s3tables:PutTableEncryption` against the
+`aws-s3` **bucket ARN**, before a table ARN exists. The foundation grants this
+dependent permission on that exact bucket as well as the existing scoped table
+grant. Table creation remains limited to the vault namespace.
+
+After the corrected foundation has been reviewed, merged and approved for
+deployment, recreate the failed metadata configuration. AWS does not recover a
+failed configuration just because IAM was corrected. Review this recovery
+operation before executing it: capture the existing configuration, confirm
+that no journal/inventory tables exist in the vault namespace, delete only the
+vault's metadata configuration with `delete-bucket-metadata-configuration`, then
+use `create-bucket-metadata-configuration` with the same reviewed settings
+(AES256, seven-day journal expiration, inventory enabled). If tables already
+exist, inspect them and review their removal separately before recreating.
+Do not delete the shared `aws-s3` table bucket, regional Glue catalog, or source
+notes. This direct recovery restores the modeled configuration without changing
+bucket identity or adding a new deployment mechanism. Monitor for `FAILED`,
+then wait for inventory `ACTIVE` before a live metadata-search acceptance check.
+
 ## Cost and acceptance checks
 
 Sydney on-demand SQL costs US$5/TB, with a 10 MB minimum per query. At that
