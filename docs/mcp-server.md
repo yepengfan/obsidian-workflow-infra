@@ -51,6 +51,14 @@ instead of a friendly scope prefix. Cognito requires custom scopes in a
 resource-bound request to belong to the requested resource. The runtime, public
 metadata, OAuth challenge and client all use this same URL-bound scope.
 
+Owner authentication also requires the standard `openid` scope so Cognito includes
+the identity/group claims needed for authorization. Public resource discovery,
+the initial OAuth challenge, tool security metadata and runtime validation all
+require `openid` together with `NotesScope`. Practice writes additionally require
+`<McpEndpoint>/write`. `openid` alone grants no note access; the exact owners-group
+claim and the resource-bound read/write scopes remain mandatory. ID tokens are
+never accepted as API credentials.
+
 The committed defaults are in [`config/mcp-runtime.json`](../config/mcp-runtime.json);
 [`src/config.ts`](../src/config.ts) defines the allowed bounds. Page size, selected
 note count, parallel reads, per-note body bytes, chunk bytes, request/response
@@ -182,7 +190,9 @@ client grants no additional vault permissions or access to other users.
 5. Verify a root listing and a selected note read, then enabled metadata / practice
    tools. For confirmed practice saving, the token also needs the resource-bound
    write scope. Claude must request the canonical `McpEndpoint` as OAuth `resource`
-   so Cognito issues the exact access-token audience. Missing audience or scopes
+   so Cognito issues the exact access-token audience. The server requests
+   `openid` plus the read scope; requesting only the custom read scope can omit
+   the group claim and fail owner authorization. Missing audience or scopes
    fail closed; do not relax validation to make a host connect.
 
 The deployment checker tests each configured client's callbacks without login.
@@ -191,6 +201,14 @@ complete the connection checks below after approved Apply. Existing ChatGPT
 connections should continue using their current client ID, secret and callback.
 The Excalidraw app available inside ChatGPT is a separate host integration; adding
 this connector gives Claude MCP tools without provisioning that app in Claude.
+
+After deploying the identity-scope fix, disconnect and reconnect Claude's Obsidian
+connection to authorize `openid` plus the read scope. Existing grants missing
+`openid` cannot gain it by refreshing their old token. The client ID,
+secret, callback, owner account and group membership do not need to change.
+For troubleshooting, use the fixed denial reason and Cognito's CloudTrail
+authorization-event scope list. Never post tokens, codes, secrets or claims in
+chat. A successful sign-in/code exchange does not establish owner authorization.
 
 See [Claude's custom connector setup](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
 for the current connector UI and redirect URI.
@@ -215,7 +233,7 @@ No test needs to create or edit a private note.
 
 Verify authorization-code + S256 PKCE, reject an incorrect verifier, confirm the
 access token's exact resource `aud`, issuer, allowlisted app-client `client_id`,
-`token_use: access`, expiry, read scope and exact owners-group membership in the
+`token_use: access`, expiry, `openid`, read scope and exact owners-group membership in the
 signed `cognito:groups` array. ID tokens, clients outside the deployed allowlist,
 other audiences, expired/bad signatures, missing/malformed groups (including
 mixed-type arrays) and nonmembers

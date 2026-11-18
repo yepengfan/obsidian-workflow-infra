@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { requiredScopes } from './auth.js';
 import { listInput, Notes, readInput, searchInput } from './notes.js';
 import type { McpSkill } from './skill.js';
 
@@ -16,7 +17,7 @@ export const notesSkill: McpSkill = {
   register: ({ server, store, settings, owner, signal, result }) => {
     const notes = new Notes(store, settings, owner, signal);
     const security = { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-      _meta: { securitySchemes: [{ type: 'oauth2', scopes: [settings.scope] }] } };
+      _meta: { securitySchemes: [{ type: 'oauth2', scopes: requiredScopes(settings) }] } };
     server.registerTool('list_notes', { ...security, description: 'List one bounded page of direct-child folders and Markdown metadata. No recursion or note-body reads.', inputSchema: listInput, outputSchema: catalogOutput }, input => result(() => notes.list(input)));
     server.registerTool('search_notes', { ...security, description: 'Filename mode searches one direct-child catalog page in an explicit folder. Body mode searches only explicit selected note paths, bounded and parallel. No folder-wide body search or automatic widening. Follow up with read_note for matching or oversized notes.', inputSchema: searchInput, outputSchema: searchOutput }, input => result(() => notes.search(input)));
     server.registerTool('read_note', { ...security, description: 'Read one selected Markdown note in bounded UTF-8 chunks. Continue only using the returned cursor; a changed note requires restarting.', inputSchema: readInput, outputSchema: readOutput }, input => result(() => notes.read(input)));

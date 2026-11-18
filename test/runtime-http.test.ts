@@ -14,9 +14,21 @@ beforeAll(async () => { keys = await generateKeyPair('RS256', { extractable: tru
 async function token(overrides: Record<string, unknown> = {}) {
   const settings = runtimeSettings(); const now = Math.floor(Date.now() / 1000);
   return new SignJWT({ iss: settings.issuer, sub: owner, client_id: settings.clientIds[0], token_use: 'access', aud: settings.resource,
-    scope: settings.scope, 'cognito:groups': [ownerGroup], iat: now, exp: now + 900, ...overrides }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).sign(keys.privateKey);
+    scope: `openid ${settings.scope}`, 'cognito:groups': [ownerGroup], iat: now, exp: now + 900, ...overrides }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).sign(keys.privateKey);
 }
 describe('authenticated stateless Streamable HTTP', () => {
+  it.each(['test-client', 'claude-client'])('requests identity scope before rejecting owner membership for %s', async clientId => {
+    const settings = runtimeSettings({ clientIds: ['test-client', 'claude-client'] }), store = new MemoryStore();
+    const fetch = createFetchHandler(settings, { store, verify: tokenVerifier(settings, jwks) });
+    const response = await fetch(new Request(settings.resource, { method: 'POST', headers: {
+      Authorization: `Bearer ${await token({ client_id: clientId, scope: settings.scope, 'cognito:groups': undefined })}`,
+    }, body: '{}' }));
+    expect(response.status).toBe(401);
+    expect(response.headers.get('WWW-Authenticate')).toContain(`scope="openid ${settings.scope}"`);
+    expect(store.calls).toHaveLength(0);
+    const metadata = await fetch(new Request(new URL('/.well-known/oauth-protected-resource/mcp', settings.resource)));
+    expect((await metadata.json()).scopes_supported).toEqual(['openid', settings.scope]);
+  });
   it('publishes discovery and challenges anonymous MCP calls without touching S3', async () => {
     const settings = runtimeSettings(), store = new MemoryStore(); const fetch = createFetchHandler(settings, { store });
     const metadata = await fetch(new Request(new URL('/.well-known/oauth-protected-resource/mcp', settings.resource)));
@@ -27,7 +39,7 @@ describe('authenticated stateless Streamable HTTP', () => {
   });
   it.each([
     { aud: 'https://other.example/mcp' }, { aud: [runtimeSettings().resource] }, { client_id: 'other' }, { token_use: 'id' },
-    { iss: 'https://other.example' }, { exp: 1 }, { scope: 'other/read' }, { scope: 'obsidian.notes/read' }, { iat: 4102444800 }, { nbf: 4102444800 },
+    { iss: 'https://other.example' }, { exp: 1 }, { scope: 'openid' }, { scope: runtimeSettings().scope }, { scope: 'other/read' }, { scope: 'obsidian.notes/read' }, { iat: 4102444800 }, { nbf: 4102444800 },
   ])('rejects invalid token claims %j', async overrides => {
     const verify = tokenVerifier(runtimeSettings(), jwks);
     await expect(verify(`Bearer ${await token(overrides)}`)).rejects.toMatchObject({ status: 401 });
@@ -94,7 +106,7 @@ describe('authenticated stateless Streamable HTTP', () => {
       await client.connect(transport);
       const tools = await client.listTools();
       expect(tools.tools.map(tool => tool.name).sort()).toEqual(['list_notes', 'read_note', 'search_notes']);
-      for (const tool of tools.tools) { expect(tool.annotations?.readOnlyHint).toBe(true); expect(tool._meta?.securitySchemes).toEqual([{ type: 'oauth2', scopes: [settings.scope] }]); expect(tool.outputSchema?.type).toBe('object'); }
+      for (const tool of tools.tools) { expect(tool.annotations?.readOnlyHint).toBe(true); expect(tool._meta?.securitySchemes).toEqual([{ type: 'oauth2', scopes: ['openid', settings.scope] }]); expect(tool.outputSchema?.type).toBe('object'); }
       const list = await client.callTool({ name: 'list_notes', arguments: { folder: '' } });
       expect(list.structuredContent).toMatchObject({ notes: [{ path: 'hello.md' }], complete: false });
       const read = await client.callTool({ name: 'read_note', arguments: { path: 'hello.md' } });
@@ -139,9 +151,9 @@ it.each(['test-client', 'claude-client'])('requires read, write and owner member
   const signed = (claims: Record<string, unknown> = {}) => token({ client_id: clientId, ...claims });
   const verifyWrite = tokenVerifier(settings, jwks, `${settings.resource}/write`);
   await expect(verifyWrite(`Bearer ${await signed()}`)).rejects.toMatchObject({ status: 401 });
-  await expect(verifyWrite(`Bearer ${await signed({ scope: `${settings.scope} ${settings.resource}/write` })}`)).resolves.toBe(owner);
-  await expect(verifyWrite(`Bearer ${await signed({ scope: `${settings.resource}/write` })}`)).rejects.toMatchObject({ status: 401 });
-  await expect(verifyWrite(`Bearer ${await signed({ scope: `${settings.scope} ${settings.resource}/write`, 'cognito:groups': [] })}`)).rejects.toMatchObject({ status: 403 });
+  await expect(verifyWrite(`Bearer ${await signed({ scope: `openid ${settings.scope} ${settings.resource}/write` })}`)).resolves.toBe(owner);
+  await expect(verifyWrite(`Bearer ${await signed({ scope: `openid ${settings.resource}/write` })}`)).rejects.toMatchObject({ status: 401 });
+  await expect(verifyWrite(`Bearer ${await signed({ scope: `openid ${settings.scope} ${settings.resource}/write`, 'cognito:groups': [] })}`)).rejects.toMatchObject({ status: 403 });
 });
 
 it.each([false, true])('injects skill tools, instructions and scopes only when supplied: %s', async injected => {
@@ -160,7 +172,7 @@ it.each([false, true])('injects skill tools, instructions and scopes only when s
     } }] : [],
   });
   const discovery = await fetch(new Request(new URL('/.well-known/oauth-protected-resource/mcp', settings.resource)));
-  expect((await discovery.json()).scopes_supported).toEqual([settings.scope, ...(injected ? [scope] : [])]);
+  expect((await discovery.json()).scopes_supported).toEqual(['openid', settings.scope, ...(injected ? [scope] : [])]);
   expect(contexts).toHaveLength(0);
   const client = new Client({ name: 'injected-skill-test', version: '1' });
   client.onerror = () => {};

@@ -67,9 +67,11 @@ support, `S256` and supported confidential-client authentication. It never
 registers a client or requests tokens, and errors omit remote bodies.
 When `McpEndpoint` is present, the checker requires `NotesScope` to match the
 [resource-bound read scope](mcp-server.md#configuration-and-bounds), validates
-that scope in the public protected-resource metadata, and requires an anonymous
-MCP initialization request to return 401 with the expected resource-metadata and
-scope challenge.
+both that scope and `openid` in the public protected-resource metadata, and
+requires an anonymous MCP initialization request to return 401 with the expected
+resource-metadata and `openid` plus read-scope challenge. A read-only challenge
+without `openid` fails this check even when the authorization server accepts the
+separate probe below; actual hosts must learn the identity-scope requirement.
 For every configured callback of each enabled client, it also sends one cookie-free
 authorization-code request with S256, `prompt=none`, the canonical resource and
 read scope, that client's stack-output ID and random state. ChatGPT callbacks use

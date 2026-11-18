@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { requiredScopes } from './auth.js';
 import type { McpSkill, SkillContext } from './skill.js';
 import type { Settings } from './config.js';
 import { addReviewSchema, domainSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
@@ -10,7 +11,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   authorizeWrite: () => Promise<void>) {
   if (!settings.practice.enabled) return;
   const readSecurity = { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    _meta: { securitySchemes: [{ type: 'oauth2', scopes: [settings.scope] }] } };
+    _meta: { securitySchemes: [{ type: 'oauth2', scopes: requiredScopes(settings) }] } };
   const outputSchema = z.looseObject({});
   server.registerTool('practice', { ...readSecurity, outputSchema,
     description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm and System Design modules, then wait for an item or domain choice. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability, workflow and instruction catalog; never an assessment or saved attempt.',
@@ -35,7 +36,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     inputSchema: z.strictObject({ path: z.string().max(1024) }) }, input => result(() => practice.designCanvas(input.path)));
   if (!settings.practice.writesEnabled) return;
   const writeSecurity = { annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-    _meta: { securitySchemes: [{ type: 'oauth2', scopes: [settings.scope, `${settings.resource}/write`] }] } };
+    _meta: { securitySchemes: [{ type: 'oauth2', scopes: requiredScopes(settings, [`${settings.resource}/write`]) }] } };
   const write = (work: () => Promise<object>) => result(async () => { await authorizeWrite(); return work(); });
   server.registerTool('practice_add_review', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit user confirmation, register a neutral review object without overwriting an existing one. Never invent an attempt or reflection. New entries have no scheduled date until a round is recorded.',

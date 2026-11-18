@@ -32,7 +32,7 @@ it.each([false, true])('builds deterministic ZIPs and executes the Lambda with p
     const emitted = await import(pathToFileURL(file).href);
     const result = await emitted.handler({ rawPath: '/.well-known/oauth-protected-resource/mcp', headers: {}, requestContext: { http: { method: 'GET' } } }, { awsRequestId: 'fixture-request' });
     expect(result.statusCode).toBe(200); expect(JSON.parse(result.body).resource).toBe(process.env.MCP_RESOURCE);
-    expect(JSON.parse(result.body).scopes_supported).toEqual([process.env.OAUTH_SCOPE, ...(enabled ? [`${process.env.MCP_RESOURCE}/write`] : [])]);
+    expect(JSON.parse(result.body).scopes_supported).toEqual(['openid', process.env.OAUTH_SCOPE, ...(enabled ? [`${process.env.MCP_RESOURCE}/write`] : [])]);
   } finally { process.env = saved; await fs.rm(directory, { recursive: true, force: true }); }
 }, 30000);
 it.each(['new', 'exists', 'conflict', 'wrong checksum', 'wrong artifact'] as const)('publishes immutable code with verified checksum: %s', async mode => {

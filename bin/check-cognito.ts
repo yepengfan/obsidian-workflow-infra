@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { z } from 'zod';
 import { checkCognitoDiscovery, checkCognitoResourceBinding } from '../infra/cognito-discovery.js';
 import { runtimeOptionsSchema } from '../src/config.js';
+import { requiredScopes } from '../src/auth.js';
 import { cognitoSchema } from '../infra/cognito-stack.js';
 import { storageSchema } from '../infra/storage-config.js';
 
@@ -24,19 +25,20 @@ if (outputs.McpEndpoint) {
   const url = new URL(endpoint);
   if (!new RegExp(`^https://[a-z0-9]+\\.execute-api\\.${aws.region}\\.amazonaws\\.com/mcp$`, 'u').test(endpoint)) throw new Error('Unexpected MCP endpoint');
   const scope = `${endpoint}/read`;
+  const ownerScopes = requiredScopes({ scope });
   if (outputs.NotesScope !== scope) throw new Error('MCP read scope is not bound to its resource URL');
   const metadataUrl = `${url.origin}/.well-known/oauth-protected-resource/mcp`;
   const metadataResponse = await fetch(metadataUrl, { redirect: 'error', signal: AbortSignal.timeout(5000) });
   if (!metadataResponse.ok) throw new Error('MCP resource discovery failed');
   const metadata = z.object({ resource: z.literal(endpoint), authorization_servers: z.array(z.string()).length(1), scopes_supported: z.array(z.string()) }).parse(await metadataResponse.json());
-  if (metadata.authorization_servers[0] !== issuer || !metadata.scopes_supported.includes(scope)) throw new Error('MCP discovery differs from the managed identity');
+  if (metadata.authorization_servers[0] !== issuer || !ownerScopes.every(value => metadata.scopes_supported.includes(value))) throw new Error('MCP discovery differs from the managed identity');
   const challenge = await fetch(endpoint, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5000),
     headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'public-auth-check', version: '1' } } }),
   });
   await challenge.body?.cancel();
   if (challenge.status !== 401 || !challenge.headers.get('WWW-Authenticate')?.includes(`resource_metadata="${metadataUrl}"`) ||
-      !challenge.headers.get('WWW-Authenticate')?.includes(`scope="${scope}"`)) throw new Error('Anonymous MCP request was not safely challenged');
+      !challenge.headers.get('WWW-Authenticate')?.includes(`scope="${ownerScopes.join(' ')}"`)) throw new Error('Anonymous MCP request was not safely challenged');
   console.log('Public MCP metadata and anonymous authentication challenge passed; no note read was requested.');
   const configuration = JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8'));
   const clients = [
