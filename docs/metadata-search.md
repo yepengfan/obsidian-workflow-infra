@@ -120,8 +120,10 @@ direct S3 configuration writes with that session or expand the CI roles.
    `Vault.MetadataConfiguration`, preserve both bucket identities and other
    bucket properties, and require no replacement. Wait for successful Apply and
    verify that the metadata configuration is absent.
-3. Only after step 2 has completed, open a second PR restoring that argument to
-   `options.metadataSearch`. Review, merge and approve its concrete native plan
+3. A restoration PR can be prepared in advance as a draft based on the removal
+   PR, restoring that argument to `options.metadataSearch`. Keep it in draft
+   until step 2's Apply completes and the configuration is confirmed absent.
+   Then retarget it to `main` if needed, review, merge and approve its native plan
    to restore the same AES256, seven-day journal and enabled inventory settings.
    Do not combine the two source changes before the removal deployment finishes;
    a no-change template does not retry failed initialization.

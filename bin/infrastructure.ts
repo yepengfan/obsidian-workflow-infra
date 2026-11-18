@@ -16,8 +16,7 @@ const options = mcpAppSchema.parse(JSON.parse(fs.readFileSync('config/mcp-runtim
 const { stage } = mcpRolloutSchema.parse(JSON.parse(fs.readFileSync('config/mcp-deployment.json', 'utf8')));
 const code = stage === 'runtime' ? await buildRuntime(app.outdir, process.env.SOURCE_SHA ?? 'local') : undefined;
 const deployment = mcpDeploymentSchema.parse(mcpResources(aws, github.runtimeRoleName, options.notePrefix, options.practice.writesEnabled, options.metadataSearch));
-// Recovery phase 1: remove the failed configuration; restore after approved Apply.
-new StorageStack(app, STORAGE_STACK_NAME, aws, false);
+new StorageStack(app, STORAGE_STACK_NAME, aws, options.metadataSearch);
 new CognitoStack(app, 'ObsidianMcp', aws,
   cognitoSchema.parse(JSON.parse(fs.readFileSync('config/cognito.json', 'utf8'))),
   stage === 'identity' ? undefined : deployment,
