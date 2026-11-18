@@ -17,7 +17,7 @@ const metadata = {
 };
 
 describe('Cognito discovery command', () => {
-  it.each(['valid', 'missing S256', 'wrong output', 'pinned mismatch', 'MCP valid', 'MCP bootstrap', 'MCP Claude valid', 'MCP Claude only', 'MCP Claude rejected', 'MCP Claude missing output', 'MCP wrong metadata', 'MCP missing identity scope', 'MCP missing identity challenge', 'MCP legacy scope', 'MCP wrong output scope', 'MCP unprotected', 'MCP bad challenge', 'MCP resource rejected', 'MCP unexpected grant'] as const)('runs the real CLI for %s', mode => {
+  it.each(['valid', 'missing S256', 'wrong output', 'pinned mismatch', 'MCP valid', 'MCP bootstrap', 'MCP Claude valid', 'MCP Claude only', 'MCP Claude rejected', 'MCP Claude missing output', 'MCP wrong metadata', 'MCP missing identity scope', 'MCP missing identity challenge', 'MCP legacy scope', 'MCP write valid', 'MCP write read-only challenge', 'MCP unknown scope', 'MCP wrong output scope', 'MCP unprotected', 'MCP bad challenge', 'MCP resource rejected', 'MCP unexpected grant'] as const)('runs the real CLI for %s', mode => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cognito-discovery-test-'));
     try {
       fs.mkdirSync(path.join(dir, 'config'));
@@ -49,8 +49,9 @@ globalThis.fetch = async (url, init) => {
   fs.appendFileSync(${JSON.stringify(requests)}, JSON.stringify({ url, redirect: init.redirect, credentials: init.credentials })+'\\n');
   if (new URL(url).hostname === 'example.execute-api.${aws.region}.amazonaws.com') {
     const endpoint = 'https://example.execute-api.${aws.region}.amazonaws.com/mcp';
-    if (init.method === 'POST') return new Response('', { status: ${JSON.stringify(mode)} === 'MCP unprotected' ? 200 : 401, headers: { 'WWW-Authenticate': ${JSON.stringify(mode)} === 'MCP bad challenge' ? 'Bearer' : 'Bearer resource_metadata="https://example.execute-api.${aws.region}.amazonaws.com/.well-known/oauth-protected-resource/mcp", scope="' + (${JSON.stringify(mode)} === 'MCP missing identity challenge' ? '' : 'openid ') + endpoint + '/read"' } });
-    return Response.json({ resource: ${JSON.stringify(mode)} === 'MCP wrong metadata' ? 'https://wrong.example/mcp' : endpoint, authorization_servers: [${JSON.stringify(issuer)}], scopes_supported: [...(${JSON.stringify(mode)} === 'MCP missing identity scope' ? [] : ['openid']), ${JSON.stringify(mode)} === 'MCP legacy scope' ? 'obsidian.notes/read' : endpoint + '/read'] });
+    if (init.method === 'POST') return new Response('', { status: ${JSON.stringify(mode)} === 'MCP unprotected' ? 200 : 401, headers: { 'WWW-Authenticate': ${JSON.stringify(mode)} === 'MCP bad challenge' ? 'Bearer' : 'Bearer resource_metadata="https://example.execute-api.${aws.region}.amazonaws.com/.well-known/oauth-protected-resource/mcp", scope="' + (${JSON.stringify(mode)} === 'MCP missing identity challenge' ? '' : 'openid ') + endpoint + '/read' + (${JSON.stringify(mode)} === 'MCP write valid' ? ' ' + endpoint + '/write' : '') + '"' } });
+    return Response.json({ resource: ${JSON.stringify(mode)} === 'MCP wrong metadata' ? 'https://wrong.example/mcp' : endpoint, authorization_servers: [${JSON.stringify(issuer)}], scopes_supported: [...(${JSON.stringify(mode)} === 'MCP missing identity scope' ? [] : ['openid']), ${JSON.stringify(mode)} === 'MCP legacy scope' ? 'obsidian.notes/read' : endpoint + '/read',
+      ...(${JSON.stringify(mode)}.includes('write') ? [endpoint + '/write'] : []), ...(${JSON.stringify(mode)} === 'MCP unknown scope' ? ['other/admin'] : [])] });
   }
   if (url.includes('/oauth2/authorize')) {
     const authorization = new URL(url);
@@ -66,21 +67,21 @@ globalThis.fetch = async (url, init) => {
       const result = spawnSync(process.execPath, ['--import', import.meta.resolve('tsx'), '--import', preload,
         path.resolve('bin/check-cognito.ts'), path.join(dir, 'stack.json')], { cwd: dir, encoding: 'utf8', env: process.env });
       expect(result.error).toBeUndefined();
-      const valid = ['valid', 'MCP valid', 'MCP bootstrap', 'MCP Claude valid', 'MCP Claude only'].includes(mode);
+      const valid = ['valid', 'MCP valid', 'MCP write valid', 'MCP bootstrap', 'MCP Claude valid', 'MCP Claude only'].includes(mode);
       expect(result.status === 0, result.stderr).toBe(valid);
       if (valid) expect(result.stdout).toContain('Cognito discovery passed');
       else expect(result.stdout).not.toContain('Cognito discovery passed');
       const calls = fs.existsSync(requests) ? fs.readFileSync(requests, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
-      expect(calls).toHaveLength(['MCP Claude valid', 'MCP Claude rejected'].includes(mode) ? 6 : ['MCP Claude only', 'MCP Claude missing output'].includes(mode) ? 5 : mode.startsWith('MCP') ? (mode === 'MCP wrong output scope' ? 2 : ['MCP wrong metadata', 'MCP missing identity scope', 'MCP legacy scope'].includes(mode) ? 3 : ['MCP valid', 'MCP resource rejected', 'MCP unexpected grant'].includes(mode) ? 5 : 4) : ['valid', 'missing S256'].includes(mode) ? 2 : 0);
+      expect(calls).toHaveLength(['MCP Claude valid', 'MCP Claude rejected'].includes(mode) ? 6 : ['MCP Claude only', 'MCP Claude missing output'].includes(mode) ? 5 : mode.startsWith('MCP') ? (mode === 'MCP wrong output scope' ? 2 : ['MCP wrong metadata', 'MCP missing identity scope', 'MCP legacy scope', 'MCP unknown scope'].includes(mode) ? 3 : ['MCP valid', 'MCP write valid', 'MCP resource rejected', 'MCP unexpected grant'].includes(mode) ? 5 : 4) : ['valid', 'missing S256'].includes(mode) ? 2 : 0);
       expect(result.stderr + result.stdout).not.toContain('DO_NOT_PRINT_AUTHORIZATION_CODE');
-      if (['MCP valid', 'MCP Claude valid', 'MCP Claude only'].includes(mode)) {
+      if (['MCP valid', 'MCP write valid', 'MCP Claude valid', 'MCP Claude only'].includes(mode)) {
         const request = calls.at(-1); const authorization = new URL(request.url);
         const endpoint = `https://example.execute-api.${aws.region}.amazonaws.com/mcp`;
         expect(request.redirect).toBe('manual'); expect(request.credentials).toBe('omit');
         expect(authorization.searchParams.get('client_id')).toBe(mode.includes('Claude') ? 'fixture-claude-client' : 'fixture-client');
         expect(authorization.searchParams.get('redirect_uri')).toBe(mode.includes('Claude') ? 'https://claude.ai/api/mcp/auth_callback' : 'https://chatgpt.com/connector/oauth/fixture-callback');
         expect(authorization.searchParams.get('resource')).toBe(endpoint);
-        expect(authorization.searchParams.get('scope')).toBe(`openid email phone profile ${endpoint}/read`);
+        expect(authorization.searchParams.get('scope')).toBe(`openid email phone profile ${endpoint}/read${mode === 'MCP write valid' ? ` ${endpoint}/write` : ''}`);
         expect(authorization.searchParams.get('prompt')).toBe('none');
         expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
       }

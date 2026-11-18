@@ -31,14 +31,15 @@ if (outputs.McpEndpoint) {
   const metadataResponse = await fetch(metadataUrl, { redirect: 'error', signal: AbortSignal.timeout(5000) });
   if (!metadataResponse.ok) throw new Error('MCP resource discovery failed');
   const metadata = z.object({ resource: z.literal(endpoint), authorization_servers: z.array(z.string()).length(1), scopes_supported: z.array(z.string()) }).parse(await metadataResponse.json());
-  if (metadata.authorization_servers[0] !== issuer || !ownerScopes.every(value => metadata.scopes_supported.includes(value))) throw new Error('MCP discovery differs from the managed identity');
+  if (metadata.authorization_servers[0] !== issuer || !ownerScopes.every(value => metadata.scopes_supported.includes(value)) ||
+      !metadata.scopes_supported.every(value => [...ownerScopes, `${endpoint}/write`].includes(value))) throw new Error('MCP discovery differs from the managed identity');
   const challenge = await fetch(endpoint, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5000),
     headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'public-auth-check', version: '1' } } }),
   });
   await challenge.body?.cancel();
   if (challenge.status !== 401 || !challenge.headers.get('WWW-Authenticate')?.includes(`resource_metadata="${metadataUrl}"`) ||
-      !challenge.headers.get('WWW-Authenticate')?.includes(`scope="${ownerScopes.join(' ')}"`)) throw new Error('Anonymous MCP request was not safely challenged');
+      !challenge.headers.get('WWW-Authenticate')?.includes(`scope="${metadata.scopes_supported.join(' ')}"`)) throw new Error('Anonymous MCP request was not safely challenged');
   console.log('Public MCP metadata and anonymous authentication challenge passed; no note read was requested.');
   const configuration = JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8'));
   const clients = [
@@ -47,7 +48,7 @@ if (outputs.McpEndpoint) {
   ];
   for (const { output, callbacks } of clients) {
     for (const callback of callbacks) {
-      await checkCognitoResourceBinding(domain, endpoint, scope, z.string().min(1).parse(outputs[output]), callback);
+      await checkCognitoResourceBinding(domain, endpoint, metadata.scopes_supported, z.string().min(1).parse(outputs[output]), callback);
     }
     if (callbacks.length) console.log(`Cognito accepted ${output} resource-bound authorization parameters without a user session; no login or token exchange was attempted.`);
   }

@@ -37,6 +37,15 @@ describe('authenticated stateless Streamable HTTP', () => {
     expect(response.status).toBe(401); expect(response.headers.get('WWW-Authenticate')).toContain('resource_metadata=');
     expect(response.headers.get('Cache-Control')).toBe('no-store'); expect(store.calls).toHaveLength(0);
   });
+  it('challenges for every advertised scope when practice writes are enabled', async () => {
+    const settings = runtimeSettings({ practice: { enabled: true, writesEnabled: true, timeZone: 'Australia/Brisbane' } });
+    const fetch = createFetchHandler(settings, { store: new MemoryStore() });
+    const metadata = await fetch(new Request(new URL('/.well-known/oauth-protected-resource/mcp', settings.resource)));
+    const scopes = ['openid', settings.scope, `${settings.resource}/write`];
+    expect((await metadata.json()).scopes_supported).toEqual(scopes);
+    const response = await fetch(new Request(settings.resource, { method: 'POST', body: '{}' }));
+    expect(response.status).toBe(401); expect(response.headers.get('WWW-Authenticate')).toContain(`scope="${scopes.join(' ')}"`);
+  });
   it.each([
     { aud: 'https://other.example/mcp' }, { aud: [runtimeSettings().resource] }, { client_id: 'other' }, { token_use: 'id' },
     { iss: 'https://other.example' }, { exp: 1 }, { scope: 'openid' }, { scope: runtimeSettings().scope }, { scope: 'other/read' }, { scope: 'obsidian.notes/read' }, { iat: 4102444800 }, { nbf: 4102444800 },
