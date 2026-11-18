@@ -117,7 +117,8 @@ practice write tools.
 | `practice_reviews` | Read one bounded review queue page. An explicit domain is required on every call. |
 | `practice_review` | Return a neutral prompt and revision; feedback phase may include history. |
 | `practice_read_note` | Read one complete bounded Algorithm or System Design note and its revision for a potential edit. |
-| `practice_design_template` | Draft unsaved session progress and Excalidraw files for a new System Design topic. |
+| `practice_design_template` | Draft unsaved session progress, Excalidraw files and native `canvas.drawing` data for a new System Design topic. |
+| `practice_design_canvas` | Read the exact selected session canvas as native drawing data, with its source revision; supports plain JSON and legacy compressed-json without saving. |
 | `practice_add_review` | Create an unstarted review object without overwriting an existing one. |
 | `practice_record_review` | Append an ended attempt/reflection and calculate scheduling deterministically. |
 | `practice_create_note` | Create an approved practice data Markdown file if absent. |
@@ -266,9 +267,12 @@ each result honestly, including partial success.
 ## System Design sessions
 
 The bundled `sysd-solve` definitions guide Requirements, Core Entities, API,
-Data Flow, High-Level Design and Deep Dives. Coaching uses English, targeted
-hints and Mermaid architecture diagrams. Prior designs are not consulted during
-an independent review; design history is opened only after the attempt ends.
+Data Flow, High-Level Design and Deep Dives. The learner's solution lives in an
+interactive Excalidraw canvas in ChatGPT. Chat uses English, targeted questions
+and feedback grounded in that canvas. These MCP adaptations override the
+upstream Mermaid and text-submission instructions. Prior designs are not
+consulted during an independent review; use a fresh neutral canvas and open
+design history only after the attempt ends.
 
 `practice_design_template` is a read-only draft builder in
 `src/design-session.ts`. It creates a deterministic six-step progress draft and
@@ -283,16 +287,49 @@ List the relevant catalog first and resume an appropriate existing WIP/planned
 session instead of blindly creating another one. Preview and explicitly confirm
 both drafts before separately saving them with `practice_create_note`.
 
-On resume, read both progress.md and the actual catalog-returned canvas path,
-including its uncompressed Text Elements. Preserve historical links and legacy
-next-step headings. Large canvases use ordinary chunked reads; managed note
-updates still require a complete bounded read and current revision.
+On resume, read progress.md and use `practice_design_canvas` on the actual
+catalog-returned canvas path. It preserves native element IDs, geometry,
+bindings, file assets and scene metadata, rather than rebuilding a diagram from
+the Text Elements summary. The tool rechecks the live System Design module
+guard and accepts only direct session `*.excalidraw.md` files. It uses existing
+read scope, including when writes are disabled. It does not read the active chat
+widget or decompress/execute arbitrary programs. Drawing data is parsed only.
+Its limits are 64 KiB for a source note, 16 KiB of compressed base64, 96 KiB of
+expanded JSON and 500 elements. Oversized or malformed drawings return an error;
+they never become an empty replacement scene. `read_note` still supports chunked
+reads for other large notes; managed updates require a complete read and revision.
+
+Connect the host Excalidraw app and refresh the Obsidian MCP tool catalog after
+deployment. Before the first question, render `canvas.drawing` from the new
+template or `drawing` from the saved-canvas reader using the host's Excalidraw
+tools. Retain the full scene and use a readable camera focused on the current
+step. Preserve historical links and legacy next-step headings. Showing a
+wikilink or reading a file alone does not open an interactive canvas. Rendering
+the working view needs no Obsidian save approval.
+
+Before each coaching turn, step transition or assessment, obtain the latest
+active scene through the host's `read_widget_context` when available. Reuse its
+latest Excalidraw checkpoint, including fullscreen edits; do not reset the
+learner's work from the saved S3 copy. Assess elements, relationships and labels
+as the solution, with chat explanations as supporting context. This check happens
+on coaching turns, not continuously in the background. If fresh widget state is
+unavailable, explain it and request the latest exported scene or screenshot
+before assessing changed work. If the host cannot preserve an element or asset,
+report that limitation rather than silently dropping it.
+
+The active chat canvas is the working solution; the saved canvas is its durable
+checkpoint. Before saving, obtain the latest complete scene and current source
+revision, preview the proposed canvas/progress edits, and confirm the writes.
+A widget checkpoint ID is not an export of the edited scene or a saved Obsidian
+file. If the host cannot export the complete edited scene, do not save an older
+snapshot. No automatic synchronization or background watcher is introduced.
 
 Initialization, progress checkpoints, planned/wip/done transitions and Phase 3
 Pattern/Insight/Log saves all require previews and explicit confirmation. This
 MCP rule replaces the upstream skill's automatic file writes. Mark a session
-done only after its agreed saves succeed. Host confirmation and native Obsidian
-canvas rendering require acceptance checks after deployment.
+done only after its agreed saves succeed. Host rendering, manual edits, fresh
+widget-context reads, confirmation and native Obsidian rendering require live
+acceptance checks after deployment; local MCP tests cannot prove host UI behavior.
 
 Individual managed notes are limited to 64 KiB. General `read_note` supports
 chunked reads of larger notes; the write tools refuse to replace a partially

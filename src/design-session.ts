@@ -44,5 +44,5 @@ export function designSessionTemplate(input: z.infer<typeof designSessionSchema>
   const drawing = { type: 'excalidraw', version: 2, source: 'https://github.com/zsviczian/obsidian-excalidraw-plugin',
     elements, appState: { theme: 'light', viewBackgroundColor: '#ffffff' }, files: {} };
   const content = `---\nexcalidraw-plugin: parsed\ntags: [excalidraw]\n---\n\n# Excalidraw Data\n\n## Text Elements\n${elements.map(element => `${element.text} ^${element.id}`).join('\n\n')}\n\n%%\n## Drawing\n\`\`\`json\n${JSON.stringify(drawing)}\n\`\`\`\n%%\n`;
-  return { saved: false, started: day, files: [{ path: `${folder}/progress.md`, content: progress }, { path: canvas, content }] };
+  return { saved: false, started: day, canvas: { path: canvas, drawing }, files: [{ path: `${folder}/progress.md`, content: progress }, { path: canvas, content }] };
 }

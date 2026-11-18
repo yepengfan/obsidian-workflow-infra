@@ -13,23 +13,27 @@ for the current stage and prerequisites.
 
 The owner maintains a private knowledge base and uses ChatGPT to discover notes
 by path, date and size, ask questions about selected notes, and complete
-Algorithm and System Design practice with confirmed saving.
+Algorithm and System Design practice with confirmed saving. System Design
+solutions are drawn in an Excalidraw canvas and reviewed through chat.
 
 ```mermaid
 flowchart LR
     Owner["Knowledge owner<br/>[Person]"]
     ChatGPT["ChatGPT<br/>[External software system]<br/>Conversational client"]
     Platform["Obsidian knowledge platform<br/>[Software system]<br/>Private notes and ebooks"]
+    Excalidraw["Excalidraw<br/>[External software system]<br/>Interactive solution canvas"]
 
     Owner -->|"Asks questions; practices algorithms and system design"| ChatGPT
     Owner -->|"Maintains knowledge; authorizes access"| Platform
     ChatGPT -->|"Discovers notes by metadata; reads selected notes; saves confirmed practice"| Platform
+    Owner -->|"Draws and revises the solution"| Excalidraw
+    ChatGPT -->|"Opens canvas; checks latest shared drawing"| Excalidraw
 
     classDef person fill:#08427b,color:#fff,stroke:#052e56
     classDef external fill:#666,color:#fff,stroke:#444
     classDef system fill:#1168bd,color:#fff,stroke:#0b4884
     class Owner person
-    class ChatGPT external
+    class ChatGPT,Excalidraw external
     class Platform system
 ```
 
@@ -43,6 +47,7 @@ stores, not Docker containers.
 flowchart TB
     Owner["Knowledge owner<br/>[Person]"]
     ChatGPT["ChatGPT<br/>[External software system]<br/>MCP client"]
+    Excalidraw["Excalidraw<br/>[External software system]<br/>Editable System Design canvas"]
 
     subgraph Platform["Obsidian knowledge platform [Software system]"]
         Auth["Owner authentication<br/>[Container: Amazon Cognito]<br/>OAuth and MFA"]
@@ -57,6 +62,8 @@ flowchart TB
     end
 
     Owner -->|"Asks questions and practices"| ChatGPT
+    Owner -->|"Draws the solution"| Excalidraw
+    ChatGPT -->|"Renders and reviews current scene<br/>[Host app / widget context]"| Excalidraw
     Owner -->|"Signs in with MFA<br/>[HTTPS]"| Auth
     Owner -->|"Maintains notes<br/>[Obsidian sync]"| Vault
     Owner -->|"Maintains private ebooks"| Library
@@ -76,7 +83,7 @@ flowchart TB
     classDef external fill:#666,color:#fff,stroke:#444
     classDef container fill:#438dd5,color:#fff,stroke:#2e6295
     class Owner person
-    class ChatGPT external
+    class ChatGPT,Excalidraw external
     class Auth,API,Server,Vault,Library,Logs,Athena,Catalog,Inventory container
     style Platform fill:none,stroke:#777,stroke-dasharray:6 4
 ```
@@ -90,6 +97,11 @@ Practice coaching and queue reads reuse the same authenticated Lambda and S3
 containers. The configuration enables confirmed saving on approved practice
 paths, subject to the separate IAM and application activation steps. See
 [practice through MCP](docs/practice.md) for its tools and activation checks.
+The host Excalidraw app opens the new or resumed System Design canvas before
+coaching. Chat checks the latest shared drawing on each coaching turn; unsaved
+widget edits require fresh host context or an updated export before assessment.
+The MCP server decodes saved native drawing data, including legacy compressed
+files. Saving the working canvas to Obsidian remains a separate confirmed write.
 ChatGPT browses one folder page, chooses note paths, then retrieves or searches
 only those notes. Metadata search can discover paths across the vault without
 reading bodies or recursively listing folders. Its inventory typically updates

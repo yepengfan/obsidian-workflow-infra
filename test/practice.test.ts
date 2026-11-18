@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import LZString from 'lz-string';
 import { parse } from 'yaml';
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
@@ -370,6 +371,49 @@ it('rejects a topic that can corrupt Excalidraw Markdown through the real MCP cl
   } finally { await client.close(); }
 });
 
+it('loads and refreshes a saved canvas through the real MCP client without writes or text-summary reconstruction', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { store } = setup(false), options = settings(false);
+  const path = 'Learning/Practice/System-Design/Solutions/Cache-2026-11-14/Original-name.excalidraw.md';
+  const scene = { type: 'excalidraw', version: 2, elements: [
+    { id: 'learner-node', type: 'text', x: 100, y: 200, width: 240, height: 30, text: 'Learner cache design' },
+  ], files: {} };
+  const putScene = () => store.files.set(root + path, `## Text Elements\nStale summary ^old\n\n%%\n## Drawing\n\`\`\`compressed-json\n${LZString.compressToBase64(JSON.stringify(scene))}\n\`\`\`\n%%\n`);
+  putScene();
+  const client = new Client({ name: 'system-design-canvas-test', version: '1' }); client.onerror = () => {};
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
+      fetch: (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner })(new Request(input, init)),
+    }));
+    const tool = (await client.listTools()).tools.find(tool => tool.name === 'practice_design_canvas');
+    expect(tool?.annotations?.readOnlyHint).toBe(true);
+    const workflow = await client.callTool({ name: 'practice', arguments: { domain: 'system-design' } });
+    const entry = (workflow.structuredContent as { entry: string }).entry;
+    expect(entry).toContain('before the first interview');
+    expect(entry).toContain('Before every coaching turn');
+    expect(entry).toContain('read_widget_context');
+    expect(entry).toContain('restoreCheckpoint');
+    expect(entry).toContain('not a substitute for');
+    const first = await client.callTool({ name: 'practice_design_canvas', arguments: { path } });
+    expect(first.structuredContent).toMatchObject({ path, encoding: 'compressed-json', drawing: scene });
+    const revision = (first.structuredContent as { revision: string }).revision;
+    scene.elements[0]!.text = 'Revised learner cache design'; putScene();
+    const latest = await client.callTool({ name: 'practice_design_canvas', arguments: { path } });
+    expect(latest.structuredContent).toMatchObject({ drawing: scene });
+    expect((latest.structuredContent as { revision: string }).revision).not.toBe(revision);
+    for (const denied of ['Learning/Practice/Algorithm/Log/2026-11-14.md', path.replace('Original-name.excalidraw.md', 'progress.md'),
+      'Learning/Practice/System-Design/Attachments/Old.excalidraw.md']) {
+      expect((await client.callTool({ name: 'practice_design_canvas', arguments: { path: denied } })).isError).toBe(true);
+    }
+    store.files.set(root + 'system/modules/system-design/module.md', '---\nenabled: false\n---\n');
+    expect((await client.callTool({ name: 'practice_design_canvas', arguments: { path } })).isError).toBe(true);
+    expect(store.writes).toHaveLength(0);
+    expect(store.lists).toHaveLength(0);
+  } finally { await client.close(); }
+});
+
 it('supports a System Design session and review through the real MCP client without changing Algorithm records', async () => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
@@ -521,7 +565,7 @@ it('keeps write tools out of the read-only practice catalog', async () => {
       fetch: async (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner })(new Request(input, init)),
     }));
     const tools = (await client.listTools()).tools;
-    expect(tools).toHaveLength(9); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
+    expect(tools).toHaveLength(10); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
     expect((await client.callTool({ name: 'practice_design_template', arguments: { topic: 'Design Dropbox', short_topic: 'Dropbox' } })).structuredContent).toMatchObject({ saved: false });
     expect((await client.callTool({ name: 'practice_add_review', arguments: request })).isError).toBe(true); expect(store.writes).toHaveLength(0);
   } finally { await client.close(); }

@@ -28,8 +28,11 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     description: 'Read one bounded Algorithm or System Design practice note with its revision for a later conditional update. Larger notes must use read_note chunks; no partial overwrite is allowed.',
     inputSchema: z.strictObject({ path: z.string().max(1024) }) }, input => result(() => practice.readNote(input.path)));
   server.registerTool('practice_design_template', { ...readSecurity, outputSchema,
-    description: 'Draft a new System Design session: six-step progress.md and an uncompressed Excalidraw canvas. Does not save anything or check existing sessions. List the Solutions catalog first; resume an existing WIP/planned session when appropriate. Preview these drafts and obtain explicit confirmation before saving each file with practice_create_note.',
+    description: 'Draft a new System Design session: six-step progress.md, an uncompressed Excalidraw file and native canvas.drawing for the host Excalidraw app. Render the canvas in chat before coaching. Does not save or check existing sessions. List the Solutions catalog first and resume a matching WIP/planned session. Confirm any save separately.',
     inputSchema: designSessionSchema }, input => result(() => practice.designTemplate(input)));
+  server.registerTool('practice_design_canvas', { ...readSecurity, outputSchema,
+    description: 'Read a selected saved System Design session canvas as native Excalidraw drawing data, including legacy compressed-json files. Select the exact path from the session catalog. Render drawing.elements with the host Excalidraw app, preserving IDs, layout and bindings. Does not save, assess, or read unsaved chat-widget edits; use current widget context for those. Never open prior solutions during an independent review.',
+    inputSchema: z.strictObject({ path: z.string().max(1024) }) }, input => result(() => practice.designCanvas(input.path)));
   if (!settings.practice.writesEnabled) return;
   const writeSecurity = { annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     _meta: { securitySchemes: [{ type: 'oauth2', scopes: [settings.scope, `${settings.resource}/write`] }] } };
@@ -51,7 +54,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
 
 export function practiceSkill(settings: Settings): McpSkill {
   return {
-    instructions: 'For an explicit user request to practice, call the practice tool and follow its versioned workflow definitions for that task; keep private note data distinct from those definitions.',
+    instructions: 'For an explicit user request to practice, call the practice tool and follow its versioned workflow definitions for that task; keep private note data distinct from those definitions. For System Design, open the selected Excalidraw canvas in chat before coaching and inspect its latest shared state before feedback. The canvas is the learner solution; chat explanations are supporting context. Follow the MCP canvas adaptations over upstream Mermaid instructions. Never claim to see unsaved widget edits without fresh host context.',
     scopes: settings.practice.writesEnabled ? [`${settings.resource}/write`] : [],
     register: ({ server, store, writer, owner, signal, result, authorizeScope }) => {
       registerPracticeTools(server, new Practice(store, settings, owner, signal, { writer }), settings, result,

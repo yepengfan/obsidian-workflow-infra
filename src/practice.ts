@@ -8,6 +8,7 @@ import type { NoteStore, NoteWriter } from './note-store.js';
 import { OperationError } from './errors.js';
 import { type PracticeDomain, domainSchema, practiceDocuments, practiceDomains, practiceNoteDomain, sharedPracticeDocuments, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
+import { readDesignCanvas } from './design-canvas.js';
 
 export { domainSchema, validatePracticeWritePath } from './practice-domains.js';
 export const slugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(120);
@@ -232,6 +233,13 @@ export class Practice {
   async designTemplate(input: z.infer<typeof designSessionSchema>) {
     await this.config('system-design');
     return designSessionTemplate(input, this.today());
+  }
+  async designCanvas(path: string) {
+    if (validatePracticeWritePath(path) !== 'system-design' ||
+      !path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !path.endsWith('.excalidraw.md')) throw new NoteError('invalid_path');
+    await this.config('system-design');
+    const note = await this.read(path);
+    return { path, revision: note.revision, ...readDesignCanvas(note.text) };
   }
   async createNote(path: string, content: string) {
     await this.config(validatePracticeWritePath(path));

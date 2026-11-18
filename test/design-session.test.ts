@@ -16,6 +16,7 @@ it('drafts matching progress and valid canvas files with no fabricated learner w
   expect(progress!.content.match(/⬜/gu)).toHaveLength(6);
   expect(progress!.content).toContain('## Next Session');
   const drawing = JSON.parse(canvas!.content.match(/```json\n([^]*?)\n```/u)![1]!);
+  expect(draft.canvas).toEqual({ path: canvas!.path, drawing });
   expect(drawing).toMatchObject({ type: 'excalidraw', version: 2, files: {} });
   const elements = drawing.elements as { id: string; text: string; y: number; height: number }[];
   expect(new Set(elements.map(element => element.id)).size).toBe(elements.length);
