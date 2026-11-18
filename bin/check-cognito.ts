@@ -39,10 +39,15 @@ if (outputs.McpEndpoint) {
       !challenge.headers.get('WWW-Authenticate')?.includes(`scope="${scope}"`)) throw new Error('Anonymous MCP request was not safely challenged');
   console.log('Public MCP metadata and anonymous authentication challenge passed; no note read was requested.');
   const configuration = JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8'));
-  const callbacks = runtimeOptionsSchema.shape.callbackUrls.parse(configuration.callbackUrls);
-  if (callbacks.length) {
-    await checkCognitoResourceBinding(domain, endpoint, scope, z.string().min(1).parse(outputs.ChatGptClientId), callbacks[0]!);
-    console.log('Cognito accepted the resource-bound authorization parameters without a user session; no login or token exchange was attempted.');
+  const clients = [
+    { output: 'ChatGptClientId', callbacks: runtimeOptionsSchema.shape.callbackUrls.parse(configuration.callbackUrls) },
+    { output: 'ClaudeClientId', callbacks: runtimeOptionsSchema.shape.claudeCallbackUrls.parse(configuration.claudeCallbackUrls) },
+  ];
+  for (const { output, callbacks } of clients) {
+    for (const callback of callbacks) {
+      await checkCognitoResourceBinding(domain, endpoint, scope, z.string().min(1).parse(outputs[output]), callback);
+    }
+    if (callbacks.length) console.log(`Cognito accepted ${output} resource-bound authorization parameters without a user session; no login or token exchange was attempted.`);
   }
 }
-console.log('Cognito discovery passed. Real PKCE, resource audience, refresh and ChatGPT connection tests are still required before private-note access.');
+console.log('Cognito discovery passed. Real PKCE, resource audience, refresh and client connection tests are still required before private-note access.');

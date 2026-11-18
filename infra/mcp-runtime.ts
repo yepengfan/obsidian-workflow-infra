@@ -21,6 +21,9 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   const { notePrefix, ...rawOptions } = application.options;
   if (notePrefix !== deployment.notePrefix) throw Error('Runtime prefix must match the IAM boundary');
   const options = runtimeOptionsSchema.parse(rawOptions);
+  // Keep infrastructure-only Claude callbacks out of MCP_OPTIONS so the previous
+  // strict runtime schema can still start during a configuration-first update.
+  const { claudeCallbackUrls, ...runtimeOptions } = options;
   if (options.metadataSearch !== (deployment.metadataSearch ?? false)) throw Error('Metadata search configuration must match the IAM boundary');
   const metadata = options.metadataSearch ? addMetadataSearch(scope) : undefined;
   if (options.practice.writesEnabled !== (deployment.practiceWrites ?? false)) throw Error('Practice write configuration must match the IAM boundary');
@@ -43,22 +46,31 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   resourceServer.overrideLogicalId('NotesResourceServer');
   // Cognito binds custom scopes to the requested resource-server identifier.
   const scopeName = `${resourceServer.ref}/read`;
-  const oauthEnabled = options.callbackUrls.length > 0;
-  const client = new CfnUserPoolClient(scope, 'ChatGptClient', {
-    userPoolId: pool.ref, clientName: 'obsidian-chatgpt', generateSecret: true,
-    allowedOAuthFlowsUserPoolClient: oauthEnabled,
-    // ChatGPT requests the OIDC scopes advertised by native Cognito discovery.
-    ...(oauthEnabled ? { allowedOAuthFlows: ['code'], allowedOAuthScopes: ['openid', 'email', 'phone', 'profile', scopeName, ...(options.practice.writesEnabled ? [`${resourceServer.ref}/write`] : [])], callbackUrLs: options.callbackUrls } : {}),
-    supportedIdentityProviders: ['COGNITO'], explicitAuthFlows: ['ALLOW_REFRESH_TOKEN_AUTH'],
-    accessTokenValidity: 15, idTokenValidity: 15, refreshTokenValidity: 7,
-    tokenValidityUnits: { accessToken: 'minutes', idToken: 'minutes', refreshToken: 'days' },
-    enableTokenRevocation: true, preventUserExistenceErrors: 'ENABLED',
-    // Cognito can reject code exchange if an enabled OIDC scope cannot read its claims.
-    readAttributes: ['email', 'email_verified', 'phone_number', 'phone_number_verified'], writeAttributes: ['email'],
-  });
-  client.overrideLogicalId('ChatGptClient'); client.addResourceDependency(resourceServer);
-  const branding = new CfnManagedLoginBranding(scope, 'ChatGptLoginBranding', { userPoolId: pool.ref, clientId: client.ref, useCognitoProvidedValues: true });
-  branding.overrideLogicalId('ChatGptLoginBranding'); branding.addResourceDependency(domain);
+  const oauthResources: (CfnUserPoolClient | CfnManagedLoginBranding)[] = [];
+  const addClient = (id: 'ChatGpt' | 'Claude', clientName: string, callbacks: string[]) => {
+    const oauthEnabled = callbacks.length > 0;
+    const client = new CfnUserPoolClient(scope, `${id}Client`, {
+      userPoolId: pool.ref, clientName, generateSecret: true,
+      allowedOAuthFlowsUserPoolClient: oauthEnabled,
+      // Permit the OIDC scopes advertised by native Cognito discovery.
+      ...(oauthEnabled ? { allowedOAuthFlows: ['code'], allowedOAuthScopes: ['openid', 'email', 'phone', 'profile', scopeName, ...(options.practice.writesEnabled ? [`${resourceServer.ref}/write`] : [])], callbackUrLs: callbacks } : {}),
+      supportedIdentityProviders: ['COGNITO'], explicitAuthFlows: ['ALLOW_REFRESH_TOKEN_AUTH'],
+      accessTokenValidity: 15, idTokenValidity: 15, refreshTokenValidity: 7,
+      tokenValidityUnits: { accessToken: 'minutes', idToken: 'minutes', refreshToken: 'days' },
+      enableTokenRevocation: true, preventUserExistenceErrors: 'ENABLED',
+      // Cognito can reject code exchange if an enabled OIDC scope cannot read its claims.
+      readAttributes: ['email', 'email_verified', 'phone_number', 'phone_number_verified'], writeAttributes: ['email'],
+    });
+    client.overrideLogicalId(`${id}Client`); client.addResourceDependency(resourceServer);
+    const branding = new CfnManagedLoginBranding(scope, `${id}LoginBranding`, { userPoolId: pool.ref, clientId: client.ref, useCognitoProvidedValues: true });
+    branding.overrideLogicalId(`${id}LoginBranding`); branding.addResourceDependency(domain);
+    oauthResources.push(client, branding);
+    new CfnOutput(scope, `${id}ClientId`, { value: client.ref });
+    return client;
+  };
+  const chatGptClient = addClient('ChatGpt', 'obsidian-chatgpt', options.callbackUrls);
+  const claudeClient = claudeCallbackUrls.length ? addClient('Claude', 'obsidian-claude', claudeCallbackUrls) : undefined;
+  const clientIds = [chatGptClient.ref, ...(claudeClient ? [claudeClient.ref] : [])];
   const logs = new CfnLogGroup(scope, 'RuntimeLogs', { logGroupName: `/aws/lambda/${deployment.functionName}`, retentionInDays: logDays });
   logs.overrideLogicalId('RuntimeLogs');
   const runtime = new CfnFunction(scope, 'McpFunction', { functionName: deployment.functionName,
@@ -68,7 +80,8 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
     environment: { variables: {
       NOTE_BUCKET: application.noteBucket,
       NOTE_PREFIX: deployment.notePrefix, OAUTH_ISSUER: `https://cognito-idp.${stack.region}.amazonaws.com/${pool.ref}`,
-      OAUTH_CLIENT_ID: client.ref, OAUTH_SCOPE: scopeName, MCP_RESOURCE: endpoint, MCP_OPTIONS: JSON.stringify(options),
+      OAUTH_CLIENT_ID: chatGptClient.ref, OAUTH_CLIENT_IDS: JSON.stringify(clientIds),
+      OAUTH_SCOPE: scopeName, MCP_RESOURCE: endpoint, MCP_OPTIONS: JSON.stringify(runtimeOptions),
     } }, tags: [{ key: 'Project', value: 'obsidian-mcp' }],
   });
   runtime.overrideLogicalId('McpFunction'); runtime.addResourceDependency(logs); runtime.addResourceDependency(ownerGroup);
@@ -84,13 +97,12 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   const permission = new CfnPermission(scope, 'ApiInvokePermission', { action: 'lambda:InvokeFunction', functionName: runtime.ref,
     principal: 'apigateway.amazonaws.com', sourceAccount: stack.account, sourceArn: `arn:${stack.partition}:execute-api:${stack.region}:${stack.account}:${api.ref}/*/*` });
   permission.overrideLogicalId('ApiInvokePermission');
-  for (const resource of [resourceServer, client, branding, api, logs, runtime, integration, ...routes, stage, permission]) {
+  for (const resource of [resourceServer, ...oauthResources, api, logs, runtime, integration, ...routes, stage, permission]) {
     // Reconstructible runtime resources must roll back with a failed deployment.
     // The user pool/domain and code storage retain their separate protection.
     resource.applyRemovalPolicy(RemovalPolicy.DESTROY, { applyToUpdateReplacePolicy: true });
   }
   new CfnOutput(scope, 'McpEndpoint', { value: endpoint });
-  new CfnOutput(scope, 'ChatGptClientId', { value: client.ref });
   new CfnOutput(scope, 'NotesScope', { value: scopeName });
   new CfnOutput(scope, 'OwnerGroupName', { value: ownerGroup.ref });
 }

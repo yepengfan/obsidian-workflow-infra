@@ -5,7 +5,7 @@ export const owner = '11111111-1111-4111-8111-111111111111';
 export const ownerGroup = 'obsidian-mcp-owners';
 export const runtimeSettings = (overrides: Partial<Settings> = {}): Settings => ({
   ...runtimeOptionsSchema.parse({ ownerGroup }), bucket: 'private-test-vault', prefix: 'Vault/', region: 'ap-southeast-2',
-  issuer: 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_Test', clientId: 'test-client',
+  issuer: 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_Test', clientIds: ['test-client'],
   resource: 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp', scope: 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp/read', ...overrides,
 });
 export class MemoryStore implements NoteStore {

@@ -47,7 +47,7 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
   const readScope = { 'Fn::Join': ['', [{ Ref: 'NotesResourceServer' }, '/read']] };
   expect(resources.McpFunction.Properties).toMatchObject({ FunctionName: deployment.functionName, Runtime: 'nodejs22.x', Handler: 'index.handler', Timeout: 10,
     Code: { S3Bucket: { Ref: 'CodeArtifacts' }, S3Key: code.key },
-    Environment: { Variables: { NOTE_BUCKET: aws.buckets.vault.name, NOTE_PREFIX: '', OAUTH_CLIENT_ID: { Ref: 'ChatGptClient' }, OAUTH_SCOPE: readScope } } });
+    Environment: { Variables: { NOTE_BUCKET: aws.buckets.vault.name, NOTE_PREFIX: '', OAUTH_CLIENT_IDS: { 'Fn::Join': ['', ['["', { Ref: 'ChatGptClient' }, '"]']] }, OAUTH_SCOPE: readScope } } });
   expect(resources.NotesResourceServer.Properties.Identifier).toEqual(resources.McpFunction.Properties.Environment.Variables.MCP_RESOURCE);
   expect(resources.NotesResourceServer.Properties.Scopes.map((scope: { ScopeName: string }) => scope.ScopeName)).toEqual(['read']);
   expect(template.toJSON().Outputs.NotesScope.Value).toEqual(readScope);
@@ -89,6 +89,41 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
 });
 it.each(['https://evil.example/callback', 'https://chatgpt.com/connector/oauth/*', 'https://chatgpt.com/connector_platform/oauth/callback'])('rejects a guessed or broad callback %s', callback => {
   expect(mcpAppSchema.safeParse({ notePrefix: '', callbackUrls: [callback] }).success).toBe(false);
+});
+
+it.each([false, true])('adds an isolated Claude client with practice writes enabled: %s', writesEnabled => {
+  const configuration = { notePrefix: '', callbackUrls: ['https://chatgpt.com/connector/oauth/exact-callback-id'],
+    practice: { enabled: true, writesEnabled, timeZone: 'Australia/Brisbane' } };
+  const templateFor = (claudeCallbackUrls: string[]) => Template.fromStack(new CognitoStack(new App(), 'ObsidianMcp', aws, cognito,
+    { ...deployment, practiceWrites: writesEnabled }, { options: mcpAppSchema.parse({ ...configuration, claudeCallbackUrls }), code, noteBucket: aws.buckets.vault.name }));
+  const before = templateFor([]).toJSON();
+  const template = templateFor(['https://claude.ai/api/mcp/auth_callback']);
+  const after = template.toJSON();
+  template.resourceCountIs('AWS::Cognito::UserPoolClient', 2);
+  template.resourceCountIs('AWS::Cognito::ManagedLoginBranding', 2);
+  template.resourceCountIs('AWS::Cognito::UserPool', 1);
+  template.resourceCountIs('AWS::IAM::Role', 0);
+  expect(before.Resources).not.toHaveProperty('ClaudeClient');
+  expect(before.Outputs).not.toHaveProperty('ClaudeClientId');
+  for (const id of ['ChatGptClient', 'ChatGptLoginBranding', 'UserPool', 'UserPoolDomain', 'OwnersGroup']) {
+    expect(after.Resources[id]).toEqual(before.Resources[id]);
+  }
+  expect(after.Resources.ClaudeClient.Properties).toEqual({ ...before.Resources.ChatGptClient.Properties,
+    ClientName: 'obsidian-claude', CallbackURLs: ['https://claude.ai/api/mcp/auth_callback'] });
+  expect(after.Resources.ClaudeClient.DependsOn).toContain('NotesResourceServer');
+  expect(after.Resources.ClaudeLoginBranding.Properties).toEqual({
+    UserPoolId: { Ref: 'UserPool' }, ClientId: { Ref: 'ClaudeClient' }, UseCognitoProvidedValues: true,
+  });
+  expect(after.Resources.ClaudeLoginBranding.DependsOn).toContain('UserPoolDomain');
+  expect(after.Outputs.ClaudeClientId.Value).toEqual({ Ref: 'ClaudeClient' });
+  expect(after.Outputs.ChatGptClientId).toEqual(before.Outputs.ChatGptClientId);
+  const environment = after.Resources.McpFunction.Properties.Environment.Variables;
+  expect(environment.OAUTH_CLIENT_ID).toEqual({ Ref: 'ChatGptClient' });
+  expect(environment.MCP_OPTIONS).toEqual(before.Resources.McpFunction.Properties.Environment.Variables.MCP_OPTIONS);
+  expect(JSON.parse(environment.MCP_OPTIONS)).not.toHaveProperty('claudeCallbackUrls');
+  expect(environment.OAUTH_CLIENT_IDS).toEqual({ 'Fn::Join': ['', ['["', { Ref: 'ChatGptClient' }, '","', { Ref: 'ClaudeClient' }, '"]']] });
+  expect(Object.keys(environment).some(key => /secret/iu.test(key))).toBe(false);
+  expect(Object.keys(after.Outputs).some(key => /secret/iu.test(key))).toBe(false);
 });
 
 it('adds a write scope only when the separate practice IAM boundary matches', () => {

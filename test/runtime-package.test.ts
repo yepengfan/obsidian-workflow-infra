@@ -27,7 +27,7 @@ it.each([false, true])('builds deterministic ZIPs and executes the Lambda with p
     const files = unzipSync(zip); expect(Object.keys(files)).toEqual(['index.mjs']);
     const file = path.join(directory, 'index.mjs'); await fs.writeFile(file, files['index.mjs']!);
     process.env.AWS_REGION = 'ap-southeast-2'; process.env.NOTE_BUCKET = 'private-test-vault'; process.env.NOTE_PREFIX = '';
-    process.env.OAUTH_ISSUER = 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_Test'; process.env.OAUTH_CLIENT_ID = 'test-client';
+    process.env.OAUTH_ISSUER = 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_Test'; process.env.OAUTH_CLIENT_IDS = JSON.stringify(['test-client']);
     process.env.MCP_RESOURCE = 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp'; process.env.OAUTH_SCOPE = `${process.env.MCP_RESOURCE}/read`; process.env.MCP_OPTIONS = JSON.stringify({ ownerGroup: 'obsidian-mcp-owners', practice: { enabled, writesEnabled: enabled } });
     const emitted = await import(pathToFileURL(file).href);
     const result = await emitted.handler({ rawPath: '/.well-known/oauth-protected-resource/mcp', headers: {}, requestContext: { http: { method: 'GET' } } }, { awsRequestId: 'fixture-request' });

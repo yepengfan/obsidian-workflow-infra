@@ -13,7 +13,7 @@ export function tokenVerifier(settings: Settings, key: JWTVerifyGetKey = createR
         issuer: settings.issuer, audience: settings.resource, algorithms: ['RS256'],
         requiredClaims: ['exp', 'iat', 'sub', 'client_id', 'token_use', 'scope', 'aud'], clockTolerance: 5,
       });
-      if (typeof payload.iat !== 'number' || payload.iat > Date.now() / 1000 + 5 || payload.token_use !== 'access' || payload.client_id !== settings.clientId || payload.aud !== settings.resource ||
+      if (typeof payload.iat !== 'number' || payload.iat > Date.now() / 1000 + 5 || payload.token_use !== 'access' || typeof payload.client_id !== 'string' || !settings.clientIds.includes(payload.client_id) || payload.aud !== settings.resource ||
         typeof payload.scope !== 'string' || !payload.scope.split(' ').includes(settings.scope) || (additionalScope && !payload.scope.split(' ').includes(additionalScope)) ||
         typeof payload.sub !== 'string' || !payload.sub.length || payload.sub.length > 2048) throw new AuthError(401);
       const groups = payload['cognito:groups'];

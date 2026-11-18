@@ -11,7 +11,7 @@ let jwks: ReturnType<typeof createLocalJWKSet>;
 beforeAll(async () => { keys = await generateKeyPair('RS256', { extractable: true }); jwks = createLocalJWKSet({ keys: [{ ...await exportJWK(keys.publicKey), kid: 'test', alg: 'RS256' }] }); });
 async function token(overrides: Record<string, unknown> = {}) {
   const settings = runtimeSettings(); const now = Math.floor(Date.now() / 1000);
-  return new SignJWT({ iss: settings.issuer, sub: owner, client_id: settings.clientId, token_use: 'access', aud: settings.resource,
+  return new SignJWT({ iss: settings.issuer, sub: owner, client_id: settings.clientIds[0], token_use: 'access', aud: settings.resource,
     scope: settings.scope, 'cognito:groups': [ownerGroup], iat: now, exp: now + 900, ...overrides }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).sign(keys.privateKey);
 }
 describe('authenticated stateless Streamable HTTP', () => {
@@ -56,8 +56,23 @@ describe('authenticated stateless Streamable HTTP', () => {
     const bad = await new SignJWT({ sub: owner, iat: now, exp: now + 900 }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).sign(other.privateKey);
     await expect(tokenVerifier(runtimeSettings(), jwks)(`Bearer ${bad}`)).rejects.toMatchObject({ status: 401 });
   });
-  it.each([owner, 'aaaaaaaa-bbbb-7ccc-dddd-eeeeeeeeeeee', 'opaque-cognito-subject'])('uses the real SDK client across fresh invocation instances for subject %s, with structured read-only tools and no sessions', async subject => {
-    const settings = runtimeSettings(), store = new MemoryStore(); const bearer = await token({ sub: subject }); const logs: unknown[] = []; const statuses: number[] = [];
+  it.each([
+    { client_id: 'unregistered-client' }, { client_id: ['claude-client'] }, { client_id: null },
+    { client_id: '' }, { client_id: 'claude-client ' },
+    { aud: 'https://other.example/mcp' }, { token_use: 'id' }, { scope: 'openid email' },
+    { iss: 'https://other.example' }, { exp: 1 },
+    { 'cognito:groups': [] }, { 'cognito:groups': [ownerGroup, 1] },
+  ])('rejects invalid credentials with both clients configured before S3 access: %j', async claims => {
+    const settings = runtimeSettings({ clientIds: ['test-client', 'claude-client'] }), store = new MemoryStore();
+    const fetch = createFetchHandler(settings, { store, verify: tokenVerifier(settings, jwks) });
+    const response = await fetch(new Request(settings.resource, { method: 'POST',
+      headers: { Authorization: `Bearer ${await token({ client_id: 'claude-client', ...claims })}` }, body: '{}' }));
+    expect(response.status).toBe('cognito:groups' in claims ? 403 : 401);
+    expect(store.calls).toHaveLength(0);
+  });
+  it.each([owner, 'aaaaaaaa-bbbb-7ccc-dddd-eeeeeeeeeeee', 'opaque-cognito-subject'].flatMap(subject =>
+    ['test-client', 'claude-client'].map(clientId => ({ subject, clientId }))))('uses the real SDK client across fresh invocations for $clientId and subject $subject', async ({ subject, clientId }) => {
+    const settings = runtimeSettings({ clientIds: ['test-client', 'claude-client'] }), store = new MemoryStore(); const bearer = await token({ sub: subject, client_id: clientId }); const logs: unknown[] = []; const statuses: number[] = [];
     const client = new Client({ name: 'test-chatgpt-client', version: '1' });
     const transport = new StreamableHTTPClientTransport(new URL(settings.resource), {
       requestInit: { headers: { Authorization: `Bearer ${bearer}` } },
@@ -94,13 +109,14 @@ describe('authenticated stateless Streamable HTTP', () => {
   });
 });
 
-it('requires a resource-bound write scope in addition to read and owner membership', async () => {
-  const settings = runtimeSettings();
+it.each(['test-client', 'claude-client'])('requires read, write and owner membership for approved client %s', async clientId => {
+  const settings = runtimeSettings({ clientIds: ['test-client', 'claude-client'] });
+  const signed = (claims: Record<string, unknown> = {}) => token({ client_id: clientId, ...claims });
   const verifyWrite = tokenVerifier(settings, jwks, `${settings.resource}/write`);
-  await expect(verifyWrite(`Bearer ${await token()}`)).rejects.toMatchObject({ status: 401 });
-  await expect(verifyWrite(`Bearer ${await token({ scope: `${settings.scope} ${settings.resource}/write` })}`)).resolves.toBe(owner);
-  await expect(verifyWrite(`Bearer ${await token({ scope: `${settings.resource}/write` })}`)).rejects.toMatchObject({ status: 401 });
-  await expect(verifyWrite(`Bearer ${await token({ scope: `${settings.scope} ${settings.resource}/write`, 'cognito:groups': [] })}`)).rejects.toMatchObject({ status: 403 });
+  await expect(verifyWrite(`Bearer ${await signed()}`)).rejects.toMatchObject({ status: 401 });
+  await expect(verifyWrite(`Bearer ${await signed({ scope: `${settings.scope} ${settings.resource}/write` })}`)).resolves.toBe(owner);
+  await expect(verifyWrite(`Bearer ${await signed({ scope: `${settings.resource}/write` })}`)).rejects.toMatchObject({ status: 401 });
+  await expect(verifyWrite(`Bearer ${await signed({ scope: `${settings.scope} ${settings.resource}/write`, 'cognito:groups': [] })}`)).rejects.toMatchObject({ status: 403 });
 });
 
 it.each([false, true])('injects skill tools, instructions and scopes only when supplied: %s', async injected => {

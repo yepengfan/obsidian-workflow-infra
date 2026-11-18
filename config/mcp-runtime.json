@@ -5,6 +5,9 @@
   "callbackUrls": [
     "https://chatgpt.com/connector/oauth/JqeUjWLzAhtd"
   ],
+  "claudeCallbackUrls": [
+    "https://claude.ai/api/mcp/auth_callback"
+  ],
   "allowedOrigins": [
     "https://chatgpt.com"
   ],
