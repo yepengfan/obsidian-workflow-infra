@@ -8,7 +8,8 @@ import { AuthError, tokenVerifier } from './auth.js';
 import type { Settings } from './config.js';
 import type { NoteStore, NoteWriter } from './note-store.js';
 
-type Audit = { event: 'mcp_request'; requestId: string; status: number; durationMs: number };
+type DenialReason = 'origin_or_host' | 'authentication' | 'owner_group';
+type Audit = { event: 'mcp_request'; requestId: string; status: number; durationMs: number; denialReason?: DenialReason };
 type Dependencies = { store: NoteStore; writer?: NoteWriter; skills?: readonly McpSkill[]; verifyScope?: (authorization: string | null, scope: string) => Promise<string>; verify?: (authorization: string | null) => Promise<string>; log?: (record: Audit) => void };
 
 export function createFetchHandler(settings: Settings, dependencies: Dependencies) {
@@ -20,11 +21,15 @@ export function createFetchHandler(settings: Settings, dependencies: Dependencie
   const challenge = `Bearer resource_metadata="${metadataUrl}", scope="${settings.scope}"`;
   return async (request: Request, requestId: string = randomUUID()): Promise<Response> => {
     const started = Date.now();
+    let denialReason: DenialReason | undefined;
     const serve = async (): Promise<Response> => {
       const url = new URL(request.url);
       const presentedOrigin = request.headers.get('origin');
       if (url.origin !== origin || (request.headers.has('host') && request.headers.get('host') !== new URL(origin).host) ||
-        (presentedOrigin && !settings.allowedOrigins.includes(presentedOrigin))) return new Response(null, { status: 403 });
+        (presentedOrigin && !settings.allowedOrigins.includes(presentedOrigin))) {
+        denialReason = 'origin_or_host';
+        return new Response(null, { status: 403 });
+      }
       if (request.method === 'GET' && ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'].includes(url.pathname)) {
         return Response.json({ resource: settings.resource, authorization_servers: [settings.issuer], scopes_supported: scopes, bearer_methods_supported: ['header'], resource_name: 'Private Obsidian notes' });
       }
@@ -34,7 +39,11 @@ export function createFetchHandler(settings: Settings, dependencies: Dependencie
       } });
       let owner: string;
       try { owner = await verify(request.headers.get('authorization')); }
-      catch (error) { return new Response(null, { status: error instanceof AuthError ? error.status : 401, headers: { 'WWW-Authenticate': challenge } }); }
+      catch (error) {
+        const status = error instanceof AuthError ? error.status : 401;
+        denialReason = status === 403 ? 'owner_group' : 'authentication';
+        return new Response(null, { status, headers: { 'WWW-Authenticate': challenge } });
+      }
       if (request.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST, OPTIONS' } });
       const signal = AbortSignal.any([request.signal, AbortSignal.timeout(settings.limits.deadlineMs)]);
       const server = new McpServer({ name: 'obsidian-s3-mcp', version: '1.0.0' }, {
@@ -83,7 +92,8 @@ export function createFetchHandler(settings: Settings, dependencies: Dependencie
       response.headers.set('Access-Control-Expose-Headers', 'WWW-Authenticate, MCP-Protocol-Version');
       response.headers.set('Vary', 'Origin');
     }
-    dependencies.log?.({ event: 'mcp_request', requestId, status: response.status, durationMs: Date.now() - started });
+    dependencies.log?.({ event: 'mcp_request', requestId, status: response.status, durationMs: Date.now() - started,
+      ...(denialReason ? { denialReason } : {}) });
     return response;
   };
 }
