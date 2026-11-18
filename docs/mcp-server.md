@@ -59,10 +59,13 @@ bytes and tool deadline are bounded independently. The
 Reduce the requested page/selection when a result exceeds the response cap.
 No discarded result is represented as a successful complete page.
 
-Logs contain request ID, HTTP status and elapsed time. They omit note paths,
-body text, tokens, credentials and raw exception messages. CloudWatch retention
-and API throttling are defined in CDK. The runtime has no object-write/delete
-permissions and cannot read the ebook or code-artifact bucket.
+Logs contain request ID, HTTP status and elapsed time. Rejected authentication or
+request-origin checks also include a fixed `denialReason`: `authentication`,
+`owner_group`, or `origin_or_host`. They omit actual origins, hosts, token claims,
+note paths, body text, tokens, credentials and raw exception messages. CloudWatch
+retention and API throttling are defined in CDK. Runtime writes are limited to
+enabled practice paths; it cannot delete objects or read the ebook or
+code-artifact bucket.
 
 ## Deployment
 
@@ -172,6 +175,10 @@ client grants no additional vault permissions or access to other users.
 4. Click **Add**, then **Connect**, and complete Cognito login and MFA with the
    existing owner account. Do not add the owner to another group. Enable the
    connector for the conversation through **+ > Connectors**.
+   Requests that include an `Origin` header must also pass the independent
+   `allowedOrigins` check. The committed configuration explicitly permits
+   `https://chatgpt.com` and `https://claude.ai`; an approved OAuth callback alone
+   does not allow an origin. Unknown origins remain rejected before note access.
 5. Verify a root listing and a selected note read, then enabled metadata / practice
    tools. For confirmed practice saving, the token also needs the resource-bound
    write scope. Claude must request the canonical `McpEndpoint` as OAuth `resource`

@@ -1,8 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import fs from 'node:fs';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { tokenVerifier } from '../src/auth.js';
+import { runtimeOptionsSchema } from '../src/config.js';
 import { createFetchHandler } from '../src/handler.js';
 import { MemoryStore, owner, ownerGroup, runtimeSettings } from './runtime-fixtures.js';
 
@@ -37,9 +39,11 @@ describe('authenticated stateless Streamable HTTP', () => {
     { label: 'string', groups: ownerGroup }, { label: 'object', groups: { name: ownerGroup } }, { label: 'mixed types', groups: [ownerGroup, 1] },
   ])('denies a valid token without exact, well-formed group membership: $label', async ({ groups }) => {
     const settings = runtimeSettings(), store = new MemoryStore();
-    const fetch = createFetchHandler(settings, { store, verify: tokenVerifier(settings, jwks) });
+    const logs: unknown[] = [];
+    const fetch = createFetchHandler(settings, { store, verify: tokenVerifier(settings, jwks), log: event => logs.push(event) });
     const response = await fetch(new Request(settings.resource, { method: 'POST', headers: { Authorization: `Bearer ${await token({ 'cognito:groups': groups })}` }, body: '{}' }));
     expect(response.status).toBe(403); expect(store.calls).toHaveLength(0);
+    expect(logs).toEqual([expect.objectContaining({ status: 403, denialReason: 'owner_group' })]);
   });
   it('accepts group members independently of their opaque user subject', async () => {
     const verify = tokenVerifier(runtimeSettings(), jwks);
@@ -64,18 +68,22 @@ describe('authenticated stateless Streamable HTTP', () => {
     { 'cognito:groups': [] }, { 'cognito:groups': [ownerGroup, 1] },
   ])('rejects invalid credentials with both clients configured before S3 access: %j', async claims => {
     const settings = runtimeSettings({ clientIds: ['test-client', 'claude-client'] }), store = new MemoryStore();
-    const fetch = createFetchHandler(settings, { store, verify: tokenVerifier(settings, jwks) });
+    const logs: unknown[] = [];
+    const fetch = createFetchHandler(settings, { store, verify: tokenVerifier(settings, jwks), log: event => logs.push(event) });
     const response = await fetch(new Request(settings.resource, { method: 'POST',
       headers: { Authorization: `Bearer ${await token({ client_id: 'claude-client', ...claims })}` }, body: '{}' }));
     expect(response.status).toBe('cognito:groups' in claims ? 403 : 401);
     expect(store.calls).toHaveLength(0);
+    expect(logs).toEqual([expect.objectContaining({ denialReason: 'cognito:groups' in claims ? 'owner_group' : 'authentication' })]);
   });
   it.each([owner, 'aaaaaaaa-bbbb-7ccc-dddd-eeeeeeeeeeee', 'opaque-cognito-subject'].flatMap(subject =>
     ['test-client', 'claude-client'].map(clientId => ({ subject, clientId }))))('uses the real SDK client across fresh invocations for $clientId and subject $subject', async ({ subject, clientId }) => {
-    const settings = runtimeSettings({ clientIds: ['test-client', 'claude-client'] }), store = new MemoryStore(); const bearer = await token({ sub: subject, client_id: clientId }); const logs: unknown[] = []; const statuses: number[] = [];
+    const configuredOrigins = runtimeOptionsSchema.shape.allowedOrigins.parse(JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8')).allowedOrigins);
+    const settings = runtimeSettings({ clientIds: ['test-client', 'claude-client'], allowedOrigins: configuredOrigins }), store = new MemoryStore();
+    const bearer = await token({ sub: subject, client_id: clientId }); const logs: unknown[] = []; const statuses: number[] = [];
     const client = new Client({ name: 'test-chatgpt-client', version: '1' });
     const transport = new StreamableHTTPClientTransport(new URL(settings.resource), {
-      requestInit: { headers: { Authorization: `Bearer ${bearer}` } },
+      requestInit: { headers: { Authorization: `Bearer ${bearer}`, Origin: clientId === 'claude-client' ? 'https://claude.ai' : 'https://chatgpt.com' } },
       fetch: async (input, init) => {
         const response = await createFetchHandler(settings, { store, verify: tokenVerifier(settings, jwks), log: event => logs.push(event) })(new Request(input, init));
         statuses.push(response.status); expect(response.headers.has('mcp-session-id')).toBe(false); return response;
@@ -96,6 +104,7 @@ describe('authenticated stateless Streamable HTTP', () => {
       const rejected = await client.callTool({ name: 'search_notes', arguments: { mode: 'body', query: 'secret', paths: [] } });
       expect(rejected.isError).toBe(true); expect(store.calls).toHaveLength(3);
       expect(JSON.stringify(logs)).not.toContain(bearer); expect(JSON.stringify(logs)).not.toContain('私人'); expect(JSON.stringify(logs)).not.toContain('hello.md');
+      expect(JSON.stringify(logs)).not.toContain('denialReason');
       expect(statuses).toContain(202);
     } finally { await client.close(); }
   });
@@ -106,6 +115,22 @@ describe('authenticated stateless Streamable HTTP', () => {
     for (const method of ['GET', 'DELETE']) expect((await fetch(new Request(settings.resource, { method, headers: { Authorization: authorization } }))).status).toBe(405);
     const large = await fetch(new Request(settings.resource, { method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: 'x'.repeat(65537) }));
     expect(large.status).toBe(413); expect(store.calls).toHaveLength(0);
+  });
+  it.each([
+    { Origin: 'https://claude.ai.evil.example' }, { Origin: 'null' }, { Host: 'untrusted.example' },
+  ])('logs only a fixed reason when rejecting untrusted request headers: %j', async headers => {
+    const configuredOrigins = runtimeOptionsSchema.shape.allowedOrigins.parse(JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8')).allowedOrigins);
+    const settings = runtimeSettings({ allowedOrigins: configuredOrigins }), store = new MemoryStore();
+    const logs: unknown[] = [];
+    const bearer = await token();
+    const fetch = createFetchHandler(settings, { store, verify: tokenVerifier(settings, jwks), log: event => logs.push(event) });
+    const requestHeaders = new Headers({ Authorization: `Bearer ${bearer}` });
+    for (const [name, value] of Object.entries(headers)) if (value !== undefined) requestHeaders.set(name, value);
+    const response = await fetch(new Request(settings.resource, { method: 'POST', headers: requestHeaders, body: '{}' }), 'fixed-diagnostic-id');
+    expect(response.status).toBe(403);
+    expect(store.calls).toHaveLength(0);
+    expect(logs).toEqual([{ event: 'mcp_request', requestId: 'fixed-diagnostic-id', status: 403, durationMs: expect.any(Number), denialReason: 'origin_or_host' }]);
+    expect(JSON.stringify(logs)).not.toContain(bearer);
   });
 });
 

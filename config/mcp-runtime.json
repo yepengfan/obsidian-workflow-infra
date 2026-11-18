@@ -9,7 +9,8 @@
     "https://claude.ai/api/mcp/auth_callback"
   ],
   "allowedOrigins": [
-    "https://chatgpt.com"
+    "https://chatgpt.com",
+    "https://claude.ai"
   ],
   "limits": {
     "pageSize": 20,
