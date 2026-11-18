@@ -500,7 +500,7 @@ it('exposes and executes the workflow through the real stateless MCP SDK client'
     }
     expect(store.writes).toHaveLength(0);
     expect(tools.find(tool => tool.name === 'practice_record_review')?._meta?.securitySchemes)
-      .toEqual([{ type: 'oauth2', scopes: [options.scope, `${options.resource}/write`] }]);
+      .toEqual([{ type: 'oauth2', scopes: ['openid', options.scope, `${options.resource}/write`] }]);
     const workflow = await client.callTool({ name: 'practice', arguments: {} });
     expect(workflow.structuredContent).toMatchObject({ status: 'overview', selected_domain: null, source_commit: bundle.sourceCommit });
     const denied = await client.callTool({ name: 'practice_add_review', arguments: request });

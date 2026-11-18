@@ -4,7 +4,7 @@ import { configuredSkills } from './skills.js';
 import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { AuthError, tokenVerifier } from './auth.js';
+import { AuthError, requiredScopes, tokenVerifier } from './auth.js';
 import type { Settings } from './config.js';
 import type { NoteStore, NoteWriter } from './note-store.js';
 
@@ -14,11 +14,11 @@ type Dependencies = { store: NoteStore; writer?: NoteWriter; skills?: readonly M
 
 export function createFetchHandler(settings: Settings, dependencies: Dependencies) {
   const skills = configuredSkills(settings, dependencies.skills);
-  const scopes = [...new Set([settings.scope, ...skills.flatMap(skill => skill.scopes)])];
+  const scopes = requiredScopes(settings, skills.flatMap(skill => skill.scopes));
   const origin = new URL(settings.resource).origin;
   const verify = dependencies.verify ?? tokenVerifier(settings);
   const metadataUrl = `${origin}/.well-known/oauth-protected-resource/mcp`;
-  const challenge = `Bearer resource_metadata="${metadataUrl}", scope="${settings.scope}"`;
+  const challenge = `Bearer resource_metadata="${metadataUrl}", scope="${requiredScopes(settings).join(' ')}"`;
   return async (request: Request, requestId: string = randomUUID()): Promise<Response> => {
     const started = Date.now();
     let denialReason: DenialReason | undefined;
