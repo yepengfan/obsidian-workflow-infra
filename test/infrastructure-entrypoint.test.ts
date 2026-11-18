@@ -7,7 +7,7 @@ import { parse } from 'yaml';
 it.each([
   { stage: 'identity', resources: 2 },
   { stage: 'code-storage', resources: 4 },
-  { stage: 'runtime', resources: 19 },
+  { stage: 'runtime', resources: 21 },
 ])('synthesizes the $stage stage through the public command', ({ stage, resources }) => {
   const directory = fs.mkdtempSync(path.resolve('.infrastructure-entrypoint-test-'));
   try {
@@ -30,6 +30,8 @@ it.each([
     expect(template('ObsidianMcp').Metadata.McpDeploymentStage).toBe(stage);
     expect(template('ObsidianMcp').Outputs.PermissionPoolArn.Export.Name).toBe('ObsidianMcp:UserPoolArn');
     if (stage === 'runtime') {
+      expect(template('ObsidianMcp').Resources.ClaudeClient.Properties.ClientName).toBe('obsidian-claude');
+      expect(template('ObsidianMcp').Outputs.ClaudeClientId.Value).toEqual({ Ref: 'ClaudeClient' });
       expect(template('ObsidianMcp').Resources.McpFunction.Properties.Code.S3Key).toMatch(/^releases\/[a-f0-9]{64}\.zip$/u);
       expect(fs.statSync(path.join(assembly, 'CodeBundle.zip')).size).toBeGreaterThan(0);
     } else {

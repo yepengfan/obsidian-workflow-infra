@@ -1,7 +1,8 @@
 # Obsidian workflow infrastructure
 
 AWS CDK infrastructure for a private Obsidian knowledge base and its staged
-ChatGPT MCP integration. GitHub holds code and IaC, never notes or credentials.
+ChatGPT and Claude MCP integrations. GitHub holds code and IaC, never notes or
+credentials.
 
 ## Architecture
 
@@ -11,21 +12,24 @@ for the current stage and prerequisites.
 
 ### C1: System context
 
-The owner maintains a private knowledge base and uses ChatGPT to discover notes
-by path, date and size, ask questions about selected notes, and complete
+The owner maintains a private knowledge base and uses ChatGPT or Claude to
+discover notes by path, date and size, ask questions about selected notes, and complete
 Algorithm and System Design practice with confirmed saving. System Design
-solutions are drawn in an Excalidraw canvas and reviewed through chat.
+solutions in ChatGPT are drawn in an Excalidraw canvas and reviewed through chat.
 
 ```mermaid
 flowchart LR
     Owner["Knowledge owner<br/>[Person]"]
     ChatGPT["ChatGPT<br/>[External software system]<br/>Conversational client"]
+    Claude["Claude<br/>[External software system]<br/>Conversational client"]
     Platform["Obsidian knowledge platform<br/>[Software system]<br/>Private notes and ebooks"]
     Excalidraw["Excalidraw<br/>[External software system]<br/>Interactive solution canvas"]
 
     Owner -->|"Asks questions; practices algorithms and system design"| ChatGPT
+    Owner -->|"Asks questions and practices"| Claude
     Owner -->|"Maintains knowledge; authorizes access"| Platform
     ChatGPT -->|"Discovers notes by metadata; reads selected notes; saves confirmed practice"| Platform
+    Claude -->|"Uses the same tools with a separate OAuth client"| Platform
     Owner -->|"Draws and revises the solution"| Excalidraw
     ChatGPT -->|"Opens canvas; checks latest shared drawing"| Excalidraw
 
@@ -33,7 +37,7 @@ flowchart LR
     classDef external fill:#666,color:#fff,stroke:#444
     classDef system fill:#1168bd,color:#fff,stroke:#0b4884
     class Owner person
-    class ChatGPT,Excalidraw external
+    class ChatGPT,Claude,Excalidraw external
     class Platform system
 ```
 
@@ -47,10 +51,11 @@ stores, not Docker containers.
 flowchart TB
     Owner["Knowledge owner<br/>[Person]"]
     ChatGPT["ChatGPT<br/>[External software system]<br/>MCP client"]
+    Claude["Claude<br/>[External software system]<br/>MCP client"]
     Excalidraw["Excalidraw<br/>[External software system]<br/>Editable System Design canvas"]
 
     subgraph Platform["Obsidian knowledge platform [Software system]"]
-        Auth["Owner authentication<br/>[Container: Amazon Cognito]<br/>OAuth and MFA"]
+        Auth["Owner authentication<br/>[Container: Amazon Cognito]<br/>OAuth and MFA; separate app clients"]
         API["MCP endpoint<br/>[Container: API Gateway HTTP API]<br/>HTTPS /mcp"]
         Server["MCP server<br/>[Container: Node.js Lambda]<br/>Stateless TypeScript MCP tools"]
         Vault[("Obsidian vault<br/>[Container: Amazon S3]<br/>Private Markdown notes")]
@@ -62,6 +67,7 @@ flowchart TB
     end
 
     Owner -->|"Asks questions and practices"| ChatGPT
+    Owner -->|"Asks questions and practices"| Claude
     Owner -->|"Draws the solution"| Excalidraw
     ChatGPT -->|"Renders and reviews current scene<br/>[Host app / widget context]"| Excalidraw
     Owner -->|"Signs in with MFA<br/>[HTTPS]"| Auth
@@ -69,6 +75,8 @@ flowchart TB
     Owner -->|"Maintains private ebooks"| Library
     ChatGPT -->|"Obtains and refreshes tokens<br/>[OAuth 2.0 / PKCE]"| Auth
     ChatGPT -->|"Discovers notes; reads and saves<br/>[MCP Streamable HTTP / HTTPS]"| API
+    Claude -->|"Obtains and refreshes tokens<br/>[OAuth 2.0 / PKCE; Claude client]"| Auth
+    Claude -->|"Uses the same MCP tools<br/>[MCP Streamable HTTP / HTTPS]"| API
     API -->|"Invokes handler<br/>[Lambda integration]"| Server
     Server -->|"Fetches signing keys<br/>[HTTPS / JWKS]"| Auth
     Server -->|"Reads notes; saves confirmed practice<br/>[S3 API / IAM]"| Vault
@@ -83,7 +91,7 @@ flowchart TB
     classDef external fill:#666,color:#fff,stroke:#444
     classDef container fill:#438dd5,color:#fff,stroke:#2e6295
     class Owner person
-    class ChatGPT,Excalidraw external
+    class ChatGPT,Claude,Excalidraw external
     class Auth,API,Server,Vault,Library,Logs,Athena,Catalog,Inventory container
     style Platform fill:none,stroke:#777,stroke-dasharray:6 4
 ```
@@ -102,7 +110,7 @@ coaching. Chat checks the latest shared drawing on each coaching turn; unsaved
 widget edits require fresh host context or an updated export before assessment.
 The MCP server decodes saved native drawing data, including legacy compressed
 files. Saving the working canvas to Obsidian remains a separate confirmed write.
-ChatGPT browses one folder page, chooses note paths, then retrieves or searches
+Each client browses one folder page, chooses note paths, then retrieves or searches
 only those notes. Metadata search can discover paths across the vault without
 reading bodies or recursively listing folders. Its inventory typically updates
 within one hour. See [metadata search](docs/metadata-search.md) for continuation,
@@ -117,7 +125,12 @@ The MCP server reads selected vault notes and can conditionally write only
 approved Algorithm and System Design practice notes and review records after
 activation. It has no access to the ebook library. See the
 [connection guide](docs/mcp-server.md#owner-setup-and-chatgpt-connection)
-for owner authorization and OAuth setup.
+for owner authorization and ChatGPT setup, or the
+[Claude connection guide](docs/mcp-server.md#claude-connection).
+Each host has its own confidential OAuth client, exact callback allowlist and secret,
+with the same Cognito user, MFA, owners group and resource-bound scopes. Lambda
+accepts only the client IDs deployed by CDK. The ChatGPT Excalidraw host integration
+is separate from MCP tool access; the Claude connection does not provision a canvas app.
 
 Keep these C1 and C2 views aligned with changes to the system's users,
 integrations, applications and data stores. Authoritative definitions and
@@ -147,7 +160,7 @@ generated templates.
 - [Cognito compatibility and OAuth rollout](docs/cognito-preflight.md)
 - [Selected-note MCP rollout and permission scope](docs/mcp-rollout.md)
 - [Practice workflow, review queues and staged note saving](docs/practice.md)
-- [MCP tools, configuration and ChatGPT connection](docs/mcp-server.md)
+- [MCP tools, configuration and ChatGPT / Claude connections](docs/mcp-server.md)
 - [Athena and S3 Metadata file discovery](docs/metadata-search.md)
 - [Storage retention and recovery verification](docs/retention.md)
 - [GitHub App identity and credential handling](docs/github-app-identity.md)

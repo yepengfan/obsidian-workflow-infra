@@ -70,14 +70,16 @@ When `McpEndpoint` is present, the checker requires `NotesScope` to match the
 that scope in the public protected-resource metadata, and requires an anonymous
 MCP initialization request to return 401 with the expected resource-metadata and
 scope challenge.
-For configured callbacks, it also sends one cookie-free authorization-code
-request with S256, `prompt=none`, the canonical resource and read scope, the
-existing client ID, random state and the first validated configured callback.
+For every configured callback of each enabled client, it also sends one cookie-free
+authorization-code request with S256, `prompt=none`, the canonical resource and
+read scope, that client's stack-output ID and random state. ChatGPT callbacks use
+`ChatGptClientId`; Claude callbacks use `ClaudeClientId`. A missing ID or rejected
+callback fails the check, including when the other client passes.
 It requires a redirect to that callback containing exactly one `error` set to
 `login_required`, exactly one matching `state`, and at most one optional
 `error_description`. It rejects all other query parameters, duplicate parameters,
 grants and other errors without logging redirect contents or following the
-redirect. Empty-callback bootstrap skips only this authorization request.
+redirect. An empty callback list skips only that client's authorization requests.
 Every HTTP request has a five-second timeout; no client secret, user credentials,
 token exchange or note access is involved. These public checks establish
 parameter acceptance before login, not an authenticated OAuth exchange.
@@ -113,7 +115,8 @@ registry's optional KMS and CloudFront handler permissions are not granted.
 ## Authentication checks after the probe
 
 The [runtime connection guide](mcp-server.md#owner-setup-and-chatgpt-connection)
-owns predefined-client setup and the required live authentication checks.
+owns predefined-client setup and the required live authentication checks for
+ChatGPT and [Claude](mcp-server.md#claude-connection).
 Discovery alone does not prove authorization-code/PKCE, token audience, refresh
 or owner-only access.
 

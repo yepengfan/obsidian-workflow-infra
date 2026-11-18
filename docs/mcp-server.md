@@ -36,7 +36,9 @@ its read continuation; restart that selected note.
 
 `config/storage.json` supplies account, Region and Vault bucket.
 `config/mcp-runtime.json` supplies the literal note prefix, Cognito owners group
-name, exact ChatGPT callback URLs, allowed browser origins and limits.
+name, separate exact ChatGPT (`callbackUrls`) and Claude (`claudeCallbackUrls`)
+callback allowlists, allowed browser origins and limits. An empty Claude callback
+list omits its app client and branding; the existing ChatGPT client remains stable.
 CDK manages the group structure; user accounts and membership are application
 access data managed in Cognito, without Git changes or infrastructure deployment.
 Resource identities and IAM are defined by the CDK modules; GitHub role settings
@@ -80,7 +82,7 @@ compatibility remain [connection checks](#connection-verification) after Apply.
 
 ## Owner setup and ChatGPT connection
 
-This private integration uses a predefined confidential OAuth client; it does
+Each host uses its own predefined confidential OAuth client; the server does
 not expose dynamic client registration.
 
 1. In Cognito Console, open the pool identified by `ObsidianMcp` outputs and
@@ -140,6 +142,52 @@ Review the [scope-registry migration](mcp-rollout.md#resource-bound-read-scope-m
 in the native plan before approving Apply. Existing user accounts and owners-group
 membership need no reassignment.
 
+## Claude connection
+
+Claude uses the same HTTPS MCP endpoint and Cognito owner account, with a separate
+`obsidian-claude` confidential app client. Its client ID, secret, callback and
+refresh sessions are independent of ChatGPT's. The pool, MFA, owners group,
+resource audience and read/write scope checks are shared. Creating another app
+client grants no additional vault permissions or access to other users.
+
+1. Review and deploy the PR through the normal Plan / production Apply workflow.
+   `claudeCallbackUrls` must contain exactly
+   `https://claude.ai/api/mcp/auth_callback`. Keep ChatGPT's `callbackUrls` unchanged.
+   CDK adds `ClaudeClient` and `ClaudeLoginBranding`, exports `ClaudeClientId`, and
+   sets Lambda's `OAUTH_CLIENT_IDS` to the explicit deployed client IDs. No secret
+   is exported or stored in Lambda. The existing execution-role policy already
+   covers these resource types in the managed pool; no IAM expansion is needed.
+   `OAUTH_CLIENT_ID` retains ChatGPT's ID for the previous Lambda code during
+   CloudFormation's separate configuration/code updates. New code uses that
+   single-client fallback only when `OAUTH_CLIENT_IDS` is absent, never when the
+   new allowlist is malformed.
+2. In Claude, open **Customize > Connectors > Add custom connector**. Enter
+   **Name:** `Obsidian`, and **MCP server URL:** the exact `McpEndpoint` stack
+   output, including `/mcp`. Click **Continue** and review detected authentication.
+3. Select **Sign in now** and **Use your own OAuth client**. Enter `ClaudeClientId`
+   from the stack outputs. In Cognito Console, open the same user pool, select
+   **App clients > obsidian-claude**, reveal its client secret, and enter it
+   directly into Claude. Leave fixed request headers empty. Dynamic client
+   registration and Claude's published client identity are not configured here.
+4. Click **Add**, then **Connect**, and complete Cognito login and MFA with the
+   existing owner account. Do not add the owner to another group. Enable the
+   connector for the conversation through **+ > Connectors**.
+5. Verify a root listing and a selected note read, then enabled metadata / practice
+   tools. For confirmed practice saving, the token also needs the resource-bound
+   write scope. Claude must request the canonical `McpEndpoint` as OAuth `resource`
+   so Cognito issues the exact access-token audience. Missing audience or scopes
+   fail closed; do not relax validation to make a host connect.
+
+The deployment checker tests each configured client's callbacks without login.
+It does not prove Claude's actual code exchange, PKCE, audience or refresh flow;
+complete the connection checks below after approved Apply. Existing ChatGPT
+connections should continue using their current client ID, secret and callback.
+The Excalidraw app available inside ChatGPT is a separate host integration; adding
+this connector gives Claude MCP tools without provisioning that app in Claude.
+
+See [Claude's custom connector setup](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
+for the current connector UI and redirect URI.
+
 ## Connection verification
 
 The public `/.well-known/oauth-protected-resource/mcp` document identifies the
@@ -150,7 +198,7 @@ The [post-deployment public checker](cognito-preflight.md#local-checks-and-post-
 checks resource-bound authorization parameters before login. It does not prove
 the user's complete OAuth exchange.
 
-Use the actual ChatGPT connection to browse one root page, choose a returned
+Use each enabled host connection to browse one root page, choose a returned
 folder, list that folder, choose one note, and read it. Ask for body search only
 over selected note paths. Confirm the tool list contains the three ordinary
 note tools plus any enabled [practice tools](practice.md), and that returned
@@ -159,10 +207,11 @@ after an approved deployment to load updated tool definitions.
 No test needs to create or edit a private note.
 
 Verify authorization-code + S256 PKCE, reject an incorrect verifier, confirm the
-access token's exact resource `aud`, issuer, app-client `client_id`, `token_use:
-access`, expiry, read scope and exact owners-group membership in the signed
-`cognito:groups` array. ID tokens, other clients, other audiences, expired/bad
-signatures, missing/malformed groups (including mixed-type arrays) and nonmembers
+access token's exact resource `aud`, issuer, allowlisted app-client `client_id`,
+`token_use: access`, expiry, read scope and exact owners-group membership in the
+signed `cognito:groups` array. ID tokens, clients outside the deployed allowlist,
+other audiences, expired/bad signatures, missing/malformed groups (including
+mixed-type arrays) and nonmembers
 must be rejected before S3 access. Group names are case-sensitive, with no trimming
 or normalization. Subjects must be nonempty strings of at most 2,048 characters,
 without normalization or UUID validation.

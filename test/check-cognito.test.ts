@@ -17,13 +17,14 @@ const metadata = {
 };
 
 describe('Cognito discovery command', () => {
-  it.each(['valid', 'missing S256', 'wrong output', 'pinned mismatch', 'MCP valid', 'MCP bootstrap', 'MCP wrong metadata', 'MCP legacy scope', 'MCP wrong output scope', 'MCP unprotected', 'MCP bad challenge', 'MCP resource rejected', 'MCP unexpected grant'] as const)('runs the real CLI for %s', mode => {
+  it.each(['valid', 'missing S256', 'wrong output', 'pinned mismatch', 'MCP valid', 'MCP bootstrap', 'MCP Claude valid', 'MCP Claude only', 'MCP Claude rejected', 'MCP Claude missing output', 'MCP wrong metadata', 'MCP legacy scope', 'MCP wrong output scope', 'MCP unprotected', 'MCP bad challenge', 'MCP resource rejected', 'MCP unexpected grant'] as const)('runs the real CLI for %s', mode => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cognito-discovery-test-'));
     try {
       fs.mkdirSync(path.join(dir, 'config'));
       for (const file of ['storage.json', 'github.json', 'cognito.json', 'mcp-runtime.json']) fs.copyFileSync(`config/${file}`, path.join(dir, 'config', file));
       const runtime = JSON.parse(fs.readFileSync(path.join(dir, 'config/mcp-runtime.json'), 'utf8'));
-      runtime.callbackUrls = mode === 'MCP bootstrap' ? [] : ['https://chatgpt.com/connector/oauth/fixture-callback'];
+      runtime.callbackUrls = ['MCP bootstrap', 'MCP Claude only'].includes(mode) ? [] : ['https://chatgpt.com/connector/oauth/fixture-callback'];
+      runtime.claudeCallbackUrls = mode.includes('Claude') ? ['https://claude.ai/api/mcp/auth_callback'] : [];
       fs.writeFileSync(path.join(dir, 'config/mcp-runtime.json'), JSON.stringify(runtime));
       const stack = { Stacks: [{ StackName: 'ObsidianMcp', StackStatus: 'CREATE_COMPLETE', Outputs: [
         { OutputKey: 'UserPoolId', OutputValue: pool },
@@ -31,6 +32,7 @@ describe('Cognito discovery command', () => {
           { OutputKey: 'McpEndpoint', OutputValue: `https://example.execute-api.${aws.region}.amazonaws.com/mcp` },
           { OutputKey: 'NotesScope', OutputValue: mode === 'MCP wrong output scope' ? 'obsidian.notes/read' : `https://example.execute-api.${aws.region}.amazonaws.com/mcp/read` },
           { OutputKey: 'ChatGptClientId', OutputValue: 'fixture-client' },
+          ...(mode.includes('Claude') && mode !== 'MCP Claude missing output' ? [{ OutputKey: 'ClaudeClientId', OutputValue: 'fixture-claude-client' }] : []),
         ] : []),
         { OutputKey: 'PermissionPoolArn', OutputValue: `arn:aws:cognito-idp:${aws.region}:${aws.account}:userpool/${mode === 'pinned mismatch' ? 'Other' : pool}` },
         { OutputKey: 'OAuthIssuer', OutputValue: mode === 'wrong output' ? 'https://other.example' : issuer },
@@ -55,7 +57,7 @@ globalThis.fetch = async (url, init) => {
     const target = new URL(authorization.searchParams.get('redirect_uri'));
     target.searchParams.set('state', authorization.searchParams.get('state'));
     if (${JSON.stringify(mode)} === 'MCP unexpected grant') target.searchParams.set('code', 'DO_NOT_PRINT_AUTHORIZATION_CODE');
-    else target.searchParams.set('error', ${JSON.stringify(mode)} === 'MCP resource rejected' ? 'invalid_request' : 'login_required');
+    else target.searchParams.set('error', (${JSON.stringify(mode)} === 'MCP resource rejected' || (${JSON.stringify(mode)} === 'MCP Claude rejected' && authorization.searchParams.get('client_id') === 'fixture-claude-client')) ? 'invalid_request' : 'login_required');
     return new Response('', { status: 302, headers: { Location: target.href } });
   }
   if (url.includes('oauth-authorization-server')) return new Response('', { status: 404 });
@@ -64,17 +66,19 @@ globalThis.fetch = async (url, init) => {
       const result = spawnSync(process.execPath, ['--import', import.meta.resolve('tsx'), '--import', preload,
         path.resolve('bin/check-cognito.ts'), path.join(dir, 'stack.json')], { cwd: dir, encoding: 'utf8', env: process.env });
       expect(result.error).toBeUndefined();
-      const valid = ['valid', 'MCP valid', 'MCP bootstrap'].includes(mode);
+      const valid = ['valid', 'MCP valid', 'MCP bootstrap', 'MCP Claude valid', 'MCP Claude only'].includes(mode);
       expect(result.status === 0, result.stderr).toBe(valid);
       if (valid) expect(result.stdout).toContain('Cognito discovery passed');
       else expect(result.stdout).not.toContain('Cognito discovery passed');
       const calls = fs.existsSync(requests) ? fs.readFileSync(requests, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [];
-      expect(calls).toHaveLength(mode.startsWith('MCP') ? (mode === 'MCP wrong output scope' ? 2 : ['MCP wrong metadata', 'MCP legacy scope'].includes(mode) ? 3 : ['MCP valid', 'MCP resource rejected', 'MCP unexpected grant'].includes(mode) ? 5 : 4) : ['valid', 'missing S256'].includes(mode) ? 2 : 0);
+      expect(calls).toHaveLength(['MCP Claude valid', 'MCP Claude rejected'].includes(mode) ? 6 : ['MCP Claude only', 'MCP Claude missing output'].includes(mode) ? 5 : mode.startsWith('MCP') ? (mode === 'MCP wrong output scope' ? 2 : ['MCP wrong metadata', 'MCP legacy scope'].includes(mode) ? 3 : ['MCP valid', 'MCP resource rejected', 'MCP unexpected grant'].includes(mode) ? 5 : 4) : ['valid', 'missing S256'].includes(mode) ? 2 : 0);
       expect(result.stderr + result.stdout).not.toContain('DO_NOT_PRINT_AUTHORIZATION_CODE');
-      if (mode === 'MCP valid') {
+      if (['MCP valid', 'MCP Claude valid', 'MCP Claude only'].includes(mode)) {
         const request = calls.at(-1); const authorization = new URL(request.url);
         const endpoint = `https://example.execute-api.${aws.region}.amazonaws.com/mcp`;
         expect(request.redirect).toBe('manual'); expect(request.credentials).toBe('omit');
+        expect(authorization.searchParams.get('client_id')).toBe(mode.includes('Claude') ? 'fixture-claude-client' : 'fixture-client');
+        expect(authorization.searchParams.get('redirect_uri')).toBe(mode.includes('Claude') ? 'https://claude.ai/api/mcp/auth_callback' : 'https://chatgpt.com/connector/oauth/fixture-callback');
         expect(authorization.searchParams.get('resource')).toBe(endpoint);
         expect(authorization.searchParams.get('scope')).toBe(`openid email phone profile ${endpoint}/read`);
         expect(authorization.searchParams.get('prompt')).toBe('none');
