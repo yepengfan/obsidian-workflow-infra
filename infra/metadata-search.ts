@@ -70,6 +70,9 @@ export function grantMetadataConfiguration(stack: Stack, vault: string, executio
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:CreateNamespace'], resources: [tableBucket] }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:CreateTable'], resources: [tableBucket],
     conditions: { StringEquals: { 's3tables:namespace': `b_${vault}` } } }));
+  // CreateTable with encryption checks this dependent permission on the bucket
+  // before a table exists. Existing-table encryption stays scoped below.
+  execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:PutTableEncryption'], resources: [tableBucket] }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['s3tables:GetTable', 's3tables:PutTablePolicy', 's3tables:PutTableEncryption'], resources: [`${tableBucket}/table/*`],
     conditions: { StringEquals: { 's3tables:namespace': `b_${vault}`, 's3tables:tableName': ['inventory', 'journal'] } } }));
 }

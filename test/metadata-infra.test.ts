@@ -70,6 +70,24 @@ it('allows first-time namespace creation without an unsupported namespace condit
   expect(table.Condition).toEqual({ StringEquals: { 's3tables:namespace': `b_${storage.buckets.vault.name}` } });
 });
 
+it('allows the encryption authorization checked against the bucket when creating metadata tables', () => {
+  const policies = foundationPolicies()(github.executionRoleName);
+  const encryption = policies.filter(s => actions(s).includes('s3tables:PutTableEncryption'));
+  // Live CreateTable with AES256 authorizes this dependent action on the bucket,
+  // before a table ARN exists. A table-only grant leaves configuration FAILED.
+  expect(encryption).toEqual(expect.arrayContaining([
+    expect.objectContaining({ Resource: tableResource('aws-s3') }),
+  ]));
+  expect(encryption.find(s => JSON.stringify(s.Resource) === JSON.stringify(tableResource('aws-s3')))!.Condition).toBeUndefined();
+  for (const statement of encryption) {
+    expect([tableResource('aws-s3'), tableResource('aws-s3/table/*')]).toContainEqual(statement.Resource);
+  }
+  const tableEncryption = encryption.find(s => JSON.stringify(s.Resource) === JSON.stringify(tableResource('aws-s3/table/*')))!;
+  expect(tableEncryption.Condition).toEqual({ StringEquals: {
+    's3tables:namespace': `b_${storage.buckets.vault.name}`, 's3tables:tableName': ['inventory', 'journal'],
+  } });
+});
+
 it('grants the catalog deployment role the regional read prerequisites without table writes', () => {
   const policies = foundationPolicies()(github.mcpExecutionRoleName);
   const readActions = ['s3tables:GetTableBucket', 's3tables:GetNamespace', 's3tables:GetTable', 's3tables:GetTableMetadataLocation', 's3tables:GetTableData'];
