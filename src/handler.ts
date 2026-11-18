@@ -18,7 +18,8 @@ export function createFetchHandler(settings: Settings, dependencies: Dependencie
   const origin = new URL(settings.resource).origin;
   const verify = dependencies.verify ?? tokenVerifier(settings);
   const metadataUrl = `${origin}/.well-known/oauth-protected-resource/mcp`;
-  const challenge = `Bearer resource_metadata="${metadataUrl}", scope="${requiredScopes(settings).join(' ')}"`;
+  // MCP clients such as Claude request only the challenge scopes and cannot step up later.
+  const challenge = `Bearer resource_metadata="${metadataUrl}", scope="${scopes.join(' ')}"`;
   return async (request: Request, requestId: string = randomUUID()): Promise<Response> => {
     const started = Date.now();
     let denialReason: DenialReason | undefined;
@@ -58,7 +59,7 @@ export function createFetchHandler(settings: Settings, dependencies: Dependencie
           return response;
         } catch (error) {
           if (error instanceof AuthError) return { isError: true, content: [{ type: 'text' as const, text: 'authentication_required' }],
-            ...(error.status === 401 ? { _meta: { 'mcp/www_authenticate': `Bearer resource_metadata="${metadataUrl}", scope="${scopes.join(' ')}"` } } : {}) };
+            ...(error.status === 401 ? { _meta: { 'mcp/www_authenticate': challenge } } : {}) };
           const code = signal.aborted ? 'timeout' : error instanceof OperationError ? error.code : 'note_unavailable';
           return { isError: true, content: [{ type: 'text' as const, text: code }] };
         }

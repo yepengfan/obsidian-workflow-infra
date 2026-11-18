@@ -47,12 +47,12 @@ export async function checkCognitoDiscovery(issuer: string, domain: string, fetc
 }
 
 /** Validate resource/scopes before login. Never follow the callback or exchange a code. */
-export async function checkCognitoResourceBinding(domain: string, resource: string, scope: string, clientId: string, callback: string, fetcher: typeof fetch = fetch): Promise<void> {
+export async function checkCognitoResourceBinding(domain: string, resource: string, scopes: readonly string[], clientId: string, callback: string, fetcher: typeof fetch = fetch): Promise<void> {
   const state = randomUUID();
   const authorization = new URL(`${domain}/oauth2/authorize`);
   authorization.search = new URLSearchParams({
     response_type: 'code', client_id: clientId, redirect_uri: callback, resource,
-    scope: `openid email phone profile ${scope}`, prompt: 'none', state,
+    scope: [...new Set(['openid', 'email', 'phone', 'profile', ...scopes])].join(' '), prompt: 'none', state,
     code_challenge_method: 'S256', code_challenge: createHash('sha256').update(randomBytes(32).toString('base64url')).digest('base64url'),
   }).toString();
   const response = await fetcher(authorization.href, { redirect: 'manual', credentials: 'omit', signal: AbortSignal.timeout(5000) });

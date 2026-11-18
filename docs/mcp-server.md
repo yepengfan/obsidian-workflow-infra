@@ -55,7 +55,11 @@ Owner authentication also requires the standard `openid` scope so Cognito includ
 the identity/group claims needed for authorization. Public resource discovery,
 the initial OAuth challenge, tool security metadata and runtime validation all
 require `openid` together with `NotesScope`. Practice writes additionally require
-`<McpEndpoint>/write`. `openid` alone grants no note access; the exact owners-group
+`<McpEndpoint>/write`. While writes are enabled, the initial challenge requests
+every advertised scope, including write, because hosts such as Claude authorize
+only the challenge scopes and cannot gain write mid-session. Without the write
+scope, read tools still work and write tools return `authentication_required`.
+`openid` alone grants no note access; the exact owners-group
 claim and the resource-bound read/write scopes remain mandatory. ID tokens are
 never accepted as API credentials.
 
@@ -191,7 +195,8 @@ client grants no additional vault permissions or access to other users.
    tools. For confirmed practice saving, the token also needs the resource-bound
    write scope. Claude must request the canonical `McpEndpoint` as OAuth `resource`
    so Cognito issues the exact access-token audience. The server requests
-   `openid` plus the read scope; requesting only the custom read scope can omit
+   `openid`, the read scope and, while writes are enabled, the write scope;
+   Claude authorizes exactly these. Requesting only the custom read scope can omit
    the group claim and fail owner authorization. Missing audience or scopes
    fail closed; do not relax validation to make a host connect.
 
@@ -202,9 +207,9 @@ connections should continue using their current client ID, secret and callback.
 The Excalidraw app available inside ChatGPT is a separate host integration; adding
 this connector gives Claude MCP tools without provisioning that app in Claude.
 
-After deploying the identity-scope fix, disconnect and reconnect Claude's Obsidian
-connection to authorize `openid` plus the read scope. Existing grants missing
-`openid` cannot gain it by refreshing their old token. The client ID,
+After deploying a scope change, such as adding the write scope to the challenge,
+disconnect and reconnect Claude's Obsidian connection to authorize the new scope
+set. Existing grants cannot gain a scope by refreshing their old token. The client ID,
 secret, callback, owner account and group membership do not need to change.
 For troubleshooting, use the fixed denial reason and Cognito's CloudTrail
 authorization-event scope list. Never post tokens, codes, secrets or claims in

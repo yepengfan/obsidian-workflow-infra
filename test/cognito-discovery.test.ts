@@ -22,7 +22,7 @@ describe('anonymous authorization response contract', () => {
       mutate(redirect.searchParams);
       return new Response(null, { status: 302, headers: { Location: redirect.href } });
     });
-    return checkCognitoResourceBinding(domain, resource, `${resource}/read`, 'client', callback, fetcher);
+    return checkCognitoResourceBinding(domain, resource, ['openid', `${resource}/read`], 'client', callback, fetcher);
   };
 
   it('accepts one optional error description', async () => {
