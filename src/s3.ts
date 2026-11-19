@@ -1,14 +1,14 @@
 import { GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import type { CatalogPage, NoteChunk, NoteStore, NoteWriter } from './note-store.js';
+import type { CatalogPage, NoteChunk, NoteStore, NoteWriter, WriteCondition } from './note-store.js';
 import { NoteError } from './paths.js';
 
 export class S3NoteStore implements NoteStore, NoteWriter {
   constructor(private readonly client: S3Client, private readonly bucket: string) {}
-  async put(key: string, text: string, revision: string | undefined, signal: AbortSignal): Promise<string> {
+  async put(key: string, text: string, condition: WriteCondition, signal: AbortSignal): Promise<string> {
     try {
       const result = await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: text,
         ContentType: 'text/markdown; charset=utf-8', ServerSideEncryption: 'AES256',
-        ...(revision ? { IfMatch: revision } : { IfNoneMatch: '*' }),
+        ...(condition === 'absent' ? { IfNoneMatch: '*' } : condition === 'any' ? {} : { IfMatch: condition.revision }),
       }), { abortSignal: signal });
       if (!result.ETag) throw new NoteError('note_unavailable');
       return result.ETag;

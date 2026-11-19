@@ -6,7 +6,7 @@ import { createFetchHandler } from '../src/handler.js';
 import { MemoryStore, owner, runtimeSettings } from './runtime-fixtures.js';
 
 it('exports tool patterns that non-JavaScript metadata validators can compile', async () => {
-  const settings = runtimeSettings({ metadataSearch: true, practice: { enabled: true, writesEnabled: true, timeZone: 'Australia/Brisbane' } });
+  const settings = runtimeSettings({ metadataSearch: true, journal: { writesEnabled: true }, practice: { enabled: true, writesEnabled: true, timeZone: 'Australia/Brisbane' } });
   const store = new MemoryStore();
   const handler = createFetchHandler(settings, { store, verify: async () => owner });
   const client = new Client({ name: 'refresh-schema-test', version: '1' });
@@ -16,7 +16,7 @@ it('exports tool patterns that non-JavaScript metadata validators can compile', 
       fetch: (input, init) => handler(new Request(input, init)),
     }));
     const { tools } = await client.listTools();
-    expect(tools.some(tool => tool.name === 'practice_design_template')).toBe(true);
+    expect(tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['practice_design_template', 'journal_write']));
     // Python's standard regex engine reproduces the rejected Unicode property
     // escapes without adding a runtime or third-party validation dependency.
     execFileSync('python3', ['-c', `

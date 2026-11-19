@@ -11,8 +11,8 @@ const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.j
 const config = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
 const settings = mcpResources(storage, config.runtimeRoleName);
 type Statement = { Action: string | string[]; Resource: unknown; Effect: string; Condition?: Record<string, Record<string, unknown>> };
-function build(prefix = '', practiceWrites = false) {
-  const stack = new GitHubTrustStack(new App(), 'Trust', storage, config, { ...settings, notePrefix: prefix, practiceWrites });
+function build(prefix = '', practiceWrites = false, journalWrites = false) {
+  const stack = new GitHubTrustStack(new App(), 'Trust', storage, config, { ...settings, notePrefix: prefix, practiceWrites, journalWrites });
   const template = Template.fromStack(stack);
   const statements = (name: string): Statement[] => {
     const [id] = Object.entries(template.findResources('AWS::IAM::Role')).find(([, r]) => r.Properties.RoleName === name)!;
@@ -37,6 +37,15 @@ describe('MCP runtime permission boundary', () => {
       .toEqual(stack.resolve(`arn:${stack.partition}:s3:::${storage.buckets.vault.name}/${prefix}*`));
     const logs = runtime.find(s => actions(s).includes('logs:PutLogEvents'))!;
     expect(logs.Resource).toEqual(stack.resolve(`arn:${stack.partition}:logs:${storage.region}:${storage.account}:log-group:/aws/lambda/${settings.functionName}:log-stream:*`));
+  });
+  it.each(['', 'Knowledge/'])('grants encrypted Journal writes only under Journal/ for prefix %j', prefix => {
+    const { stack, statements } = build(prefix, false, true);
+    const writes = statements(settings.runtimeRoleName).filter(s => actions(s).includes('s3:PutObject'));
+    expect(writes).toEqual([{ Effect: 'Allow', Action: 's3:PutObject',
+      Resource: stack.resolve(`arn:${stack.partition}:s3:::${storage.buckets.vault.name}/${prefix}Journal/*.md`),
+      Condition: { StringEquals: { 's3:x-amz-server-side-encryption': 'AES256' } } }]);
+    expect(statements(settings.runtimeRoleName).flatMap(actions)).not.toContain('s3:DeleteObject');
+    expect(build(prefix).statements(settings.runtimeRoleName).flatMap(actions)).not.toContain('s3:PutObject');
   });
   it('keeps note access out of both CI roles and the CloudFormation role', () => {
     const { statements } = build();

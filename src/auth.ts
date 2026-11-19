@@ -6,6 +6,9 @@ export function requiredScopes(settings: Pick<Settings, 'scope'>, additional: re
   return [...new Set(['openid', settings.scope, ...additional])];
 }
 
+/** The single resource-bound step-up scope shared by every vault write tool. */
+export const writeScope = (settings: Pick<Settings, 'resource'>) => `${settings.resource}/write`;
+
 export class AuthError extends Error {
   constructor(readonly status: 401 | 403) { super('Authentication required'); }
 }

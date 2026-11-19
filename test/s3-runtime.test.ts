@@ -42,7 +42,7 @@ it('fails closed if the service ignores Range and sends an oversized body', asyn
   finally { client.destroy(); }
 });
 
-it('serializes encrypted conditional writes and rejects S3 conflicts without an unconditional retry', async () => {
+it('serializes encrypted create, revision and explicit unconditional writes and rejects S3 conflicts without retry', async () => {
   const calls: { headers: Record<string, string> }[] = []; let status = 200;
   const client = new S3Client({ region: 'ap-southeast-2', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
     requestHandler: { handle: async (request: HttpRequest) => {
@@ -53,13 +53,16 @@ it('serializes encrypted conditional writes and rejects S3 conflicts without an 
   });
   try {
     const store = new S3NoteStore(client, 'private-test-vault');
-    await store.put('Vault/Learning/Practice/Review/Items/lc-1.md', 'fixture', undefined, AbortSignal.timeout(1000));
-    await store.put('Vault/Learning/Practice/Review/Items/lc-1.md', 'updated', '"old"', AbortSignal.timeout(1000));
+    await store.put('Vault/Learning/Practice/Review/Items/lc-1.md', 'fixture', 'absent', AbortSignal.timeout(1000));
+    await store.put('Vault/Learning/Practice/Review/Items/lc-1.md', 'updated', { revision: '"old"' }, AbortSignal.timeout(1000));
+    await store.put('Vault/Journal/today.md', 'replaced', 'any', AbortSignal.timeout(1000));
     expect(calls[0]!.headers).toMatchObject({ 'if-none-match': '*', 'x-amz-server-side-encryption': 'AES256' });
     expect(calls[1]!.headers).toMatchObject({ 'if-match': '"old"', 'x-amz-server-side-encryption': 'AES256' });
     expect(calls[1]!.headers).not.toHaveProperty('if-none-match');
+    expect(calls[2]!.headers).toMatchObject({ 'x-amz-server-side-encryption': 'AES256' });
+    expect(calls[2]!.headers).not.toHaveProperty('if-match'); expect(calls[2]!.headers).not.toHaveProperty('if-none-match');
     status = 412;
-    await expect(store.put('Vault/a.md', 'updated', '"old"', AbortSignal.timeout(1000))).rejects.toThrow('revision_conflict');
-    expect(calls).toHaveLength(3);
+    await expect(store.put('Vault/a.md', 'updated', { revision: '"old"' }, AbortSignal.timeout(1000))).rejects.toThrow('revision_conflict');
+    expect(calls).toHaveLength(4);
   } finally { client.destroy(); }
 });

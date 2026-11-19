@@ -21,10 +21,12 @@ additional-skill list overrides optional practice registration while preserving
 the ordinary note tools.
 
 `src/skill.ts` defines the registration contract. `src/note-store.ts` defines
-separate read and write ports; `src/s3.ts` implements both. Services depend on
+separate read and write ports; `src/s3.ts` implements both. Practice saves are
+always create-only or pinned to a revision; only [Journal](journal.md)
+overwrite uses an unconditional write. Services depend on
 those ports, and expected errors use the transport-independent type in
 `src/errors.ts`. `src/runtime.ts` wires the S3 adapter into the handler and
-supplies the write capability only when writes are enabled. A reader that also
+supplies the write capability only when practice or Journal writes are enabled. A reader that also
 happens to implement `put` is not implicitly treated as a writer.
 
 ## Rollout state

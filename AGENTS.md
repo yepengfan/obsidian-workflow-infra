@@ -17,3 +17,14 @@ All code changes must follow SOLID principles:
 Prefer simple functions and modules. Introduce abstractions when they clarify responsibilities or isolate a concrete dependency.
 
 For nontrivial changes, identify affected responsibilities and dependency direction before implementation. Before declaring work ready, review the complete diff against these rules, fix concrete violations, and run checks appropriate to the change. Briefly explain the design boundaries, validation, and remaining limitations in the PR description.
+
+## MCP runtime layering
+
+Keep each MCP feature in these layers (see `MetadataSearch` / `AthenaMetadataQuery` and `Journal` / `S3NoteStore`):
+
+- **Tool module** (`src/*-tools.ts`): registers tools, schemas and security metadata, and steps up scopes. It calls an application service, never storage.
+- **Application service** (`src/metadata-search.ts`, `src/practice.ts`, `src/journal.ts`): path policy and domain rules. Depends only on ports in `src/note-store.ts` or its own query port.
+- **Adapter** (`src/s3.ts`, `src/athena.ts`): the only place for AWS SDK calls. ESLint rejects `@aws-sdk/*` imports elsewhere in `src/` except composition roots.
+- **Composition**: `src/runtime.ts` builds adapters; `src/skills.ts` selects enabled skills.
+
+Build scope strings with `requiredScopes` / `writeScope` from `src/auth.ts`. Every write feature reuses the single `/write` scope, and its allowed paths are one exported list shared with IAM synthesis (`practiceWriteResources`, `journalWriteResources`).

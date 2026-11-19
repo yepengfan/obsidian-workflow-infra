@@ -13,8 +13,9 @@ for the current stage and prerequisites.
 ### C1: System context
 
 The owner maintains a private knowledge base and uses ChatGPT or Claude to
-discover notes by path, date and size, ask questions about selected notes, and complete
-Algorithm and System Design practice with confirmed saving. System Design
+discover notes by path, date and size, ask questions about selected notes, write
+to the Journal folder, and complete Algorithm and System Design practice with
+confirmed saving. System Design
 solutions in ChatGPT are drawn in an Excalidraw canvas and reviewed through chat.
 
 ```mermaid
@@ -25,10 +26,10 @@ flowchart LR
     Platform["Obsidian knowledge platform<br/>[Software system]<br/>Private notes and ebooks"]
     Excalidraw["Excalidraw<br/>[External software system]<br/>Interactive solution canvas"]
 
-    Owner -->|"Asks questions; practices algorithms and system design"| ChatGPT
-    Owner -->|"Asks questions and practices"| Claude
+    Owner -->|"Asks questions; journals; practices algorithms and system design"| ChatGPT
+    Owner -->|"Asks questions, journals and practices"| Claude
     Owner -->|"Maintains knowledge; authorizes access"| Platform
-    ChatGPT -->|"Discovers notes by metadata; reads selected notes; saves confirmed practice"| Platform
+    ChatGPT -->|"Discovers notes by metadata; reads selected notes; writes Journal notes; saves confirmed practice"| Platform
     Claude -->|"Uses the same tools with a separate OAuth client"| Platform
     Owner -->|"Draws and revises the solution"| Excalidraw
     ChatGPT -->|"Opens canvas; checks latest shared drawing"| Excalidraw
@@ -66,8 +67,8 @@ flowchart TB
         Inventory[("Vault metadata tables<br/>[Container: S3 Metadata / Iceberg]<br/>Live inventory; seven-day journal")]
     end
 
-    Owner -->|"Asks questions and practices"| ChatGPT
-    Owner -->|"Asks questions and practices"| Claude
+    Owner -->|"Asks questions, journals and practices"| ChatGPT
+    Owner -->|"Asks questions, journals and practices"| Claude
     Owner -->|"Draws the solution"| Excalidraw
     ChatGPT -->|"Renders and reviews current scene<br/>[Host app / widget context]"| Excalidraw
     Owner -->|"Signs in with MFA<br/>[HTTPS]"| Auth
@@ -79,7 +80,7 @@ flowchart TB
     Claude -->|"Uses the same MCP tools<br/>[MCP Streamable HTTP / HTTPS]"| API
     API -->|"Invokes handler<br/>[Lambda integration]"| Server
     Server -->|"Fetches signing keys<br/>[HTTPS / JWKS]"| Auth
-    Server -->|"Reads notes; saves confirmed practice<br/>[S3 API / IAM]"| Vault
+    Server -->|"Reads notes; writes Journal notes; saves confirmed practice<br/>[S3 API / IAM]"| Vault
     Server -->|"Writes request metadata<br/>[CloudWatch Logs API]"| Logs
     Vault -->|"AWS maintains file metadata<br/>[S3 Metadata]"| Inventory
     Server -->|"Searches paths, dates and sizes<br/>[Athena API / IAM]"| Athena
@@ -102,6 +103,8 @@ flowchart TB
 - **Metadata search:** optional `search_note_metadata` finds paths by date and
   size through Athena over S3 Metadata, without reading note bodies. See
   [metadata search](docs/metadata-search.md).
+- **Journal:** `journal_write` appends to or overwrites Markdown notes under
+  `Journal/` only, creating them when absent. See [Journal writes](docs/journal.md).
 - **Practice:** Algorithm and System Design coaching with due reviews, and
   confirmed saves limited to approved practice paths. ChatGPT reviews System
   Design solutions in an Excalidraw canvas. See [practice](docs/practice.md).
@@ -133,6 +136,7 @@ never edit by hand.
 - [Cognito compatibility and OAuth rollout](docs/cognito-preflight.md)
 - [Selected-note MCP rollout and permission scope](docs/mcp-rollout.md)
 - [Practice workflow, review queues and staged note saving](docs/practice.md)
+- [Journal writes](docs/journal.md)
 - [MCP tools, configuration and ChatGPT / Claude connections](docs/mcp-server.md)
 - [Athena and S3 Metadata file discovery](docs/metadata-search.md)
 - [Storage retention and recovery verification](docs/retention.md)

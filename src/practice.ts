@@ -195,7 +195,7 @@ export class Practice {
   private async put(path: string, value: string, revision?: string) {
     if (!this.settings.practice.writesEnabled || !this.dependencies.writer) throw new PracticeError('practice_writes_disabled');
     if (Buffer.byteLength(value) > 65536) throw new PracticeError('practice_note_too_large');
-    return this.dependencies.writer.put(this.key(path), value, revision, this.signal);
+    return this.dependencies.writer.put(this.key(path), value, revision ? { revision } : 'absent', this.signal);
   }
   async add(input: z.infer<typeof addReviewSchema>) {
     domainSchema.parse(input.domain);

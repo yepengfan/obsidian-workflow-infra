@@ -26,5 +26,8 @@
     "enabled": true,
     "writesEnabled": true,
     "timeZone": "Australia/Brisbane"
+  },
+  "journal": {
+    "writesEnabled": true
   }
 }

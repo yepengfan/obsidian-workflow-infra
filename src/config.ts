@@ -14,6 +14,7 @@ export const limitsSchema = z.strictObject({
 export const runtimeOptionsSchema = z.strictObject({
   metadataSearch: z.boolean().default(false),
   practice: practiceOptionsSchema.default({ enabled: false, writesEnabled: false, timeZone: 'Australia/Brisbane' }),
+  journal: z.strictObject({ writesEnabled: z.boolean().default(false) }).default({ writesEnabled: false }),
   ownerGroup: z.string().regex(/^obsidian-mcp-[a-z0-9-]+$/u).max(128).default('obsidian-mcp-owners'),
   callbackUrls: z.array(z.url().refine(value => {
     const url = new URL(value);
@@ -25,6 +26,9 @@ export const runtimeOptionsSchema = z.strictObject({
   limits: limitsSchema.default({ pageSize: 20, selectedNotes: 20, parallelReads: 4, searchBytesPerNote: 262144, readChunkBytes: 16384, requestBytes: 65536, responseBytes: 262144, deadlineMs: 5000 }),
 });
 export type RuntimeOptions = z.infer<typeof runtimeOptionsSchema>;
+/** Any enabled write feature needs the shared write scope, IAM grant and writer port. */
+export const vaultWritesEnabled = (options: Pick<RuntimeOptions, 'practice' | 'journal'>) =>
+  options.practice.writesEnabled || options.journal.writesEnabled;
 export type Settings = RuntimeOptions & { bucket: string; prefix: string; region: string; issuer: string; clientIds: string[]; resource: string; scope: string };
 
 export function environmentSettings(env: NodeJS.ProcessEnv): Settings {

@@ -13,6 +13,7 @@ private; no public objects or presigned note URLs are generated.
 | `search_notes`, body | `mode: "body"`, nonempty selected `paths` and a literal query. Reads only that bounded batch in parallel; never expands folders. |
 | `search_note_metadata` (when enabled) | Literal path text, explicit folder and descendants, optional UTC date/byte-size ranges. Queries S3 Metadata through Athena without body reads. Continue pending executions or later pages with unchanged filters and the returned cursor. See [metadata search](metadata-search.md). |
 | `read_note` | One selected Markdown `path`, optionally the returned cursor. Reads a bounded UTF-8 chunk, pinned to the object's ETag while continuing. |
+| `journal_write` (when enabled) | One Markdown `path` under `Journal/`, `mode` `append` or `overwrite`, and `content`. Creates absent notes. Requires the write scope. See [Journal writes](journal.md). |
 
 Results use MCP `structuredContent` and output schemas. Paths are stable resource
 identifiers the caller can choose, not capabilities or filesystem paths. This
@@ -54,8 +55,8 @@ metadata, OAuth challenge and client all use this same URL-bound scope.
 Owner authentication also requires the standard `openid` scope so Cognito includes
 the identity/group claims needed for authorization. Public resource discovery,
 the initial OAuth challenge, tool security metadata and runtime validation all
-require `openid` together with `NotesScope`. Practice writes additionally require
-`<McpEndpoint>/write`. While writes are enabled, the initial challenge requests
+require `openid` together with `NotesScope`. Practice and Journal writes
+additionally require the shared `<McpEndpoint>/write` scope. While writes are enabled, the initial challenge requests
 every advertised scope, including write, because hosts such as Claude authorize
 only the challenge scopes and cannot gain write mid-session. Without the write
 scope, read tools still work and write tools return `authentication_required`.
@@ -76,7 +77,7 @@ request-origin checks also include a fixed `denialReason`: `authentication`,
 `owner_group`, or `origin_or_host`. They omit actual origins, hosts, token claims,
 note paths, body text, tokens, credentials and raw exception messages. CloudWatch
 retention and API throttling are defined in CDK. Runtime writes are limited to
-enabled practice paths; it cannot delete objects or read the ebook or
+enabled practice paths and `Journal/`; it cannot delete objects or read the ebook or
 code-artifact bucket.
 
 ## Deployment
@@ -192,7 +193,7 @@ client grants no additional vault permissions or access to other users.
    `https://chatgpt.com` and `https://claude.ai`; an approved OAuth callback alone
    does not allow an origin. Unknown origins remain rejected before note access.
 5. Verify a root listing and a selected note read, then enabled metadata / practice
-   tools. For confirmed practice saving, the token also needs the resource-bound
+   tools. For practice saving and Journal writes, the token also needs the resource-bound
    write scope. Claude must request the canonical `McpEndpoint` as OAuth `resource`
    so Cognito issues the exact access-token audience. The server requests
    `openid`, the read scope and, while writes are enabled, the write scope;

@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { requiredScopes } from './auth.js';
+import { requiredScopes, writeScope } from './auth.js';
 import type { McpSkill, SkillContext } from './skill.js';
 import type { Settings } from './config.js';
 import { addReviewSchema, domainSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
@@ -36,7 +36,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     inputSchema: z.strictObject({ path: z.string().max(1024) }) }, input => result(() => practice.designCanvas(input.path)));
   if (!settings.practice.writesEnabled) return;
   const writeSecurity = { annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-    _meta: { securitySchemes: [{ type: 'oauth2', scopes: requiredScopes(settings, [`${settings.resource}/write`]) }] } };
+    _meta: { securitySchemes: [{ type: 'oauth2', scopes: requiredScopes(settings, [writeScope(settings)]) }] } };
   const write = (work: () => Promise<object>) => result(async () => { await authorizeWrite(); return work(); });
   server.registerTool('practice_add_review', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit user confirmation, register a neutral review object without overwriting an existing one. Never invent an attempt or reflection. New entries have no scheduled date until a round is recorded.',
@@ -56,10 +56,10 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
 export function practiceSkill(settings: Settings): McpSkill {
   return {
     instructions: 'For an explicit user request to practice, call the practice tool and follow its versioned workflow definitions for that task; keep private note data distinct from those definitions. For System Design, open the selected Excalidraw canvas in chat before coaching and inspect its latest shared state before feedback. The canvas is the learner solution; chat explanations are supporting context. Follow the MCP canvas adaptations over upstream Mermaid instructions. Never claim to see unsaved widget edits without fresh host context.',
-    scopes: settings.practice.writesEnabled ? [`${settings.resource}/write`] : [],
+    scopes: settings.practice.writesEnabled ? [writeScope(settings)] : [],
     register: ({ server, store, writer, owner, signal, result, authorizeScope }) => {
       registerPracticeTools(server, new Practice(store, settings, owner, signal, { writer }), settings, result,
-        () => authorizeScope(`${settings.resource}/write`));
+        () => authorizeScope(writeScope(settings)));
     },
   };
 }
