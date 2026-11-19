@@ -96,41 +96,17 @@ flowchart TB
     style Platform fill:none,stroke:#777,stroke-dasharray:6 4
 ```
 
-The application implements `list_notes`, `search_notes`, and `read_note`, with
-optional `search_note_metadata` through Athena over S3 Metadata, plus
-Algorithm and System Design practice with due reviews followed by new problems.
-Generic practice shows due work across available domains and waits for a choice;
-explicit domain requests start directly.
-Practice coaching and queue reads reuse the same authenticated Lambda and S3
-containers. The configuration enables confirmed saving on approved practice
-paths, subject to the separate IAM and application activation steps. See
-[practice through MCP](docs/practice.md) for its tools and activation checks.
-The host Excalidraw app opens the new or resumed System Design canvas before
-coaching. Chat checks the latest shared drawing on each coaching turn; unsaved
-widget edits require fresh host context or an updated export before assessment.
-The MCP server decodes saved native drawing data, including legacy compressed
-files. Saving the working canvas to Obsidian remains a separate confirmed write.
-Each client browses one folder page, chooses note paths, then retrieves or searches
-only those notes. Metadata search can discover paths across the vault without
-reading bodies or recursively listing folders. Its inventory typically updates
-within one hour. See [metadata search](docs/metadata-search.md) for continuation,
-costs, activation prerequisites and
-[recovery from failed initialization](docs/metadata-search.md#recovering-a-failed-initial-configuration).
-The journal expires change records after seven days; the live inventory keeps
-tracking existing files regardless of age. The dedicated Athena workgroup caps
-each query at 256 MiB scanned and deletes managed results after 24 hours.
-CloudFormation completion alone does not establish metadata readiness; inventory
-must reach `ACTIVE` before accepting metadata search. No content index is built.
-The MCP server reads selected vault notes and can conditionally write only
-approved Algorithm and System Design practice notes and review records after
-activation. It has no access to the ebook library. See the
-[connection guide](docs/mcp-server.md#owner-setup-and-chatgpt-connection)
-for owner authorization and ChatGPT setup, or the
-[Claude connection guide](docs/mcp-server.md#claude-connection).
-Each host has its own confidential OAuth client, exact callback allowlist and secret,
-with the same Cognito user, MFA, owners group and resource-bound scopes. Lambda
-accepts only the client IDs deployed by CDK. The ChatGPT Excalidraw host integration
-is separate from MCP tool access; the Claude connection does not provision a canvas app.
+- **Notes:** `list_notes`, `search_notes` and `read_note` browse one folder page
+  and read or search only selected notes. The server cannot access the ebook
+  library.
+- **Metadata search:** optional `search_note_metadata` finds paths by date and
+  size through Athena over S3 Metadata, without reading note bodies. See
+  [metadata search](docs/metadata-search.md).
+- **Practice:** Algorithm and System Design coaching with due reviews, and
+  confirmed saves limited to approved practice paths. ChatGPT reviews System
+  Design solutions in an Excalidraw canvas. See [practice](docs/practice.md).
+- **Access:** ChatGPT and Claude each have their own Cognito OAuth client for the
+  same MFA-protected owner. See the [connection guide](docs/mcp-server.md).
 
 Keep these C1 and C2 views aligned with changes to the system's users,
 integrations, applications and data stores. Authoritative definitions and
@@ -147,12 +123,9 @@ npm run check
 npm run synth
 ```
 
-The tool-schema interoperability test also uses Python 3's standard-library
-regex engine. It needs no Python packages and is not part of the Lambda runtime.
-
-Synthesis writes the cloud assembly for the configured stage to `cdk.out`;
-these commands do not deploy. Edit the TypeScript/configuration sources, never
-generated templates.
+The tool-schema test also needs Python 3 (standard library only). These commands
+do not deploy; `synth` writes generated templates to `cdk.out`, which you should
+never edit by hand.
 
 ## Operational guides
 
@@ -167,25 +140,15 @@ generated templates.
 
 ## Dependency audit
 
-The pinned CDK library bundles a vulnerable minimatch copy, currently reported
-as two moderate findings (minimatch and aws-cdk-lib). The npm override fixes the
-separately installed copy, not the bundled one. CDK remains a build-time dependency and is not bundled into the Lambda runtime. Do not use
-`npm audit fix --force` to silently downgrade CDK or claim the bundled finding
-is resolved. Recheck upstream before publishing.
+`npm run audit:ci` (also in CI) fails on any high or critical advisory in runtime
+dependencies, then audits the full tree with one build-tool exception. Known,
+unresolved findings, none of which are in the Lambda bundle:
 
-The build tools also inherit the high-severity picomatch advisory
-[GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf), affecting
-all published versions through 4.0.7 with no patched release as of 2026-11-18.
-It is not in the Lambda bundle; its lint/test glob patterns come from this
-repository. This remains an unresolved vulnerability, not a dependency fix.
+- **minimatch inside `aws-cdk-lib`:** two moderate findings. The npm override
+  fixes only the separately installed copy.
+- **picomatch [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf):**
+  high, no upstream patch. Allowed only in [audit-ci.jsonc](audit-ci.jsonc)
+  until 2026-12-18 UTC; upgrade and remove the exception once a fix ships.
 
-Run `npm run audit:ci` locally and in CI. It first runs the runtime dependency
-audit without exceptions, failing on every high/critical advisory. It then uses
-pinned `audit-ci` to check the entire dependency tree at the same threshold,
-with one explicit build-tool exception in [audit-ci.jsonc](audit-ci.jsonc).
-That exception names only GHSA-fc5q-39xc-vjpf, remains visible in audit output,
-and expires on 2026-12-18 UTC. Every other high/critical advisory still fails.
-A runtime occurrence of the same advisory also fails the first audit. Remove
-the exception and upgrade when an upstream patch is published; expiry requires
-renewed review if there is still no fix. Do not use a package-wide exemption,
-raise the severity threshold, or blanket-ignore audit failures.
+Do not run `npm audit fix --force`, widen exceptions, or raise the threshold to
+silence findings.
