@@ -15,7 +15,7 @@ const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json
 const options = mcpAppSchema.parse(JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8')));
 const { stage } = mcpRolloutSchema.parse(JSON.parse(fs.readFileSync('config/mcp-deployment.json', 'utf8')));
 const code = stage === 'runtime' ? await buildRuntime(app.outdir, process.env.SOURCE_SHA ?? 'local') : undefined;
-const deployment = mcpDeploymentSchema.parse(mcpResources(aws, github.runtimeRoleName, options.notePrefix, options.practice.writesEnabled, options.metadataSearch));
+const deployment = mcpDeploymentSchema.parse(mcpResources(aws, github.runtimeRoleName, options.notePrefix, options.practice.writesEnabled, options.metadataSearch, options.journal.writesEnabled));
 new StorageStack(app, STORAGE_STACK_NAME, aws, options.metadataSearch);
 new CognitoStack(app, 'ObsidianMcp', aws,
   cognitoSchema.parse(JSON.parse(fs.readFileSync('config/cognito.json', 'utf8'))),

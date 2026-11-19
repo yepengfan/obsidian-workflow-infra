@@ -5,7 +5,7 @@ import { CfnFunction, CfnPermission } from 'aws-cdk-lib/aws-lambda';
 import { CfnLogGroup } from 'aws-cdk-lib/aws-logs';
 import type { CfnBucket } from 'aws-cdk-lib/aws-s3';
 import type { Construct } from 'constructs';
-import { runtimeOptionsSchema } from '../src/config.js';
+import { runtimeOptionsSchema, vaultWritesEnabled } from '../src/config.js';
 import type { CodeBundle } from '../bin/runtime-package.js';
 import { mcpDeploymentSchema, type McpDeploymentConfig } from './mcp-permissions.js';
 import { addMetadataSearch } from './metadata-search.js';
@@ -27,6 +27,8 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   if (options.metadataSearch !== (deployment.metadataSearch ?? false)) throw Error('Metadata search configuration must match the IAM boundary');
   const metadata = options.metadataSearch ? addMetadataSearch(scope) : undefined;
   if (options.practice.writesEnabled !== (deployment.practiceWrites ?? false)) throw Error('Practice write configuration must match the IAM boundary');
+  if (options.journal.writesEnabled !== (deployment.journalWrites ?? false)) throw Error('Journal write configuration must match the IAM boundary');
+  const writes = vaultWritesEnabled(options);
   const ownerGroup = new CfnUserPoolGroup(scope, 'OwnersGroup', {
     userPoolId: pool.ref, groupName: options.ownerGroup,
     description: 'Authorized private Obsidian MCP users; membership is managed in Cognito',
@@ -41,7 +43,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   const resourceServer = new CfnUserPoolResourceServer(scope, 'NotesResourceServer', {
     userPoolId: pool.ref, identifier: endpoint, name: 'Private Obsidian notes',
     scopes: [{ scopeName: 'read', scopeDescription: 'Read explicitly selected private Markdown notes' },
-      ...(options.practice.writesEnabled ? [{ scopeName: 'write', scopeDescription: 'Save confirmed practice notes and review attempts only' }] : [])],
+      ...(writes ? [{ scopeName: 'write', scopeDescription: 'Save confirmed practice data and Journal notes only' }] : [])],
   });
   resourceServer.overrideLogicalId('NotesResourceServer');
   // Cognito binds custom scopes to the requested resource-server identifier.
@@ -53,7 +55,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
       userPoolId: pool.ref, clientName, generateSecret: true,
       allowedOAuthFlowsUserPoolClient: oauthEnabled,
       // Permit the OIDC scopes advertised by native Cognito discovery.
-      ...(oauthEnabled ? { allowedOAuthFlows: ['code'], allowedOAuthScopes: ['openid', 'email', 'phone', 'profile', scopeName, ...(options.practice.writesEnabled ? [`${resourceServer.ref}/write`] : [])], callbackUrLs: callbacks } : {}),
+      ...(oauthEnabled ? { allowedOAuthFlows: ['code'], allowedOAuthScopes: ['openid', 'email', 'phone', 'profile', scopeName, ...(writes ? [`${resourceServer.ref}/write`] : [])], callbackUrLs: callbacks } : {}),
       supportedIdentityProviders: ['COGNITO'], explicitAuthFlows: ['ALLOW_REFRESH_TOKEN_AUTH'],
       accessTokenValidity: 15, idTokenValidity: 15, refreshTokenValidity: 7,
       tokenValidityUnits: { accessToken: 'minutes', idToken: 'minutes', refreshToken: 'days' },

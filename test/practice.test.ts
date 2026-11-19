@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import bundle from '../workflows/practice.json' with { type: 'json' };
 import { calendarDay, nextSchedule, Practice, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
 import { NoteError } from '../src/paths.js';
-import type { NoteStore, NoteWriter } from '../src/note-store.js';
+import type { NoteStore, NoteWriter, WriteCondition } from '../src/note-store.js';
 import { owner, runtimeSettings } from './runtime-fixtures.js';
 
 const root = 'Vault/';
@@ -34,9 +34,11 @@ class PracticeStore implements NoteStore, NoteWriter {
     if (!this.files.has(key) || (etag && etag !== this.tag(key))) throw new NoteError('note_unavailable');
     const data = Buffer.from(this.files.get(key)!); return { bytes: data.subarray(offset, offset + length), total: data.length, etag: this.tag(key) };
   }
-  async put(key: string, text: string, revision: string | undefined, signal: AbortSignal) {
+  async put(key: string, text: string, condition: WriteCondition, signal: AbortSignal) {
     signal.throwIfAborted(); this.beforePut?.(key);
-    if (revision ? !this.files.has(key) || this.tag(key) !== revision : this.files.has(key)) throw new NoteError('revision_conflict');
+    // Practice saves are always conditional; an unconditional write is a defect.
+    if (condition === 'any') throw Error('unconditional practice write');
+    if (typeof condition === 'object' ? !this.files.has(key) || this.tag(key) !== condition.revision : this.files.has(key)) throw new NoteError('revision_conflict');
     this.files.set(key, text); this.writes.push(key); return this.tag(key);
   }
 }

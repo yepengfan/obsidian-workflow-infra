@@ -5,6 +5,9 @@ export interface NoteStore {
   read(key: string, offset: number, length: number, etag: string | undefined, signal: AbortSignal): Promise<NoteChunk>;
 }
 
+/** Create only if absent, replace an exact revision, or replace whatever is current. */
+export type WriteCondition = 'absent' | { revision: string } | 'any';
 export interface NoteWriter {
-  put(key: string, text: string, revision: string | undefined, signal: AbortSignal): Promise<string>;
+  /** Rejects an unmet condition with `revision_conflict`. Returns the new revision. */
+  put(key: string, text: string, condition: WriteCondition, signal: AbortSignal): Promise<string>;
 }

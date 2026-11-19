@@ -137,3 +137,15 @@ it('adds a write scope only when the separate practice IAM boundary matches', ()
   expect(resources.ChatGptClient.Properties.AllowedOAuthScopes).toContainEqual({ 'Fn::Join': ['', [{ Ref: 'NotesResourceServer' }, '/write']] });
   expect(resources.RuntimeLogs.Properties.RetentionInDays).toBe(14);
 });
+
+it('adds the shared write scope for Journal writes only when the Journal IAM boundary matches', () => {
+  const options = mcpAppSchema.parse({ notePrefix: '', callbackUrls: ['https://chatgpt.com/connector/oauth/exact-callback-id'], journal: { writesEnabled: true } });
+  expect(() => new CognitoStack(new App(), 'Mismatch', aws, cognito, deployment, { options, code, noteBucket: aws.buckets.vault.name })).toThrow('Journal write configuration');
+  expect(() => new CognitoStack(new App(), 'Reverse', aws, cognito, { ...deployment, journalWrites: true },
+    { options: mcpAppSchema.parse({ notePrefix: '' }), code, noteBucket: aws.buckets.vault.name })).toThrow('Journal write configuration');
+  const stack = new CognitoStack(new App(), 'Matching', aws, cognito, { ...deployment, journalWrites: true }, { options, code, noteBucket: aws.buckets.vault.name });
+  const resources = Template.fromStack(stack).toJSON().Resources;
+  expect(resources.NotesResourceServer.Properties.Scopes.map((scope: { ScopeName: string }) => scope.ScopeName)).toEqual(['read', 'write']);
+  expect(resources.ChatGptClient.Properties.AllowedOAuthScopes).toContainEqual({ 'Fn::Join': ['', [{ Ref: 'NotesResourceServer' }, '/write']] });
+  expect(JSON.parse(resources.McpFunction.Properties.Environment.Variables.MCP_OPTIONS).journal).toEqual({ writesEnabled: true });
+});
