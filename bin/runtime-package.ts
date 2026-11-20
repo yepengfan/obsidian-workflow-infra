@@ -14,11 +14,16 @@ export const bundleSchema = z.strictObject({
 });
 export type CodeBundle = z.infer<typeof bundleSchema>;
 export async function buildRuntime(outputDirectory: string, sourceSha = 'local'): Promise<CodeBundle> {
-  const result = await build({ entryPoints: [fileURLToPath(new URL('../src/runtime.ts', import.meta.url))], bundle: true,
+  // One reviewed artifact serves both functions: the MCP runtime and the note indexer.
+  const entries = { index: '../src/runtime.ts', indexer: '../src/indexer-runtime.ts' };
+  const result = await build({ entryPoints: Object.fromEntries(Object.entries(entries).map(([name, source]) => [name, fileURLToPath(new URL(source, import.meta.url))])),
+    bundle: true, outdir: '/bundle', outExtension: { '.js': '.mjs' },
     platform: 'node', target: 'node22', format: 'esm', write: false, minify: true, legalComments: 'inline',
     banner: { js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);' } });
-  if (result.outputFiles.length !== 1) throw Error('Expected one runtime bundle');
-  const bytes = zipSync({ 'index.mjs': [result.outputFiles[0]!.contents, { mtime: new Date(1980, 0, 1, 0, 0, 0) }] }, { level: 9 });
+  const files = Object.fromEntries(result.outputFiles.map(file => [path.basename(file.path), file.contents]));
+  if (Object.keys(files).sort().join() !== 'index.mjs,indexer.mjs') throw Error('Expected the runtime and indexer bundles');
+  const mtime = new Date(1980, 0, 1, 0, 0, 0);
+  const bytes = zipSync({ 'index.mjs': [files['index.mjs']!, { mtime }], 'indexer.mjs': [files['indexer.mjs']!, { mtime }] }, { level: 9 });
   const digest = createHash('sha256').update(bytes).digest();
   const metadata = bundleSchema.parse({ schemaVersion: 1, sourceSha, sha256: digest.toString('hex'), sha256Base64: digest.toString('base64'), key: `releases/${digest.toString('hex')}.zip`, bytes: bytes.length });
   await fs.mkdir(outputDirectory, { recursive: true });

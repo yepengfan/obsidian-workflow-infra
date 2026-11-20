@@ -23,6 +23,8 @@ describe('managed storage retention', () => {
           }] },
           PublicAccessBlockConfiguration: { BlockPublicAcls: true, IgnorePublicAcls: true, BlockPublicPolicy: true, RestrictPublicBuckets: true },
           OwnershipControls: { Rules: [{ ObjectOwnership: 'BucketOwnerEnforced' }] },
+          // Only the vault feeds the note index.
+          ...(id === 'Vault' ? { NotificationConfiguration: { EventBridgeConfiguration: { EventBridgeEnabled: true } } } : {}),
           VersioningConfiguration: { Status: 'Enabled' },
           LifecycleConfiguration: { Rules: [{
             Id: 'AbortIncompleteMultipartUploads', Status: 'Enabled', Prefix: '',

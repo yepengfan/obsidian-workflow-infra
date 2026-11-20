@@ -31,6 +31,9 @@ export class StorageStack extends Stack {
             blockedEncryptionTypes: { encryptionType: settings.encryption.blockedEncryptionTypes },
           }],
         },
+        // The vault publishes object events to EventBridge for the note index.
+        // The MCP stack owns the matching rule; S3 events on the default bus are free.
+        ...(logicalId === 'Vault' ? { notificationConfiguration: { eventBridgeConfiguration: { eventBridgeEnabled: true } } } : {}),
         publicAccessBlockConfiguration: settings.publicAccessBlock,
         ownershipControls: { rules: [{ objectOwnership: settings.objectOwnership }] },
         ...(settings.versioning === 'unversioned' ? {} : {

@@ -9,6 +9,7 @@ import { runtimeOptionsSchema, vaultWritesEnabled } from '../src/config.js';
 import type { CodeBundle } from '../bin/runtime-package.js';
 import { mcpDeploymentSchema, type McpDeploymentConfig } from './mcp-permissions.js';
 import { addMetadataSearch } from './metadata-search.js';
+import { addPracticeIndex } from './practice-index.js';
 
 export const mcpAppSchema = runtimeOptionsSchema.extend({ notePrefix: mcpDeploymentSchema.shape.notePrefix });
 export type McpApplication = { options: ReturnType<typeof mcpAppSchema.parse>; code: CodeBundle; noteBucket: string };
@@ -104,6 +105,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
     // The user pool/domain and code storage retain their separate protection.
     resource.applyRemovalPolicy(RemovalPolicy.DESTROY, { applyToUpdateReplacePolicy: true });
   }
+  addPracticeIndex(scope, { noteBucket: application.noteBucket, notePrefix: deployment.notePrefix, codeBucket: bucket.ref, codeKey: application.code.key });
   new CfnOutput(scope, 'McpEndpoint', { value: endpoint });
   new CfnOutput(scope, 'NotesScope', { value: scopeName });
   new CfnOutput(scope, 'OwnerGroupName', { value: ownerGroup.ref });

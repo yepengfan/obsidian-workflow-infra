@@ -100,6 +100,9 @@ UPDATE type and waiter below.
 npx --no-install cdk synth ObsidianGitHubTrust \
   --app 'npx --no-install tsx bin/github.ts' --no-lookups \
   --output cdk.github.out --quiet
+# CloudFormation limits an inline template body to 51,200 bytes. Upload the
+# same JSON without whitespace; test/github.test.ts keeps it under that limit.
+node -e 'const fs = require("fs"), f = "cdk.github.out/ObsidianGitHubTrust.template.json"; fs.writeFileSync(f, JSON.stringify(JSON.parse(fs.readFileSync(f, "utf8"))))'
 FOUNDATION_CHANGE_SET="obsidian-foundation-$(git rev-parse --short=12 HEAD)"
 aws cloudformation create-change-set \
   --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \

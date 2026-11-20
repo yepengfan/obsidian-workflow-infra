@@ -4,6 +4,7 @@ import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
 import { describe, expect, it } from 'vitest';
 import { githubSchema, GitHubTrustStack } from '../infra/github-stack.js';
+import { mcpAppSchema } from '../infra/mcp-runtime.js';
 import { storageSchema } from '../infra/storage-config.js';
 
 const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
@@ -121,6 +122,15 @@ describe('GitHub OIDC foundation', () => {
     for (const statement of statements.filter(statement => statement.Action !== 's3:PutBucketNotification')) expect(statement.Resource).toEqual(
       [changed.buckets.vault.name, changed.buckets.library.name].map(name => stack.resolve(`arn:${stack.partition}:s3:::${name}`)),
     );
+  });
+
+  it('fits the minified foundation inside the inline CloudFormation template limit', () => {
+    // The local SSO procedure uploads the minified template as --template-body.
+    // Synthesize the production configuration, as bin/github.ts does.
+    const options = mcpAppSchema.parse(JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8')));
+    const deployment = mcpResources(storage, github.runtimeRoleName, options.notePrefix, options.practice.writesEnabled, options.metadataSearch, options.journal.writesEnabled);
+    const template = Template.fromStack(new GitHubTrustStack(new App(), 'Trust', storage, github, deployment)).toJSON();
+    expect(Buffer.byteLength(JSON.stringify(template))).toBeLessThan(51200 * 0.9);
   });
 
   it('assigns the configured stable names to the correct OIDC environments', () => {
