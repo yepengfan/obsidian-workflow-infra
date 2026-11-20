@@ -49,6 +49,16 @@ describe('DynamoIndexTable', () => {
 });
 
 describe('SqsIndexQueue', () => {
+  it('sends keys in order across SQS batches of at most ten', async () => {
+    const keys = Array.from({ length: 23 }, (_, index) => `${index}.md`);
+    const { client: sqs, send } = client<SQSClient>(() => ({}));
+    await new SqsIndexQueue(sqs, 'url').send(keys);
+    const batches = send.mock.calls.map(([command]) =>
+      (command.input as { Entries: { MessageBody: string }[] }).Entries);
+    expect(batches.map(batch => batch.length)).toEqual([10, 10, 3]);
+    expect(batches.flat().map(entry => JSON.parse(entry.MessageBody).key)).toEqual(keys);
+  });
+
   it('sends one FIFO group with unique deduplication IDs and fails on partial failure', async () => {
     const { client: sqs, send } = client<SQSClient>(() => ({ Failed: [] }));
     await new SqsIndexQueue(sqs, 'url').send(['a.md', 'b.md']);

@@ -5,7 +5,6 @@ import { randomUUID } from 'node:crypto';
 import { INDEX_MESSAGE_GROUP, MAX_SOURCE_BYTES, type IndexCatalog, type IndexQueue, type IndexWriter, type SourceCatalog, type SourceReader } from './indexer.js';
 import { indexTableName, type IndexValue } from './index-modules/types.js';
 
-/** Note source: the vault bucket. Reads always return the current object. */
 export class S3IndexSource implements SourceReader, SourceCatalog {
   constructor(private readonly client: S3Client, private readonly bucket: string) {}
   async get(key: string) {
@@ -33,7 +32,6 @@ export class S3IndexSource implements SourceReader, SourceCatalog {
 const attribute = (item: IndexValue): AttributeValue => item === null ? { NULL: true }
   : typeof item === 'string' ? { S: item } : typeof item === 'number' ? { N: String(item) } : { BOOL: item };
 
-/** One table per module, keyed by item_id. */
 export class DynamoIndexTable implements IndexWriter, IndexCatalog {
   constructor(private readonly client: DynamoDBClient) {}
   async put(module: { id: string }, item: Record<string, IndexValue>) {
@@ -51,10 +49,17 @@ export class DynamoIndexTable implements IndexWriter, IndexCatalog {
   }
 }
 
-/** Queues keys for the single FIFO consumer. */
+const SQS_BATCH_SIZE = 10;
+
 export class SqsIndexQueue implements IndexQueue {
   constructor(private readonly client: SQSClient, private readonly url: string) {}
   async send(keys: string[]) {
+    for (let start = 0; start < keys.length; start += SQS_BATCH_SIZE) {
+      await this.sendBatch(keys.slice(start, start + SQS_BATCH_SIZE));
+    }
+  }
+
+  private async sendBatch(keys: string[]) {
     const requestedAt = new Date().toISOString();
     const result = await this.client.send(new SendMessageBatchCommand({ QueueUrl: this.url,
       Entries: keys.map((key, index) => ({ Id: String(index), MessageGroupId: INDEX_MESSAGE_GROUP, MessageDeduplicationId: randomUUID(),

@@ -1,5 +1,5 @@
 import { mcpResources } from '../infra/mcp-resources.js';
-import { githubSchema } from '../infra/github-stack.js';
+import { githubSchema } from '../infra/github-config.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { S3Client } from '@aws-sdk/client-s3';

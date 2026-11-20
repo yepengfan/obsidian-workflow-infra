@@ -1,9 +1,7 @@
 import type { McpSkill } from './skill.js';
-import { OperationError } from './errors.js';
+import { serveMcpRequest } from './mcp-request.js';
 import { configuredSkills } from './skills.js';
 import { randomUUID } from 'node:crypto';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { AuthError, requiredScopes, tokenVerifier } from './auth.js';
 import type { Settings } from './config.js';
 import type { NoteStore, NoteWriter } from './note-store.js';
@@ -46,42 +44,14 @@ export function createFetchHandler(settings: Settings, dependencies: Dependencie
         return new Response(null, { status, headers: { 'WWW-Authenticate': challenge } });
       }
       if (request.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST, OPTIONS' } });
-      const signal = AbortSignal.any([request.signal, AbortSignal.timeout(settings.limits.deadlineMs)]);
-      const server = new McpServer({ name: 'obsidian-s3-mcp', version: '1.0.0' }, {
-        instructions: skills.map(skill => skill.instructions).join(' '),
-      });
-      const result = async (work: () => Promise<object>) => {
-        try {
-          signal.throwIfAborted();
-          const value = await work();
-          const response = { content: [{ type: 'text' as const, text: JSON.stringify(value) }], structuredContent: { ...value } };
-          if (Buffer.byteLength(JSON.stringify(response)) > settings.limits.responseBytes) throw new OperationError('result_too_large');
-          return response;
-        } catch (error) {
-          if (error instanceof AuthError) return { isError: true, content: [{ type: 'text' as const, text: 'authentication_required' }],
-            ...(error.status === 401 ? { _meta: { 'mcp/www_authenticate': challenge } } : {}) };
-          const code = signal.aborted ? 'timeout' : error instanceof OperationError ? error.code : 'note_unavailable';
-          return { isError: true, content: [{ type: 'text' as const, text: code }] };
-        }
-      };
-      for (const skill of skills) skill.register({ server, store: dependencies.store, writer: dependencies.writer, settings, owner, signal, result,
+      return serveMcpRequest(request, skills, challenge, {
+        settings, store: dependencies.store, writer: dependencies.writer, owner,
         authorizeScope: async scope => {
-          if (!skill.scopes.includes(scope)) throw new AuthError(403);
-          const scopedOwner = await (dependencies.verifyScope
-            ? dependencies.verifyScope(request.headers.get('authorization'), scope)
-            : tokenVerifier(settings, undefined, scope)(request.headers.get('authorization')));
+          const verifyScope = dependencies.verifyScope ?? ((authorization, required) => tokenVerifier(settings, undefined, required)(authorization));
+          const scopedOwner = await verifyScope(request.headers.get('authorization'), scope);
           if (scopedOwner !== owner) throw new AuthError(403);
         },
       });
-      const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true, maxRequestBodySize: settings.limits.requestBytes });
-      try {
-        await server.connect(transport);
-        const response = await transport.handleRequest(request);
-        // Fully consume the JSON body before closing this invocation's transport.
-        const body = await response.text();
-        if (Buffer.byteLength(body) > settings.limits.responseBytes) return new Response(null, { status: 413 });
-        return new Response(body, { status: response.status, headers: response.headers });
-      } finally { await server.close(); }
     };
     let response: Response;
     try { response = await serve(); } catch { response = new Response(null, { status: 500 }); }

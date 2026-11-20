@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Settings } from './config.js';
 import { OperationError } from './errors.js';
-import type { NoteStore, NoteWriter } from './note-store.js';
+import type { NoteReader, NoteWriter } from './note-store.js';
 import { keyFor, NoteError, validPath } from './paths.js';
 
 export const JOURNAL_ROOT = 'Journal/';
@@ -23,15 +23,13 @@ export function journalPath(path: string): string {
   return valid;
 }
 
-/** Journal write rules. Storage is reached only through the injected ports. */
 export class Journal {
-  constructor(private readonly store: NoteStore, private readonly writer: NoteWriter, private readonly settings: Pick<Settings, 'prefix'>) {}
+  constructor(private readonly store: NoteReader, private readonly writer: NoteWriter, private readonly settings: Pick<Settings, 'prefix'>) {}
 
   async write(input: JournalWriteInput, signal: AbortSignal) {
     const path = journalPath(input.path);
     const key = keyFor(this.settings.prefix, path);
     if (input.mode === 'overwrite') {
-      // The caller reads the note first and sends the complete replacement.
       await this.writer.put(key, input.content, 'any', signal);
       return { path, mode: input.mode, totalBytes: Buffer.byteLength(input.content) };
     }

@@ -2,9 +2,9 @@ import { AthenaClient, GetQueryExecutionCommand, GetQueryResultsCommand, StartQu
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { expect, it, vi } from 'vitest';
-import { AthenaMetadataQuery } from '../src/athena.js';
+import { AthenaMetadataQuery, inventorySql } from '../src/athena.js';
 import { createFetchHandler } from '../src/handler.js';
-import { METADATA_WORKGROUP, MetadataSearch, metadataInput, type MetadataQuery } from '../src/metadata-search.js';
+import { METADATA_WORKGROUP, MetadataSearch, metadataInput, type MetadataLookup, type MetadataQuery } from '../src/metadata-search.js';
 import { metadataSkill } from '../src/metadata-tools.js';
 import { decodeCursor, encodeCursor } from '../src/paths.js';
 import { z } from 'zod';
@@ -17,7 +17,7 @@ it('discovers nested metadata through the real MCP client, resumes a pending que
   const settings = runtimeSettings(), store = new MemoryStore();
   store.files.set('Vault/Nested/Plan.md', 'Selected note');
   const executions: (string | undefined)[] = [];
-  const query: MetadataQuery = { run: async (_sql, _limit, queryId) => {
+  const query: MetadataQuery = { search: async (_lookup, queryId) => {
     executions.push(queryId);
     return queryId ? { state: 'complete', rows: [row()], scannedBytes: 2048 } : { state: 'pending', queryId: id };
   } };
@@ -38,8 +38,8 @@ it('discovers nested metadata through the real MCP client, resumes a pending que
 });
 
 it('binds cursors to owner, filters and prefix, and advances by the last returned path', async () => {
-  const sqls: string[] = [];
-  const query: MetadataQuery = { run: async sql => { sqls.push(sql); return { state: 'complete', rows: [row('Vault/a.md'), row('Vault/b.md')], scannedBytes: 1 }; } };
+  const lookups: MetadataLookup[] = [];
+  const query: MetadataQuery = { search: async lookup => { lookups.push(lookup); return { state: 'complete', rows: [row('Vault/a.md'), row('Vault/b.md')], scannedBytes: 1 }; } };
   const settings = runtimeSettings();
   const search = new MetadataSearch(query, settings), signal = AbortSignal.timeout(1000);
   const input = metadataInput.parse({ limit: 1 });
@@ -50,12 +50,12 @@ it('binds cursors to owner, filters and prefix, and advances by the last returne
     await expect(search.search({ ...candidate, cursor: result.nextCursor }, user, signal)).rejects.toThrow('invalid_cursor');
   }
   await expect(new MetadataSearch(query, { ...settings, prefix: 'Other/' }).search({ ...input, cursor: result.nextCursor }, owner, signal)).rejects.toThrow('invalid_cursor');
-  expect(sqls).toHaveLength(1);
+  expect(lookups).toHaveLength(1);
 });
 
 it('escapes literal search input, ranks current versions before filtering, and normalizes UTC dates', async () => {
   let sql = '';
-  const query: MetadataQuery = { run: async text => { sql = text; return { state: 'complete', rows: [], scannedBytes: 0 }; } };
+  const query: MetadataQuery = { search: async lookup => { sql = inventorySql(lookup); return { state: 'complete', rows: [], scannedBytes: 0 }; } };
   await new MetadataSearch(query, runtimeSettings()).search(metadataInput.parse({ query: "O'Reilly_%", folder: "Team's", minSize: 12, maxSize: 999,
     modifiedAfter: '2026-11-17T12:00:00+10:00', modifiedBefore: '2026-11-18T00:00:00Z' }), owner, AbortSignal.timeout(1000));
   expect(sql).toContain("starts_with(key, 'Vault/Team''s/')");
@@ -66,7 +66,7 @@ it('escapes literal search input, ranks current versions before filtering, and n
 });
 
 it.each(['Outside/secret.md', 'Vault/../secret.md', 'Vault/secret.txt'])('rejects malformed or outside-vault adapter rows: %s', async key => {
-  const query: MetadataQuery = { run: async () => ({ state: 'complete', rows: [row(key)], scannedBytes: 0 }) };
+  const query: MetadataQuery = { search: async () => ({ state: 'complete', rows: [row(key)], scannedBytes: 0 }) };
   await expect(new MetadataSearch(query, runtimeSettings()).search(metadataInput.parse({}), owner, AbortSignal.timeout(1000))).rejects.toThrow();
 });
 
@@ -106,6 +106,6 @@ it('rejects invalid ranges and expired/cancelled executions without exposing Ath
     await expect(new AthenaMetadataQuery(client).run('SELECT expected', 21, id, new AbortController().signal)).rejects.toThrow('note_unavailable');
   }
   // Client-edited execution IDs must retain the cursor schema contract.
-  const query: MetadataQuery = { run: async () => ({ state: 'pending', queryId: id }) };
+  const query: MetadataQuery = { search: async () => ({ state: 'pending', queryId: id }) };
   await expect(new MetadataSearch(query, runtimeSettings()).search(metadataInput.parse({ cursor: encodeCursor({ v: 1, context: 'wrong', queryId: id }) }), owner, new AbortController().signal)).rejects.toThrow('invalid_cursor');
 });
