@@ -144,7 +144,7 @@ describe('practice storage behavior', () => {
   it('returns canonical workflow definitions and honors live module guards', async () => {
     const { store, practice } = setup(); const result = await practice.workflow('algorithm');
     expect(result.domains).toEqual(['algorithm', 'system-design']); expect(result.selected_domain).toBe('algorithm');
-    expect(result.source_commit).toBe(bundle.sourceCommit); expect(result.intervals).toEqual([1, 3, 7, 14, 30]);
+    expect(result.source_commit).toBe(bundle.sourceCommit); expect(result.intervals).toEqual([1, 3, 7, 14, 60]);
     let document = await practice.instruction('.agents/skills/algo-solve/SKILL.md', 0);
     let text = document.text;
     while (document.next_offset !== undefined) {
