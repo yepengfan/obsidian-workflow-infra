@@ -136,6 +136,7 @@ never edit by hand.
 - [Cognito compatibility and OAuth rollout](docs/cognito-preflight.md)
 - [Selected-note MCP rollout and permission scope](docs/mcp-rollout.md)
 - [Practice workflow, review queues and staged note saving](docs/practice.md)
+- [Practice review index: indexer, deployment order and operation](docs/practice-index.md)
 - [Journal writes](docs/journal.md)
 - [MCP tools, configuration and ChatGPT / Claude connections](docs/mcp-server.md)
 - [Athena and S3 Metadata file discovery](docs/metadata-search.md)

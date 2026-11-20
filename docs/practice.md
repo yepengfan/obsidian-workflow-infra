@@ -202,6 +202,8 @@ after ten pages per domain, report partial coverage and ask to narrow the task
 rather than reading indefinitely.
 Pagination is not a transaction or a frozen snapshot. Refresh after recording a
 round. Malformed/oversized records produce an error, never a false empty queue.
+A DynamoDB index of these records is being introduced to replace this scan; see
+the [practice review index](practice-index.md).
 
 Due items are overdue/today, ordered by `next_review` then stable ID. Upcoming
 and unstarted objects are separate. A neutral prompt excludes earlier answers,

@@ -42,7 +42,8 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
   const stack = new CognitoStack(new App(), 'ObsidianMcp', aws, cognito, deployment, { options, code, noteBucket: aws.buckets.vault.name });
   const template = Template.fromStack(stack);
   template.resourceCountIs('AWS::IAM::Role', 0); template.resourceCountIs('AWS::IAM::Policy', 0);
-  template.resourceCountIs('AWS::Lambda::Function', 1); template.resourceCountIs('AWS::ApiGatewayV2::Api', 1);
+  // The MCP runtime and the note indexer.
+  template.resourceCountIs('AWS::Lambda::Function', 2); template.resourceCountIs('AWS::ApiGatewayV2::Api', 1);
   const resources = template.toJSON().Resources;
   const readScope = { 'Fn::Join': ['', [{ Ref: 'NotesResourceServer' }, '/read']] };
   expect(resources.McpFunction.Properties).toMatchObject({ FunctionName: deployment.functionName, Runtime: 'nodejs22.x', Handler: 'index.handler', Timeout: 10,

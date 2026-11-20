@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { parseDocument, stringify } from 'yaml';
+import { stringify } from 'yaml';
 import { z } from 'zod';
 import bundle from '../workflows/practice.json' with { type: 'json' };
 import type { Settings } from './config.js';
@@ -10,6 +10,7 @@ import { type PracticeDomain, domainSchema, practiceDocuments, practiceDomains, 
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
 import { readDesignCanvas } from './design-canvas.js';
 import { dateSchema, REVIEW_ITEMS_PREFIX, reviewSummarySchema as summarySchema, slugSchema } from './practice-schema.js';
+import { parseFrontmatter } from './frontmatter.js';
 
 export { domainSchema, validatePracticeWritePath } from './practice-domains.js';
 export { dateSchema, slugSchema } from './practice-schema.js';
@@ -35,13 +36,9 @@ const prefix = REVIEW_ITEMS_PREFIX;
 const documents: Record<string, { text: string; sha256: string }> = bundle.documents;
 export class PracticeError extends OperationError {}
 function parseNote(value: string) {
-  const match = value.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/u);
-  if (!match) throw new PracticeError('invalid_practice_note');
-  const document = parseDocument(match[1]!, { uniqueKeys: true });
-  if (document.errors.length) throw new PracticeError('invalid_practice_note');
-  const data: unknown = document.toJS({ maxAliasCount: 20 });
-  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new PracticeError('invalid_practice_note');
-  return { metadata: data as Record<string, unknown>, body: match[2]! };
+  const parsed = parseFrontmatter(value);
+  if (!parsed) throw new PracticeError('invalid_practice_note');
+  return parsed;
 }
 function serialize(metadata: Record<string, unknown>, body: string) { return `---\n${stringify(metadata)}---\n${body}`; }
 export function calendarDay(timeZone: string, now: Date) {
