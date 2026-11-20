@@ -56,6 +56,13 @@ function execute(script: string, fixture: Record<string, unknown> = {}, plan = m
         Environment: { Variables: { MCP_RESOURCE: 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp' } } } },
       NotesResourceServer: { Type: 'AWS::Cognito::UserPoolResourceServer', Properties: { UserPoolId: { Ref: 'UserPool' },
         Identifier: fixture.wrongResourceBinding ? 'https://other.example/mcp' : 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp' } },
+      IndexerFunction: { Type: 'AWS::Lambda::Function', Properties: { FunctionName: 'obsidian-mcp-indexer' } },
+      IndexReconcileRule: { Type: 'AWS::Events::Rule', Properties: { Name: 'obsidian-mcp-index-reconcile' } },
+      IndexReconcilePermission: { Type: 'AWS::Lambda::Permission', Properties: { Action: 'lambda:InvokeFunction',
+        FunctionName: { Ref: fixture.wrongPermissionBinding === 'function' ? 'McpFunction' : 'IndexerFunction' },
+        Principal: fixture.wrongPermissionBinding === 'principal' ? 'apigateway.amazonaws.com' : 'events.amazonaws.com',
+        SourceArn: { 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' },
+          `:events:ap-southeast-2:${account}:rule/${fixture.wrongPermissionBinding === 'rule' ? 'other-rule' : 'obsidian-mcp-index-reconcile'}`]] } } },
       } : {}),
     } };
     fs.writeFileSync(path.join(dir, 'cdk.out/ObsidianMcp.template.json'), JSON.stringify(template));
@@ -272,6 +279,24 @@ describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
     const rejected = execute(applyScript, { ...fixture, wrongResourceBinding: true });
     expect(rejected.status).not.toBe(0); expect(executions(rejected.calls)).toHaveLength(0);
     expect(rejected.calls.some(call => call.tool === 'npm' && call.args.includes('bin/publish-code.ts'))).toBe(false);
+  });
+  it.each(['True', 'Conditional'])('permits only the reviewed indexer schedule permission replacement: %s', Replacement => {
+    const fixture = defaults();
+    fixture.cognito.plan.Changes.push({ ResourceChange: { Action: 'Modify', LogicalResourceId: 'IndexReconcilePermission',
+      ResourceType: 'AWS::Lambda::Permission', Replacement } });
+    const result = execute(applyScript, fixture);
+    expect(result.status, result.stderr).toBe(0); expect(executions(result.calls)).toHaveLength(2);
+    for (const wrongPermissionBinding of ['function', 'principal', 'rule']) {
+      const rejected = execute(applyScript, { ...fixture, wrongPermissionBinding });
+      expect(rejected.status, wrongPermissionBinding).not.toBe(0); expect(executions(rejected.calls)).toHaveLength(0);
+      expect(rejected.calls.some(call => call.tool === 'npm' && call.args.includes('bin/publish-code.ts'))).toBe(false);
+    }
+  });
+  it.each([['another permission', 'McpInvokePermission', 'AWS::Lambda::Permission'], ['the indexer function', 'IndexerFunction', 'AWS::Lambda::Function'],
+    ['a type mismatch', 'IndexReconcilePermission', 'AWS::Events::Rule']])('still rejects replacing %s', (_name, LogicalResourceId, ResourceType) => {
+    const fixture = defaults();
+    fixture.cognito.plan.Changes.push({ ResourceChange: { Action: 'Modify', LogicalResourceId, ResourceType, Replacement: 'Conditional' } });
+    const result = execute(applyScript, fixture); expect(result.status).not.toBe(0); expect(executions(result.calls)).toEqual([]);
   });
   it.each(['sha', 'account', 'region', 'missing', 'duplicate', 'IAM stack', 'wrong ARN'])('rejects a mismatched combined manifest: %s', kind => {
     const plan = manifest();

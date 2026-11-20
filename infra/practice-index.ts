@@ -65,11 +65,17 @@ export function addPracticeIndex(scope: Construct, source: IndexSource) {
   indexer.addResourceDependency(logs);
   const mapping = new CfnEventSourceMapping(scope, 'IndexQueueMapping', { eventSourceArn: queue.attrArn, functionName: indexer.ref,
     batchSize: 10, functionResponseTypes: ['ReportBatchItemFailures'], enabled: true, tags });
+  // Name-derived ARNs, not GetAtt: a code update to the indexer must not make
+  // CloudFormation re-evaluate the rule and flag its permission for replacement.
+  const indexerArn = `arn:${stack.partition}:lambda:${stack.region}:${stack.account}:function:${INDEX_RESOURCES.functionName}`;
+  const reconcileArn = `arn:${stack.partition}:events:${stack.region}:${stack.account}:rule/${INDEX_RESOURCES.reconcileRuleName}`;
   const reconcile = new CfnRule(scope, 'IndexReconcileRule', { name: INDEX_RESOURCES.reconcileRuleName, state: 'ENABLED',
     description: 'Daily ETag reconcile of every note index', scheduleExpression: RECONCILE_SCHEDULE,
-    targets: [{ id: 'Indexer', arn: indexer.attrArn, input: JSON.stringify({ action: 'reconcile' }) }], tags });
+    targets: [{ id: 'Indexer', arn: indexerArn, input: JSON.stringify({ action: 'reconcile' }) }], tags });
+  reconcile.addDependency(indexer);
   const invoke = new CfnPermission(scope, 'IndexReconcilePermission', { action: 'lambda:InvokeFunction', functionName: indexer.ref,
-    principal: 'events.amazonaws.com', sourceArn: reconcile.attrArn, sourceAccount: stack.account });
+    principal: 'events.amazonaws.com', sourceArn: reconcileArn, sourceAccount: stack.account });
+  invoke.addDependency(reconcile);
   // Console-visible alarms without notification actions.
   const alarm = (id: string, alarmName: string, description: string, namespace: string, metricName: string, dimension: [string, string], statistic: string, period: number, threshold: number) =>
     new CfnAlarm(scope, id, { alarmName, alarmDescription: description, namespace, metricName, statistic, period, threshold,

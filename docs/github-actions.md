@@ -301,13 +301,20 @@ BucketPolicy changes. MCP accepts only UPDATE, compares the complete native
 change-set template with the exact downloaded template, and permits only
 additions/modifications whose logical IDs and resource types match that model,
 excluding IAM roles/policies. An UPDATE with no resource actions is allowed for
-native metadata/output changes. Removals are rejected. The sole replacement
-exception is a `Modify` of `NotesResourceServer` of type
-`AWS::Cognito::UserPoolResourceServer` in `ObsidianMcp`, with `Replacement` set to
-`True` or `Conditional`: the reviewed template's identifier must equal its Lambda
-`MCP_RESOURCE` expression and its pool must remain `Ref: UserPool`.
-This lets a reviewed scope-registry migration bind custom scopes to the resource
-URL. All other replacements, including conditional replacements, stay blocked.
+native metadata/output changes. Removals are rejected. There are two replacement
+exceptions, each a `Modify` in `ObsidianMcp` with `Replacement` set to `True` or
+`Conditional`:
+
+- `NotesResourceServer` of type `AWS::Cognito::UserPoolResourceServer`: the
+  reviewed template's identifier must equal its Lambda `MCP_RESOURCE` expression
+  and its pool must remain `Ref: UserPool`. This lets a reviewed scope-registry
+  migration bind custom scopes to the resource URL.
+- `IndexReconcilePermission` of type `AWS::Lambda::Permission`, which holds no
+  state: the reviewed template must still let only `events.amazonaws.com` invoke
+  `IndexerFunction`, from the reviewed reconcile rule. This allows the one-time
+  move of its `SourceArn` to a name-derived ARN.
+
+All other replacements, including conditional replacements, stay blocked.
 
 For a changed MCP stack in the `runtime` stage, Apply checks that live main still matches the verified
 source and that the downloaded code manifest matches the combined plan. It
