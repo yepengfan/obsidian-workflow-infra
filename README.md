@@ -6,9 +6,9 @@ credentials.
 
 ## Architecture
 
-The C4 views below describe the intended runtime architecture. Deployment is
-staged; see the [rollout guide](docs/mcp-rollout.md#review-and-deployment-order)
-for the current stage and prerequisites.
+The C4 views below describe the intended runtime architecture. The
+[versioned configuration](config/mcp-deployment.json) selects the runtime stage. The [rollout guide](docs/mcp-rollout.md#review-and-deployment-order)
+explains the prerequisites and deployment approvals.
 
 ### C1: System context
 
@@ -61,7 +61,11 @@ flowchart TB
         Server["MCP server<br/>[Container: Node.js Lambda]<br/>Stateless TypeScript MCP tools"]
         Vault[("Obsidian vault<br/>[Container: Amazon S3]<br/>Private Markdown notes")]
         Library[("Ebook library<br/>[Container: Amazon S3]<br/>Private ebooks; no MCP access")]
-        Logs[("Operational logs<br/>[Container: CloudWatch Logs]<br/>Request status and timing only")]
+        Logs[("Operational logs<br/>[Container: CloudWatch Logs]<br/>Request and indexing metadata")]
+        Events["Practice note changes and daily schedule<br/>[Container: Amazon EventBridge]"]
+        Queue[("Index updates<br/>[Container: Amazon SQS FIFO]")]
+        Indexer["Practice indexer<br/>[Container: AWS Lambda]"]
+        ReviewIndex[("Practice review index<br/>[Container: Amazon DynamoDB]")]
         Athena["Metadata queries<br/>[Container: Amazon Athena]<br/>Dedicated workgroup; on-demand SQL"]
         Catalog["Metadata catalog<br/>[Container: AWS Glue Data Catalog]<br/>Regional S3 Tables integration"]
         Inventory[("Vault metadata tables<br/>[Container: S3 Metadata / Iceberg]<br/>Live inventory; seven-day journal")]
@@ -82,6 +86,15 @@ flowchart TB
     Server -->|"Fetches signing keys<br/>[HTTPS / JWKS]"| Auth
     Server -->|"Reads notes; writes Journal notes; saves confirmed practice<br/>[S3 API / IAM]"| Vault
     Server -->|"Writes request metadata<br/>[CloudWatch Logs API]"| Logs
+    Indexer -->|"Logs indexing outcomes and reconciliation counts"| Logs
+    Vault -->|"Emits object changes"| Events
+    Events -->|"Routes indexed note changes"| Queue
+    Events -->|"Starts daily reconciliation"| Indexer
+    Indexer -->|"Queues missing, changed or deleted notes"| Queue
+    Queue -->|"Delivers keys in order"| Indexer
+    Indexer -->|"Reads current notes and lists source keys"| Vault
+    Indexer -->|"Scans and updates index rows"| ReviewIndex
+    Server -->|"Queries practice review queues"| ReviewIndex
     Vault -->|"AWS maintains file metadata<br/>[S3 Metadata]"| Inventory
     Server -->|"Searches paths, dates and sizes<br/>[Athena API / IAM]"| Athena
     Athena -->|"Resolves inventory schema and location<br/>[Glue API / IAM]"| Catalog
@@ -93,7 +106,7 @@ flowchart TB
     classDef container fill:#438dd5,color:#fff,stroke:#2e6295
     class Owner person
     class ChatGPT,Claude,Excalidraw external
-    class Auth,API,Server,Vault,Library,Logs,Athena,Catalog,Inventory container
+    class Auth,API,Server,Vault,Library,Logs,Athena,Catalog,Inventory,Events,Queue,Indexer,ReviewIndex container
     style Platform fill:none,stroke:#777,stroke-dasharray:6 4
 ```
 
@@ -140,20 +153,16 @@ never edit by hand.
 - [Journal writes](docs/journal.md)
 - [MCP tools, configuration and ChatGPT / Claude connections](docs/mcp-server.md)
 - [Athena and S3 Metadata file discovery](docs/metadata-search.md)
+- [Artifact retention and cleanup](docs/artifact-retention.md)
 - [Storage retention and recovery verification](docs/retention.md)
 - [GitHub App identity and credential handling](docs/github-app-identity.md)
 
 ## Dependency audit
 
 `npm run audit:ci` (also in CI) fails on any high or critical advisory in runtime
-dependencies, then audits the full tree with one build-tool exception. Known,
-unresolved findings, none of which are in the Lambda bundle:
-
-- **minimatch inside `aws-cdk-lib`:** two moderate findings. The npm override
-  fixes only the separately installed copy.
-- **picomatch [GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf):**
-  high, no upstream patch. Allowed only in [audit-ci.jsonc](audit-ci.jsonc)
-  until 2026-12-18 UTC; upgrade and remove the exception once a fix ships.
+dependencies, then audits the full tree with one build-tool exception. The
+[CI audit configuration](audit-ci.jsonc) records the advisory, rationale and
+expiry for the exception. Run the audit against the lockfile for current findings.
 
 Do not run `npm audit fix --force`, widen exceptions, or raise the threshold to
 silence findings.
