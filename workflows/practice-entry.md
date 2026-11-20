@@ -120,3 +120,16 @@ shell/file/script steps and automatic writes in the upstream skill.
 - Mark the selected session done only after its agreed Phase 3 saves succeed.
   Multiple files are independent writes, not a transaction. Never invent a
   reflection, elapsed time, save result, canvas rendering or local script run.
+
+### Calling the System Design coaching tools
+
+Follow **Coaching mode for this round** in `.agents/skills/sysd-solve/SKILL.md`
+for new practice, due reviews, mode switches and resumption. In MCP, replace
+the local coaching CLI's `mode` command with `practice_design_mode`. Pass
+the requested or resumed mode as `override`; omit it for a fresh default.
+
+Replace `complete <uuid>` with `practice_complete_design_round` using the same
+round UUID. Include that write in the save preview when guided_rounds_remaining
+is positive. Save a scheduled review outcome first, using its UUID as attempt_id.
+Report partial saves and retry only unfinished work. With writes disabled or
+declined, keep the unsaved state in chat and explain what can carry over.

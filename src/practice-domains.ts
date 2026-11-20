@@ -28,6 +28,8 @@ export const practiceDomains = {
   },
 } satisfies Record<PracticeDomain, { label: string; flow: string; module: string; root: string; writes: string[]; documents: string[] }>;
 
+export const DESIGN_COACHING_LOG = practiceDomains['system-design'].root + 'Log/coaching-rounds.md';
+
 export function practiceDocuments(domain: PracticeDomain) {
   const definition = practiceDomains[domain];
   return [...sharedPracticeDocuments, definition.flow, definition.module, ...definition.documents];
@@ -48,6 +50,6 @@ export function validatePracticeWritePath(path: string): PracticeDomain {
   const relative = path.slice(definition.root.length);
   const allowed = definition.writes.some(pattern => new RegExp('^' + pattern.split('*')
     .map(part => part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('[^/]+') + '$', 'u').test(relative));
-  if (!allowed || /(?:^|\/)(?:AGENTS|CLAUDE|Guide|00_index)\.md$/iu.test(path)) throw new NoteError('invalid_path');
+  if (path === DESIGN_COACHING_LOG || !allowed || /(?:^|\/)(?:AGENTS|CLAUDE|Guide|00_index)\.md$/iu.test(path)) throw new NoteError('invalid_path');
   return domain;
 }
