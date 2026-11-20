@@ -1,9 +1,9 @@
 import { z } from 'zod';
-import { requiredScopes, writeScope } from './auth.js';
+import { writeScope } from './auth.js';
 import type { Settings } from './config.js';
 import { OperationError } from './errors.js';
 import { Journal, journalWriteInput } from './journal.js';
-import type { McpSkill } from './skill.js';
+import { writeToolSecurity, type McpSkill } from './skill.js';
 
 const output = z.object({ path: z.string(), mode: z.enum(['append', 'overwrite']), totalBytes: z.number(), created: z.boolean().optional() });
 
@@ -16,8 +16,7 @@ export function journalSkill(settings: Settings): McpSkill {
       const journal = writer && new Journal(store, writer, settings);
       server.registerTool('journal_write', {
         description: 'Write one Markdown note inside Journal/ (subfolders allowed), creating it if absent. append adds content to the end of the note. overwrite replaces the entire note: read it first with read_note and send the complete content. No other vault paths.',
-        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-        _meta: { securitySchemes: [{ type: 'oauth2', scopes: requiredScopes(settings, [scope]) }] },
+        ...writeToolSecurity(settings),
         inputSchema: journalWriteInput, outputSchema: output,
       }, input => result(async () => {
         await authorizeScope(scope);

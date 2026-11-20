@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { S3Client } from '@aws-sdk/client-s3';
 import { storageSchema } from '../infra/storage-config.js';
-import { githubSchema } from '../infra/github-stack.js';
+import { githubSchema } from '../infra/github-config.js';
 import { mcpResources } from '../infra/mcp-resources.js';
 import { retainCode } from '../src/artifact-retention.js';
 import { awsJson, deployedCode, requireCurrentMain } from './code-deployment-state.js';

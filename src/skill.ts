@@ -1,3 +1,4 @@
+import { requiredScopes, writeScope } from './auth.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Settings } from './config.js';
 import type { NoteStore, NoteWriter } from './note-store.js';
@@ -22,3 +23,17 @@ export type McpSkill = {
   scopes: readonly string[];
   register: (context: SkillContext) => void;
 };
+
+export function readToolSecurity(settings: Settings) {
+  return {
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    _meta: { securitySchemes: [{ type: 'oauth2', scopes: requiredScopes(settings) }] },
+  };
+}
+
+export function writeToolSecurity(settings: Settings) {
+  return {
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    _meta: { securitySchemes: [{ type: 'oauth2', scopes: requiredScopes(settings, [writeScope(settings)]) }] },
+  };
+}

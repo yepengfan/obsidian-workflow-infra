@@ -7,9 +7,11 @@ import { notesSkill } from './note-tools.js';
 import { practiceSkill } from './practice-tools.js';
 import type { McpSkill } from './skill.js';
 
-/** Select configured skills here so transport and Lambda code stay domain-independent. */
 export function configuredSkills(settings: Settings, additionalSkills?: readonly McpSkill[]): readonly McpSkill[] {
-  return [notesSkill, ...(settings.metadataSearch ? [metadataSkill(settings, createMetadataQuery(settings.region))] : []),
-    ...(settings.journal.writesEnabled ? [journalSkill(settings)] : []),
-    ...(additionalSkills ?? (settings.practice.enabled ? [practiceSkill(settings, createReviewIndex(settings.region))] : []))];
+  const skills = [notesSkill];
+  if (settings.metadataSearch) skills.push(metadataSkill(settings, createMetadataQuery(settings.region)));
+  if (settings.journal.writesEnabled) skills.push(journalSkill(settings));
+  if (additionalSkills) skills.push(...additionalSkills);
+  else if (settings.practice.enabled) skills.push(practiceSkill(settings, createReviewIndex(settings.region)));
+  return skills;
 }

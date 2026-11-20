@@ -3,28 +3,15 @@ import type { McpDeploymentConfig } from './mcp-permissions.js';
 import { CfnOutput, DefaultStackSynthesizer, Duration, Fn, Stack } from 'aws-cdk-lib';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import type { Construct } from 'constructs';
-import { z } from 'zod';
+import type { GitHubConfig } from './github-config.js';
+export { githubSchema } from './github-config.js';
 import { STORAGE_STACK_NAME, type StorageConfig } from './storage-config.js';
 import { grantMcpRuntime, mcpDeploymentSchema, MCP_RESOURCE_TYPES } from './mcp-permissions.js';
 import { grantMetadataConfiguration } from './metadata-search.js';
 
-const roleName = z.string().regex(/^obsidian-[A-Za-z0-9+=,.@_-]+$/u).max(64);
-
-export const githubSchema = z.object({
-  repositorySubject: z.string().regex(/^repo:[A-Za-z0-9_.-]+@\d+\/[A-Za-z0-9_.-]+@\d+$/u),
-  planRoleName: roleName,
-  deployRoleName: roleName,
-  executionRoleName: roleName,
-  mcpExecutionRoleName: roleName,
-  runtimeRoleName: z.string().regex(/^obsidian-mcp-[a-z0-9-]+$/u).max(64),
-  codeRetentionRoleName: roleName,
-}).strict().refine(config => new Set([config.executionRoleName, config.mcpExecutionRoleName,
-  config.planRoleName, config.deployRoleName, config.runtimeRoleName, config.codeRetentionRoleName].map(name => name.toLowerCase())).size === 6,
-  'Role names must be distinct');
-
 /** Reviewed permission foundation; local SSO update procedure: docs/github-actions.md. */
 export class GitHubTrustStack extends Stack {
-  constructor(scope: Construct, id: string, storage: StorageConfig, github: z.infer<typeof githubSchema>, deployment: McpDeploymentConfig = mcpDeploymentSchema.parse(mcpResources(storage, github.runtimeRoleName))) {
+  constructor(scope: Construct, id: string, storage: StorageConfig, github: GitHubConfig, deployment: McpDeploymentConfig = mcpDeploymentSchema.parse(mcpResources(storage, github.runtimeRoleName))) {
     super(scope, id, {
       env: { account: storage.account, region: storage.region },
       // Native CloudFormation receives this asset-free template directly.

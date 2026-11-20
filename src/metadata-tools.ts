@@ -1,8 +1,7 @@
 import { z } from 'zod';
-import { requiredScopes } from './auth.js';
 import type { Settings } from './config.js';
 import { MetadataSearch, metadataInput, type MetadataQuery } from './metadata-search.js';
-import type { McpSkill } from './skill.js';
+import { readToolSecurity, type McpSkill } from './skill.js';
 
 export function metadataSkill(settings: Settings, query: MetadataQuery): McpSkill {
   const search = new MetadataSearch(query, settings);
@@ -12,8 +11,7 @@ export function metadataSkill(settings: Settings, query: MetadataQuery): McpSkil
     register: ({ server, owner, signal, result }) => {
       server.registerTool('search_note_metadata', {
         description: 'Search Markdown file metadata across an explicit folder and descendants using Athena over S3 Metadata. Matches literal path text; optional inclusive UTC modification-date and byte-size ranges. Results sort by path. No note content or frontmatter search. A pending result has no matches yet; resume unchanged filters with nextCursor. Inventory is eventually consistent, typically within one hour.',
-        annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-        _meta: { securitySchemes: [{ type: 'oauth2', scopes: requiredScopes(settings) }] },
+        ...readToolSecurity(settings),
         inputSchema: metadataInput,
         outputSchema: z.object({ folder: z.string(), scope: z.literal('descendants'), source: z.literal('s3_metadata_inventory'),
           freshness: z.string(), state: z.enum(['pending', 'complete']), complete: z.boolean(), nextCursor: z.string().optional(), scannedBytes: z.number().optional(),

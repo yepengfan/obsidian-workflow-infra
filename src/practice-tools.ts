@@ -1,7 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { requiredScopes, writeScope } from './auth.js';
-import type { McpSkill, SkillContext } from './skill.js';
+import { writeScope } from './auth.js';
+import { readToolSecurity, writeToolSecurity, type McpSkill, type SkillContext } from './skill.js';
 import type { Settings } from './config.js';
 import { addReviewSchema, domainSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
 import { designSessionSchema } from './design-session.js';
@@ -11,8 +11,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   result: SkillContext['result'],
   authorizeWrite: () => Promise<void>) {
   if (!settings.practice.enabled) return;
-  const readSecurity = { annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    _meta: { securitySchemes: [{ type: 'oauth2', scopes: requiredScopes(settings) }] } };
+  const readSecurity = readToolSecurity(settings);
   const outputSchema = z.looseObject({});
   server.registerTool('practice', { ...readSecurity, outputSchema,
     description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm and System Design modules, then wait for an item or domain choice. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability, workflow and instruction catalog; never an assessment or saved attempt.',
@@ -36,8 +35,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     description: 'Read a selected saved System Design session canvas as native Excalidraw drawing data, including legacy compressed-json files. Select the exact path from the session catalog. Render drawing.elements with the host Excalidraw app, preserving IDs, layout and bindings. Does not save, assess, or read unsaved chat-widget edits; use current widget context for those. Never open prior solutions during an independent review.',
     inputSchema: z.strictObject({ path: z.string().max(1024) }) }, input => result(() => practice.designCanvas(input.path)));
   if (!settings.practice.writesEnabled) return;
-  const writeSecurity = { annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-    _meta: { securitySchemes: [{ type: 'oauth2', scopes: requiredScopes(settings, [writeScope(settings)]) }] } };
+  const writeSecurity = writeToolSecurity(settings);
   const write = (work: () => Promise<object>) => result(async () => { await authorizeWrite(); return work(); });
   server.registerTool('practice_add_review', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit user confirmation, register a neutral review object without overwriting an existing one. Never invent an attempt or reflection. New entries have no scheduled date until a round is recorded.',
