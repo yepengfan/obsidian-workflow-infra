@@ -39,7 +39,7 @@ const defaults = () => ({
 });
 const step = (job: string, name: string) => workflow.jobs[job]!.steps.find(s => s.name === name)!.run!;
 type Call = { tool: string; args: string[] };
-function execute(script: string, fixture: Record<string, unknown> = {}, plan = manifest()) {
+function execute(script: string, fixture: Record<string, unknown> = {}, plan = manifest(), timeout = 30_000) {
   const dir = fs.mkdtempSync(path.resolve('.infrastructure-deployment-test-'));
   try {
     fs.mkdirSync(path.join(dir, 'config'));
@@ -109,7 +109,7 @@ switch(args[1]) {
   default:process.exit(90);
 }
 `, { mode: 0o700 });
-    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], { cwd: dir, encoding: 'utf8', timeout: 30_000, env: {
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], { cwd: dir, encoding: 'utf8', timeout, env: {
       ...process.env, PATH: `${dir}:${process.env.PATH}`, ACCOUNT: account, REGION: region, SOURCE_SHA: source,
       STORAGE_EXECUTION_ROLE: `arn:aws:iam::${account}:role/obsidian-workflow-storage-execution`,
       MCP_EXECUTION_ROLE: `arn:aws:iam::${account}:role/obsidian-mcp-execution`,
@@ -125,8 +125,6 @@ const planScript = `bash ${JSON.stringify(path.resolve('bin/plan-infrastructure.
 const applyScript = `bash ${JSON.stringify(path.resolve('bin/apply-infrastructure.sh'))}`;
 const executions = (calls: Call[]) => calls.filter(c => c.tool === 'aws' && c.args[1] === 'execute-change-set');
 
-// Each case executes real shell scripts with 30s-bounded CLI subprocesses.
-// The unit-test default of 5s is too short during concurrent CDK synthesis.
 describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
   it('has one shared Plan and one native approval/apply for the whole infrastructure', () => {
     expect(workflow.name).toBe('plan and apply');
@@ -343,9 +341,12 @@ describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
   });
   it.each(['DRIFTED', 'FAILED', 'TIMEOUT'])('keeps the bounded storage drift check for %s', kind => {
     const drift = kind === 'TIMEOUT' ? { DetectionStatus: 'DETECTION_IN_PROGRESS' } : { DetectionStatus: kind === 'FAILED' ? 'DETECTION_FAILED' : 'DETECTION_COMPLETE', StackDriftStatus: kind };
-    const result = execute(applyScript, { drift }); expect(result.status).not.toBe(0);
-    expect(result.calls.filter(c => c.args[1] === 'describe-stack-drift-detection-status').length).toBeLessThanOrEqual(30);
-  }, 30_000);
+    const result = execute(applyScript, { drift }, manifest(), 90_000);
+    expect(result.status).not.toBe(0);
+    const polls = result.calls.filter(call => call.args[1] === 'describe-stack-drift-detection-status');
+    expect(polls).toHaveLength(kind === 'TIMEOUT' ? 30 : 1);
+    if (kind === 'TIMEOUT') expect(result.stderr).toContain('Storage drift check timed out');
+  }, 95_000);
   it.each([false, true])('bounds discovery retries after Apply (Cognito changed: %s)', changed => {
     const plan = manifest(); plan.stacks[1]!.hasChanges = changed;
     const result = execute(step('apply', 'Check actual OAuth discovery after infrastructure Apply'), { discoveryExit: 1 }, plan);
