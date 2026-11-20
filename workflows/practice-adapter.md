@@ -10,9 +10,9 @@ Use `practice_instruction` for listed workflow definitions and `read_note` /
 `list_notes` for private S3 notes. Replace local review.py due/show/add/record
 with `practice_reviews` / `practice_review` / `practice_add_review` /
 `practice_record_review`. Always supply the domain to queue and add calls.
-Collect all queue pages per available domain before claiming exact counts,
-complete due order or no due items. Stop after 10 pages per domain and report
-partial coverage. Never reuse cursors across domains or dates.
+Each `practice_reviews` call returns one domain's complete queue, already
+ordered; there are no pages or cursors. A newly added review can take a few
+seconds to appear.
 
 Use neutral prompts until the independent submission ends. Keep learner
 reflections verbatim. Preview and obtain explicit save confirmation before every

@@ -24,7 +24,7 @@ Keep each MCP feature in these layers (see `MetadataSearch` / `AthenaMetadataQue
 
 - **Tool module** (`src/*-tools.ts`): registers tools, schemas and security metadata, and steps up scopes. It calls an application service, never storage.
 - **Application service** (`src/metadata-search.ts`, `src/practice.ts`, `src/journal.ts`): path policy and domain rules. Depends only on ports in `src/note-store.ts` or its own query port.
-- **Adapter** (`src/s3.ts`, `src/athena.ts`, `src/index-store.ts`): the only place for AWS SDK calls. ESLint rejects `@aws-sdk/*` imports elsewhere in `src/` except composition roots.
+- **Adapter** (`src/s3.ts`, `src/athena.ts`, `src/index-store.ts`, `src/dynamo-review-index.ts`): the only place for AWS SDK calls. ESLint rejects `@aws-sdk/*` imports elsewhere in `src/` except composition roots.
 - **Composition**: `src/runtime.ts` and `src/indexer-runtime.ts` build adapters; `src/skills.ts` selects enabled skills.
 
 Build scope strings with `requiredScopes` / `writeScope` from `src/auth.ts`. Every write feature reuses the single `/write` scope, and its allowed paths are one exported list shared with IAM synthesis (`practiceWriteResources`, `journalWriteResources`).

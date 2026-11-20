@@ -1,16 +1,16 @@
-import { createHash } from 'node:crypto';
 import { stringify } from 'yaml';
 import { z } from 'zod';
 import bundle from '../workflows/practice.json' with { type: 'json' };
 import type { Settings } from './config.js';
-import { decodeCursor, encodeCursor, keyFor, NoteError, validPath } from './paths.js';
+import { keyFor, NoteError, validPath } from './paths.js';
 import type { NoteStore, NoteWriter } from './note-store.js';
 import { OperationError } from './errors.js';
 import { type PracticeDomain, domainSchema, practiceDocuments, practiceDomains, practiceNoteDomain, sharedPracticeDocuments, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
 import { readDesignCanvas } from './design-canvas.js';
-import { dateSchema, REVIEW_ITEMS_PREFIX, reviewSummarySchema as summarySchema, slugSchema } from './practice-schema.js';
+import { dateSchema, REVIEW_ITEMS_PREFIX, reviewSummarySchema as summarySchema, slugSchema, type ReviewSummary } from './practice-schema.js';
 import { parseFrontmatter } from './frontmatter.js';
+import type { IndexedReview, ReviewIndex } from './review-index.js';
 
 export { domainSchema, validatePracticeWritePath } from './practice-domains.js';
 export { dateSchema, slugSchema } from './practice-schema.js';
@@ -23,7 +23,7 @@ export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: rev
   attempt_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u).max(128),
   outcome: z.enum(['independent', 'assisted', 'incomplete']), reflection: requiredText,
   completed_on: dateSchema, submission: text.optional(), observations: text.optional() });
-export const listReviewsSchema = z.strictObject({ domain: domainSchema, cursor: z.string().max(8192).optional() });
+export const listReviewsSchema = z.strictObject({ domain: domainSchema });
 const itemSchema = summarySchema.extend({ prompt: requiredText, source: text.optional(), attempt_ids: z.array(z.string()).max(5000).default([]) });
 const moduleSchema = z.object({ enabled: z.boolean(), interval_days: z.array(z.number().int().min(1).max(3650)).min(1).max(20),
   retry_days: z.number().int().min(1).max(3650), archive_after_final: z.boolean().default(false),
@@ -67,9 +67,17 @@ export function nextSchedule(item: z.infer<typeof summarySchema>, outcome: strin
   return { stage, next_review: next, ...counted, status: 'active' as const };
 }
 
+/** Buckets active reviews relative to today, each ordered by next review date then ID. */
+function reviewQueue(rows: readonly ReviewSummary[], day: string) {
+  const queue: Record<'overdue' | 'today' | 'unstarted' | 'upcoming', ReviewSummary[]> = { overdue: [], today: [], unstarted: [], upcoming: [] };
+  const ordered = [...rows].sort((a, b) => (a.next_review ?? '').localeCompare(b.next_review ?? '') || a.id.localeCompare(b.id));
+  for (const row of ordered) queue[row.next_review === null ? 'unstarted' : row.next_review < day ? 'overdue' : row.next_review === day ? 'today' : 'upcoming'].push(row);
+  return queue;
+}
+
 /** Private note state lives only in S3. Bundled documents contain public workflow definitions. */
 export class Practice {
-  constructor(private readonly store: NoteStore, private readonly settings: Settings, private readonly owner: string,
+  constructor(private readonly store: NoteStore, private readonly index: ReviewIndex, private readonly settings: Settings,
     private readonly signal: AbortSignal, private readonly dependencies: { writer?: NoteWriter; now?: () => Date } = {}) {}
   private key(path: string) { return keyFor(this.settings.prefix, validPath(path)); }
   private today() { return calendarDay(this.settings.practice.timeZone, this.dependencies.now?.() ?? new Date()); }
@@ -159,31 +167,41 @@ export class Practice {
     if (!forQueue && !domainSchema.safeParse(item.domain).success) throw new PracticeError('unsupported_practice_domain');
     return { ...note, ...parsed, item, path };
   }
+  /** One domain's complete queue, read from the review index in one call. */
   async reviews(input: z.infer<typeof listReviewsSchema>) {
     domainSchema.parse(input.domain);
     await this.config(input.domain);
-    const day = this.today(), context = createHash('sha256').update(JSON.stringify([this.owner, this.settings.bucket, this.settings.prefix, day, input.domain])).digest('hex');
-    const decoded = input.cursor ? decodeCursor(input.cursor, z.strictObject({ context: z.string(), token: z.string().min(1).max(4096) })) : undefined;
-    if (decoded && decoded.context !== context) throw new NoteError('invalid_cursor');
-    const page = await this.store.list(this.settings.prefix + prefix, 20, decoded?.token, this.signal);
-    if (page.notes.length + page.folders.length > 20) throw new PracticeError('invalid_queue_page');
-    const queue: Record<'overdue' | 'today' | 'unstarted' | 'upcoming', z.infer<typeof summarySchema>[]> = { overdue: [], today: [], unstarted: [], upcoming: [] };
-    const rows: z.infer<typeof summarySchema>[] = [];
-    // At most four reads at once and twenty objects in this invocation.
-    for (let index = 0; index < page.notes.length; index += 4) {
-      const chunk = page.notes.slice(index, index + 4);
-      const summaries = await Promise.all(chunk.map(async note => {
-        const name = note.key.slice((this.settings.prefix + prefix).length);
-        if (note.key !== this.settings.prefix + prefix + name || !/^[a-z0-9]+(?:-[a-z0-9]+)*\.md$/u.test(name)) throw new PracticeError('invalid_review_path');
-        const value = await this.item(name.slice(0, -3), true);
-        return summarySchema.parse(value.item);
-      }));
-      rows.push(...summaries.filter(item => item.domain === input.domain && item.status === 'active'));
+    const day = this.today();
+    const rows = await this.currentReviews(await this.indexedReviews(input.domain), day);
+    const queue = reviewQueue(rows.filter(row => row.domain === input.domain && row.status === 'active'), day);
+    return { date: day, time_zone: this.settings.practice.timeZone, domain: input.domain, ...queue, complete: true };
+  }
+  private async indexedReviews(domain: PracticeDomain) {
+    try { return await this.index.activeReviews(domain, this.signal); }
+    catch {
+      // Only failures of the index port are reported as an unavailable index.
+      this.signal.throwIfAborted();
+      throw new PracticeError('review_index_unavailable');
     }
-    rows.sort((a, b) => (a.next_review ?? '').localeCompare(b.next_review ?? '') || a.id.localeCompare(b.id));
-    for (const row of rows) queue[row.next_review === null ? 'unstarted' : row.next_review < day ? 'overdue' : row.next_review === day ? 'today' : 'upcoming']!.push(row);
-    return { date: day, time_zone: this.settings.practice.timeZone, domain: input.domain, ...queue, complete: !page.next,
-      ordering: 'this_page_only', ...(page.next ? { nextCursor: encodeCursor({ context, token: page.next }) } : {}) };
+  }
+  /**
+   * The index trails note saves by seconds. Confirm every due or unstarted row
+   * against its note so a just-recorded round never reappears as due. Upcoming
+   * rows are not read; the daily reconcile bounds their staleness.
+   */
+  private async currentReviews(indexed: IndexedReview[], day: string) {
+    // Parsing strips the index-only revision.
+    const summary = (row: ReviewSummary): ReviewSummary => summarySchema.parse(row);
+    const rows = indexed.filter(row => row.next_review !== null && row.next_review > day).map(summary);
+    const unconfirmed = indexed.filter(row => row.next_review === null || row.next_review <= day);
+    // At most four note reads at once.
+    for (let index = 0; index < unconfirmed.length; index += 4) {
+      rows.push(...await Promise.all(unconfirmed.slice(index, index + 4).map(async row => {
+        const note = await this.item(row.id, true);
+        return note.revision === row.revision ? summary(row) : summarySchema.parse(note.item);
+      })));
+    }
+    return rows;
   }
   async review(id: string, includeHistory = false) {
     const note = await this.item(id); await this.config(domainSchema.parse(note.item.domain));

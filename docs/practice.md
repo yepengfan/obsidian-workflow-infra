@@ -116,7 +116,7 @@ practice write tools.
 | --- | --- |
 | `practice` | With no domain, discover availability and return an overview or sole-domain workflow. With an explicit domain, return its guarded workflow. |
 | `practice_instruction` | Read a bounded chunk of one packaged instruction document. |
-| `practice_reviews` | Read one bounded review queue page. An explicit domain is required on every call. |
+| `practice_reviews` | Read one domain's complete review queue from the index. An explicit domain is required on every call. |
 | `practice_review` | Return a neutral prompt and revision; feedback phase may include history. |
 | `practice_read_note` | Read one complete bounded Algorithm or System Design note and its revision for a potential edit. |
 | `practice_design_template` | Draft unsaved session progress, Excalidraw files and native `canvas.drawing` data for a new System Design topic. |
@@ -157,8 +157,8 @@ For explicit-domain calls, availability describes that requested domain only;
 other modules need not be enabled or checked.
 
 For generic entry, ChatGPT composes existing `practice_reviews` calls with an
-explicit domain for each available module. It gathers all pages, up to ten per
-domain, groups due items by domain, sorts each group by next date and stable ID,
+explicit domain for each available module. Each call returns that domain's
+complete queue, ordered by next date and stable ID. It groups due items by domain
 and initially shows up to five neutral titles per domain plus complete counts.
 Unstarted items are reported separately; upcoming items are not due. An
 incomplete or failed scan is marked partial with lower-bound counts and missing
@@ -191,19 +191,18 @@ added by this entry change.
 
 ## Queue and schedule
 
-The queue scans only `Learning/Practice/Review/Items/`, twenty objects per call,
-with at most four concurrent object reads. Only active records matching the
-selected domain are returned. Behavioral
-records are skipped when listing and rejected by selected-review and record
-operations. Cursors are bound to the selected domain as well as owner and date.
-Results and ordering are page-local.
-Collect all pages before claiming a complete queue or global review order;
-after ten pages per domain, report partial coverage and ask to narrow the task
-rather than reading indefinitely.
-Pagination is not a transaction or a frozen snapshot. Refresh after recording a
-round. Malformed/oversized records produce an error, never a false empty queue.
-A DynamoDB index of these records is being introduced to replace this scan; see
-the [practice review index](practice-index.md).
+The queue reads one domain's active rows from the
+[practice review index](practice-index.md) in a single call, with no pages or
+cursors. Behavioral records are indexed but never listed, and are rejected by
+selected-review and record operations.
+
+The index trails note saves by seconds. Before returning, every due or unstarted
+row is confirmed against its note's current revision, at most four reads at a
+time. A changed note replaces its row, so a just-recorded round never reappears
+as due. Upcoming rows are returned without reading notes; the daily reconcile
+bounds their staleness. A newly added review can take a few seconds to appear.
+An unreadable index returns `review_index_unavailable`, and a malformed due note
+returns an error, never a false empty queue. Refresh after recording a round.
 
 Due items are overdue/today, ordered by `next_review` then stable ID. Upcoming
 and unstarted objects are separate. A neutral prompt excludes earlier answers,
@@ -388,8 +387,8 @@ domain-independent.
 It does not use real notes, user credentials or a live AWS deployment. Entry
 tests cover both enabled, each sole enabled, all disabled, missing/invalid
 guards, mapping/limit errors, cancellation and explicit-domain isolation. A real
-MCP client exercises generic entry, required queue domains, mixed-domain pages
-and cursor isolation. Instructions define the conversational overview and
+MCP client exercises generic entry, required queue domains and complete
+single-call queues. An in-memory index models indexer lag. Instructions define the conversational overview and
 handoff behavior; tests do not execute an LLM. After deployment and metadata
 refresh, verify those decisions in a fresh ChatGPT conversation before claiming
 host acceptance.

@@ -21,21 +21,19 @@ practice/review mode menu.
 
 ## Build the combined due overview
 
-- For each available domain, call `practice_reviews` with that explicit `domain`.
-  Follow its own cursor through all pages, up to 10 pages per domain per overview.
-  Keep cursors with their domain and returned local date; never mix them. If a
-  scan crosses the local date, restart instead of combining dates.
-- Only `overdue` and `today` are due reviews. Group them by domain and sort each
-  complete group by `next_review`, then stable ID. Show exact counts only for
-  complete scans, and initially show up to five neutral titles per domain with
+- For each available domain, call `practice_reviews` once with that explicit
+  `domain`. Each result is that domain's complete queue for its returned local
+  date. If the domains' dates differ, query again instead of combining dates.
+- Only `overdue` and `today` are due reviews. Group them by domain; each group
+  is already ordered by `next_review`, then stable ID. Show exact counts, and
+  initially show up to five neutral titles per domain with
   due dates. Show further titles on request. Report unstarted items separately;
   upcoming and unstarted items are not due. Never read prior solutions, attempt
   history, canvases or every private note to build the overview.
-- If availability is partial, a queue read fails or the page cap is reached,
-  clearly mark the overview partial and name the missing coverage. Counts for
-  incomplete scans are lower bounds, never totals. Do not claim complete order,
-  that there are no due reviews, or that all domains have been checked. Offer
-  retry or an explicit narrower-domain choice instead of reading indefinitely.
+- If availability is partial or a queue read fails, clearly mark the overview
+  partial and name the missing coverage. Do not claim complete order, that
+  there are no due reviews, or that all domains have been checked. Offer retry
+  or an explicit narrower-domain choice.
 - When there is due work, ask which item or domain to start with and wait. Do
   not automatically begin the first or oldest item. A selected item identifies
   its persisted domain; verify its active state and resolve mismatches first.
@@ -60,7 +58,7 @@ only recording an actually ended round updates its schedule, using the local
 completion date rather than checkpoint, start or later save dates.
 Honor an explicit request to continue without saving, retaining the
 unsaved draft and distinguishing it from the persisted queue. Re-fetch the
-chosen queue before claiming its due work is complete. A failed or capped scan
+chosen queue before claiming its due work is complete. A failed queue read
 does not authorize an automatic new-problem handoff.
 
 Honor a supplied time budget; do not invent a default session length or claim a

@@ -12,8 +12,8 @@ Read `{{flow}}`, its domain guide and
 The server checks the live practice-review and selected domain's module guards.
 
 List this domain's due reviews using `practice_reviews` with
-`domain: {{domain}}`; collect all pages before claiming the queue is complete.
-Sort overdue/today by next review date then ID. Use
+`domain: {{domain}}`. One call returns the complete queue, with overdue/today
+ordered by next review date then ID. Use
 `.agents/skills/practice-review-today/SKILL.md` for each selected item, replacing
 local CLI operations with the corresponding MCP tools. Present a neutral prompt
 using `practice_review` before the independent attempt. Request feedback/history

@@ -7,6 +7,10 @@ import bundle from '../workflows/practice.json' with { type: 'json' };
 import { calendarDay, nextSchedule, Practice, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
 import { NoteError } from '../src/paths.js';
 import type { NoteStore, NoteWriter, WriteCondition } from '../src/note-store.js';
+import { parseFrontmatter } from '../src/frontmatter.js';
+import { reviewSummarySchema } from '../src/practice-schema.js';
+import { practiceSkill } from '../src/practice-tools.js';
+import type { IndexedReview, ReviewIndex } from '../src/review-index.js';
 import { owner, runtimeSettings } from './runtime-fixtures.js';
 
 const root = 'Vault/';
@@ -42,9 +46,27 @@ class PracticeStore implements NoteStore, NoteWriter {
     this.files.set(key, text); this.writes.push(key); return this.tag(key);
   }
 }
+/** An index built from the fixture notes. snapshot() freezes it to model indexer lag. */
+class FileIndex implements ReviewIndex {
+  frozen?: IndexedReview[]; queries: string[] = []; failure?: Error;
+  constructor(private readonly store: PracticeStore) {}
+  current() {
+    return [...this.store.files].filter(([key]) => key.startsWith(items) && !key.slice(items.length).includes('/')).flatMap(([key, text]) => {
+      const row = reviewSummarySchema.safeParse(parseFrontmatter(text)?.metadata);
+      return row.success ? [{ ...row.data, revision: this.store.tag(key) }] : [];
+    });
+  }
+  snapshot() { this.frozen = this.current(); }
+  async activeReviews(domain: string, signal: AbortSignal) {
+    signal.throwIfAborted(); this.queries.push(domain);
+    if (this.failure) throw this.failure;
+    return (this.frozen ?? this.current()).filter(row => row.domain === domain && row.status === 'active');
+  }
+}
 function setup(writes = true) {
-  const store = new PracticeStore(); const practice = new Practice(store, settings(writes), owner, AbortSignal.timeout(10000), { now, writer: store });
-  return { store, practice };
+  const store = new PracticeStore(), index = new FileIndex(store);
+  const practice = new Practice(store, index, settings(writes), AbortSignal.timeout(10000), { now, writer: store });
+  return { store, practice, index };
 }
 const request = { id: item.id, domain: item.domain, title: item.title, prompt: 'Given two strings, find their greatest common divisor.', review_focus: 'Private post-attempt cue' };
 const designRequest = { id: 'sysd-url-shortener', domain: 'system-design' as const, title: 'Design a URL shortener',
@@ -125,21 +147,19 @@ describe('practice storage behavior', () => {
     await expect(practice.workflow('algorithm')).resolves.toMatchObject({ status: 'ready', selected_domain: 'algorithm' });
     expect(store.writes).toHaveLength(0);
   });
-  it('filters mixed domain pages and binds queue cursors to the selected domain', async () => {
-    const { store, practice } = setup();
+  it('returns one domain\'s complete queue from the index without listing S3', async () => {
+    const { store, practice, index } = setup();
     await practice.add(request);
-    for (let i = 0; i < 21; i++) await practice.add({ ...designRequest, id: `sysd-${i}` });
-    const first = await practice.reviews({ domain: 'system-design' });
-    expect(first.complete).toBe(false); expect(first.unstarted).toHaveLength(19);
-    expect(first.unstarted.every(row => row.domain === 'system-design')).toBe(true);
-    await expect(practice.reviews({ domain: 'algorithm', cursor: first.nextCursor })).rejects.toThrow('invalid_cursor');
-    const second = await practice.reviews({ domain: 'system-design', cursor: first.nextCursor });
-    expect(second.complete).toBe(true); expect(second.unstarted).toHaveLength(2);
+    for (let i = 0; i < 21; i++) await practice.add({ ...designRequest, id: `sysd-${String(i).padStart(2, '0')}` });
+    const design = await practice.reviews({ domain: 'system-design' });
+    expect(design.complete).toBe(true); expect(design).not.toHaveProperty('nextCursor');
+    expect(design.unstarted.map(row => row.id)).toEqual(Array.from({ length: 21 }, (_, i) => `sysd-${String(i).padStart(2, '0')}`));
+    expect((await practice.reviews({ domain: 'algorithm' })).unstarted.map(row => row.id)).toEqual([item.id]);
+    expect(index.queries).toEqual(['system-design', 'algorithm']); expect(store.lists).toEqual([]);
     store.files.set(root + 'system/modules/system-design/module.md', '---\nenabled: false\n---\n');
     await expect(practice.reviews({ domain: 'system-design' })).rejects.toThrow('domain_module_disabled');
-    await expect(practice.review('sysd-0')).rejects.toThrow('domain_module_disabled');
-    await expect(practice.record(attempt(store.tag(items + 'sysd-0.md'), { id: 'sysd-0' }))).rejects.toThrow('domain_module_disabled');
-    expect((await practice.reviews({ domain: 'algorithm' })).unstarted.map(row => row.id)).toEqual([item.id]);
+    await expect(practice.review('sysd-00')).rejects.toThrow('domain_module_disabled');
+    await expect(practice.record(attempt(store.tag(items + 'sysd-00.md'), { id: 'sysd-00' }))).rejects.toThrow('domain_module_disabled');
   });
   it('returns canonical workflow definitions and honors live module guards', async () => {
     const { store, practice } = setup(); const result = await practice.workflow('algorithm');
@@ -209,7 +229,7 @@ describe('practice storage behavior', () => {
     const store = new PracticeStore();
     let day = '2026-11-12';
     // Each request can construct a fresh service over persisted notes, like Lambda.
-    const session = () => new Practice(store, settings(), owner, AbortSignal.timeout(10000),
+    const session = () => new Practice(store, new FileIndex(store), settings(), AbortSignal.timeout(10000),
       { writer: store, now: () => new Date(day + 'T02:00:00Z') });
     if (existing) {
       day = '2026-11-11';
@@ -249,16 +269,40 @@ describe('practice storage behavior', () => {
     expect(await practice.record(attempt(prompt.revision, { completed_on: '2026-11-12' }))).toMatchObject({ last_review: '2026-11-12', next_review: '2026-11-13' });
     await expect(practice.record(attempt((await practice.review(item.id)).revision, { attempt_id: 'future', completed_on: '2026-11-15' }))).rejects.toThrow('future');
   });
-  it('paginates only the review prefix and binds cursors to the calendar date', async () => {
-    const { store, practice } = setup();
-    for (let i = 0; i < 23; i++) await practice.add({ ...request, id: `lc-${i}` });
-    const first = await practice.reviews({ domain: 'algorithm' });
-    expect(first.complete).toBe(false); expect(first.unstarted).toHaveLength(20); expect(first.ordering).toBe('this_page_only');
-    const second = await practice.reviews({ domain: 'algorithm', cursor: first.nextCursor });
-    expect(second.complete).toBe(true); expect(second.unstarted).toHaveLength(3);
-    expect(store.lists).toEqual([{ prefix: items, limit: 20 }, { prefix: items, limit: 20 }]);
-    const tomorrow = new Practice(store, settings(), owner, AbortSignal.timeout(10000), { now: () => new Date('2026-11-15T02:00:00Z') });
-    await expect(tomorrow.reviews({ domain: 'algorithm', cursor: first.nextCursor })).rejects.toThrow('invalid_cursor');
+  it('confirms due rows against their notes while the index lags a save', async () => {
+    const { store, practice, index } = await seeded();
+    await practice.add({ ...request, id: 'lc-2000', title: 'Later problem' });
+    const later = items + 'lc-2000.md';
+    store.files.set(later, store.files.get(later)!.replace('next_review: null', 'next_review: 2026-12-01'));
+    index.snapshot();
+    const recorded = await practice.record(attempt((await practice.review(item.id)).revision));
+    expect(recorded).toMatchObject({ next_review: '2026-11-15' });
+    store.reads = [];
+    const queue = await practice.reviews({ domain: 'algorithm' });
+    // The stale unstarted row is replaced by the saved note; it is not due again.
+    expect(queue.unstarted).toEqual([]);
+    expect(queue.upcoming.map(row => [row.id, row.next_review])).toEqual([[item.id, '2026-11-15'], ['lc-2000', '2026-12-01']]);
+    // Only the unconfirmed row's note is read, besides the module guards.
+    expect(store.reads.filter(key => key.startsWith(items))).toEqual([items + item.id + '.md']);
+  });
+  it('orders due work by date then ID and reports an unavailable index', async () => {
+    const { store, practice, index } = setup();
+    for (const [id, due] of [['lc-3', '2026-11-14'], ['lc-1', '2026-11-14'], ['lc-2', '2026-11-10'], ['lc-4', null]] as const) {
+      await practice.add({ ...request, id });
+      if (due) store.files.set(items + id + '.md', store.files.get(items + id + '.md')!.replace('next_review: null', `next_review: ${due}`));
+    }
+    const queue = await practice.reviews({ domain: 'algorithm' });
+    expect(queue.overdue.map(row => row.id)).toEqual(['lc-2']);
+    expect(queue.today.map(row => row.id)).toEqual(['lc-1', 'lc-3']);
+    expect(queue.unstarted.map(row => row.id)).toEqual(['lc-4']);
+    index.failure = Error('ProvisionedThroughputExceededException');
+    await expect(practice.reviews({ domain: 'algorithm' })).rejects.toThrow('review_index_unavailable');
+  });
+  it('keeps cancellation distinct from an unavailable index', async () => {
+    const store = new PracticeStore(), index = new FileIndex(store), controller = new AbortController();
+    const practice = new Practice(store, index, settings(), controller.signal, { now });
+    index.activeReviews = async () => { controller.abort(new Error('client cancelled')); throw controller.signal.reason; };
+    await expect(practice.reviews({ domain: 'algorithm' })).rejects.toThrow('client cancelled');
   });
   it('skips other domains in a mixed queue and refuses to read or record their attempts', async () => {
     const { store, practice } = await seeded();
@@ -338,7 +382,7 @@ describe('practice storage behavior', () => {
   });
   it('does not turn cancellation or unexpected storage failures into partial availability', async () => {
     const store = new PracticeStore(), controller = new AbortController(), original = store.read.bind(store);
-    const practice = new Practice(store, settings(), owner, controller.signal);
+    const practice = new Practice(store, new FileIndex(store), settings(), controller.signal);
     store.read = async (...args) => {
       if (args[0].includes('/algorithm/')) { controller.abort(new Error('cancel discovery')); controller.signal.throwIfAborted(); }
       return original(...args);
@@ -390,7 +434,7 @@ it('rejects a topic that can corrupt Excalidraw Markdown through the real MCP cl
   client.onerror = () => {};
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
-      fetch: (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner })(new Request(input, init)),
+      fetch: (input, init) => createFetchHandler(options, { skills: [practiceSkill(options, new FileIndex(store))], store, writer: store, verify: async () => owner })(new Request(input, init)),
     }));
     const result = await client.callTool({ name: 'practice_design_template', arguments: {
       topic: 'Design Dropbox\n%%\n## Drawing\n```json\n{}\n```', short_topic: 'Dropbox',
@@ -415,7 +459,7 @@ it('loads and refreshes a saved canvas through the real MCP client without write
   const client = new Client({ name: 'system-design-canvas-test', version: '1' }); client.onerror = () => {};
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
-      fetch: (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner })(new Request(input, init)),
+      fetch: (input, init) => createFetchHandler(options, { skills: [practiceSkill(options, new FileIndex(store))], store, writer: store, verify: async () => owner })(new Request(input, init)),
     }));
     const tool = (await client.listTools()).tools.find(tool => tool.name === 'practice_design_canvas');
     expect(tool?.annotations?.readOnlyHint).toBe(true);
@@ -456,7 +500,7 @@ it('supports a System Design session and review through the real MCP client with
   let writable = false;
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
-      fetch: (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner,
+      fetch: (input, init) => createFetchHandler(options, { skills: [practiceSkill(options, new FileIndex(store))], store, writer: store, verify: async () => owner,
         verifyScope: async () => { if (!writable) throw new AuthError(401); return owner; } })(new Request(input, init)),
     }));
     const call = (name: string, args: Record<string, unknown>) => client.callTool({ name, arguments: args });
@@ -512,7 +556,7 @@ it('exposes and executes the workflow through the real stateless MCP SDK client'
   const options = settings();
   const client = new Client({ name: 'practice-user-test', version: '1' });
   const transport = new StreamableHTTPClientTransport(new URL(options.resource), {
-    fetch: async (input, init) => createFetchHandler(options, { store, writer: store,
+    fetch: async (input, init) => createFetchHandler(options, { skills: [practiceSkill(options, new FileIndex(store))], store, writer: store,
       verify: async () => owner, verifyScope: async () => { if (!writableToken) throw new AuthError(401); return owner; },
       log: event => logs.push(event),
     })(new Request(input, init)),
@@ -565,7 +609,7 @@ it.each([
   client.onerror = () => {};
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
-      fetch: async (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner,
+      fetch: async (input, init) => createFetchHandler(options, { skills: [practiceSkill(options, new FileIndex(store))], store, writer: store, verify: async () => owner,
         verifyScope: async () => owner })(new Request(input, init)),
     }));
     const review = await client.callTool({ name: 'practice_record_review',
@@ -592,7 +636,7 @@ it('keeps write tools out of the read-only practice catalog', async () => {
   client.onerror = () => {};
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
-      fetch: async (input, init) => createFetchHandler(options, { store, writer: store, verify: async () => owner })(new Request(input, init)),
+      fetch: async (input, init) => createFetchHandler(options, { skills: [practiceSkill(options, new FileIndex(store))], store, writer: store, verify: async () => owner })(new Request(input, init)),
     }));
     const tools = (await client.listTools()).tools;
     expect(tools).toHaveLength(10); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
@@ -610,7 +654,7 @@ it('requires an explicit writer capability even when the reader also implements 
   client.onerror = () => {};
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
-      fetch: (input, init) => createFetchHandler(options, { store, verify: async () => owner,
+      fetch: (input, init) => createFetchHandler(options, { skills: [practiceSkill(options, new FileIndex(store))], store, verify: async () => owner,
         verifyScope: async () => owner })(new Request(input, init)),
     }));
     const response = await client.callTool({ name: 'practice_add_review', arguments: request });
@@ -620,7 +664,7 @@ it('requires an explicit writer capability even when the reader also implements 
   } finally { await client.close(); }
 });
 
-it('starts generic practice with an overview through the real MCP client, then reads explicitly scoped queue pages', async () => {
+it('starts generic practice with an overview through the real MCP client, then reads each domain queue in one call', async () => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
   const { createFetchHandler } = await import('../src/handler.js');
@@ -636,7 +680,7 @@ it('starts generic practice with an overview through the real MCP client, then r
   client.onerror = () => {};
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
-      fetch: (input, init) => createFetchHandler(options, { store, verify: async () => owner })(new Request(input, init)),
+      fetch: (input, init) => createFetchHandler(options, { skills: [practiceSkill(options, new FileIndex(store))], store, verify: async () => owner })(new Request(input, init)),
     }));
     const tools = (await client.listTools()).tools;
     expect(tools.find(tool => tool.name === 'practice_reviews')?.inputSchema.required).toContain('domain');
@@ -648,19 +692,18 @@ it('starts generic practice with an overview through the real MCP client, then r
     expect(store.reads).toHaveLength(3); expect(store.lists).toEqual([]);
     expect(JSON.stringify(overview.structuredContent)).not.toContain('Private old solution');
     for (const domain of ['algorithm', 'system-design']) {
-      const first = await client.callTool({ name: 'practice_reviews', arguments: { domain } });
-      const page = z.object({ domain: z.string(), complete: z.boolean(), nextCursor: z.string(), overdue: z.array(z.object({ domain: z.string() })) }).parse(first.structuredContent);
-      expect(page.complete).toBe(false); expect(page.overdue.every(row => row.domain === domain)).toBe(true);
-      const other = domain === 'algorithm' ? 'system-design' : 'algorithm';
-      expect((await client.callTool({ name: 'practice_reviews', arguments: { domain: other, cursor: page.nextCursor } })).isError).toBe(true);
-      const last = await client.callTool({ name: 'practice_reviews', arguments: { domain, cursor: page.nextCursor } });
-      expect(last.structuredContent).toMatchObject({ domain, complete: true });
-      const lastPage = z.object({ overdue: z.array(z.object({ domain: z.string() })) }).parse(last.structuredContent);
-      expect([...page.overdue, ...lastPage.overdue]).toHaveLength(domain === 'algorithm' ? 12 : 11);
-      expect(lastPage.overdue.every(row => row.domain === domain)).toBe(true);
-      expect(JSON.stringify([first.structuredContent, last.structuredContent])).not.toContain('Private old solution');
+      const result = await client.callTool({ name: 'practice_reviews', arguments: { domain } });
+      const queue = z.object({ domain: z.string(), complete: z.literal(true), overdue: z.array(z.object({ domain: z.string(), next_review: z.string(), id: z.string() })) }).parse(result.structuredContent);
+      expect(queue.overdue).toHaveLength(domain === 'algorithm' ? 12 : 11);
+      expect(queue.overdue.every(row => row.domain === domain)).toBe(true);
+      const order = queue.overdue.map(row => `${row.next_review} ${row.id}`);
+      expect(order).toEqual([...order].sort());
+      expect(result.structuredContent).not.toHaveProperty('nextCursor');
+      expect(JSON.stringify(result.structuredContent)).not.toContain('Private old solution');
+      // Cursors no longer exist; the strict input rejects one.
+      expect((await client.callTool({ name: 'practice_reviews', arguments: { domain, cursor: 'x' } })).isError).toBe(true);
     }
-    expect(store.lists).toEqual(Array.from({ length: 4 }, () => ({ prefix: items, limit: 20 })));
+    expect(store.lists).toEqual([]);
     const selected = await client.callTool({ name: 'practice', arguments: { domain: 'system-design' } });
     expect(selected.structuredContent).toMatchObject({ status: 'ready', selected_domain: 'system-design', time_limits: { 'system-design': 45 } });
     expect(store.files).toEqual(before); expect(store.writes).toEqual([]);
