@@ -68,10 +68,20 @@ it('runs the shared code artifact as the indexer with its own role and 30-day lo
 it('reconciles daily at 03:00 Brisbane and only the schedule may invoke the indexer', () => {
   const resources = synth();
   expect(RECONCILE_SCHEDULE).toBe('cron(0 17 * * ? *)');
-  expect(resources.IndexReconcileRule.Properties).toMatchObject({ ScheduleExpression: RECONCILE_SCHEDULE,
-    Targets: [{ Id: 'Indexer', Arn: { 'Fn::GetAtt': ['IndexerFunction', 'Arn'] }, Input: '{"action":"reconcile"}' }] });
-  expect(resources.IndexReconcilePermission.Properties).toMatchObject({ Principal: 'events.amazonaws.com',
-    SourceArn: { 'Fn::GetAtt': ['IndexReconcileRule', 'Arn'] } });
+  const arn = (service: string, resource: string) => ({ 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' }, `:${service}:${aws.region}:${aws.account}:${resource}`]] });
+  expect(resources.IndexReconcileRule).toMatchObject({ DependsOn: expect.arrayContaining(['IndexerFunction']), Properties: { ScheduleExpression: RECONCILE_SCHEDULE,
+    Targets: [{ Id: 'Indexer', Arn: arn('lambda', `function:${INDEX_RESOURCES.functionName}`), Input: '{"action":"reconcile"}' }] } });
+  expect(resources.IndexReconcilePermission).toMatchObject({ DependsOn: expect.arrayContaining(['IndexReconcileRule']), Properties: {
+    Principal: 'events.amazonaws.com', SourceArn: arn('events', `rule/${INDEX_RESOURCES.reconcileRuleName}`) } });
+});
+
+it('keeps an indexer code update from cascading into a conditional replacement', () => {
+  // The apply gate rejects Conditional replacement. GetAtt on the function or
+  // rule ARN would make every code deploy re-evaluate the rule and its permission.
+  const resources = synth();
+  for (const id of ['IndexReconcileRule', 'IndexReconcilePermission']) {
+    expect(JSON.stringify(resources[id].Properties)).not.toMatch(/"Fn::GetAtt":\["(?:IndexerFunction|IndexReconcileRule)","Arn"\]/u);
+  }
 });
 
 it('alarms in the console without notification actions', () => {

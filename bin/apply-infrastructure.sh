@@ -23,13 +23,15 @@ while IFS= read -r entry; do
   file="infrastructure-apply/${stack}.reviewed-plan.json"
   aws cloudformation describe-change-set --change-set-name "$arn" > "$file"
   expected="repo=${GITHUB_REPOSITORY_ID} sha=${SOURCE_SHA} operation=${operation}"
-  # The scope registry's identifier is immutable in Cognito. Its reviewed
-  # replacement is the only exception; data, identity and group replacements stay blocked.
+  # The scope registry's identifier is immutable in Cognito, and the indexer's
+  # schedule invoke permission holds no state. Their reviewed replacements are the
+  # only exceptions; data, identity and group replacements stay blocked.
   jq -e --arg description "$expected" --arg stackName "$stack" --arg stack "arn:aws:cloudformation:${REGION}:${ACCOUNT}:stack/${stack}/" \
     '.Status == "CREATE_COMPLETE" and .ExecutionStatus == "AVAILABLE" and .Description == $description and (.StackId | startswith($stack)) and
       ([.Changes[].ResourceChange] | all(.Replacement == null or .Replacement == "False" or
-        ($stackName == "ObsidianMcp" and .Action == "Modify" and .LogicalResourceId == "NotesResourceServer" and
-          .ResourceType == "AWS::Cognito::UserPoolResourceServer" and (.Replacement == "True" or .Replacement == "Conditional"))))' "$file"
+        ($stackName == "ObsidianMcp" and .Action == "Modify" and (.Replacement == "True" or .Replacement == "Conditional") and
+          ((.LogicalResourceId == "NotesResourceServer" and .ResourceType == "AWS::Cognito::UserPoolResourceServer") or
+           (.LogicalResourceId == "IndexReconcilePermission" and .ResourceType == "AWS::Lambda::Permission")))))' "$file"
   case "$stack:$operation" in
     ObsidianWorkflowStorage:import)
       jq -e '[.Changes[].ResourceChange] | length == 2 and all(.Action == "Import" and .ResourceType == "AWS::S3::Bucket") and ([.[].LogicalResourceId] | sort == ["Library","Vault"])' "$file" ;;
@@ -45,10 +47,16 @@ while IFS= read -r entry; do
         $model[0].Resources as $expected | [.Changes[].ResourceChange] |
         all(. as $r | ($r.Action == "Add" or $r.Action == "Modify") and $expected[$r.LogicalResourceId].Type == $r.ResourceType and
           ($r.ResourceType != "AWS::IAM::Role" and $r.ResourceType != "AWS::IAM::Policy") and
-          (if $r.Replacement == "True" or $r.Replacement == "Conditional" then
+          (if ($r.Replacement == "True" or $r.Replacement == "Conditional") and $r.LogicalResourceId == "NotesResourceServer" then
             $expected.NotesResourceServer.Properties.Identifier == $expected.McpFunction.Properties.Environment.Variables.MCP_RESOURCE and
             $expected.NotesResourceServer.Properties.UserPoolId == {"Ref":"UserPool"}
-          else true end))' "$file" ;;
+          elif ($r.Replacement == "True" or $r.Replacement == "Conditional") and $r.LogicalResourceId == "IndexReconcilePermission" then
+            # Only the schedule may invoke the indexer, bound to the reviewed rule.
+            $expected.IndexReconcilePermission.Properties as $p |
+            $p.FunctionName == {"Ref":"IndexerFunction"} and $p.Action == "lambda:InvokeFunction" and
+            $p.Principal == "events.amazonaws.com" and $expected.IndexReconcileRule.Type == "AWS::Events::Rule" and
+            ($p.SourceArn["Fn::Join"][1] | last | endswith(":rule/" + $expected.IndexReconcileRule.Properties.Name))
+          else $r.Replacement == null or $r.Replacement == "False" end))' "$file" ;;
 
   esac
 done < <(jq -c '.stacks[] | select(.hasChanges)' "$manifest")
