@@ -37,7 +37,7 @@ function fixture(prefix = '') {
         return { rows: all.slice(start, start + 2), ...(start + 2 < all.length ? { next: String(start + 2) } : {}) };
       },
     },
-    queue: { send: async keys => { expect(keys.length).toBeLessThanOrEqual(10); queued.push(keys); } },
+    queue: { send: async keys => { queued.push(keys); } },
   };
   return { deps, objects, rows, queued, logs, failOn: (key: string) => { failGet = key; } };
 }
@@ -142,10 +142,10 @@ describe('reconcile', () => {
     await handleIndexerEvent(deps, { action: 'reconcile' });
     expect(queued).toEqual([]);
   });
-  it('rebuild queues every source in batches of ten', async () => {
+  it('rebuild queues every source', async () => {
     const { deps, objects, queued } = fixture();
     for (let index = 0; index < 23; index += 1) objects.set(`${items}item-${index}.md`, { text: note({ id: `item-${index}` }), etag: '"e"' });
     await handleIndexerEvent(deps, { action: 'rebuild' });
-    expect(queued.map(batch => batch.length)).toEqual([10, 10, 3]);
+    expect(queued.flat()).toEqual([...objects.keys()]);
   });
 });
