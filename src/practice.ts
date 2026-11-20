@@ -9,13 +9,13 @@ import { OperationError } from './errors.js';
 import { type PracticeDomain, domainSchema, practiceDocuments, practiceDomains, practiceNoteDomain, sharedPracticeDocuments, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
 import { readDesignCanvas } from './design-canvas.js';
+import { dateSchema, REVIEW_ITEMS_PREFIX, reviewSummarySchema as summarySchema, slugSchema } from './practice-schema.js';
 
 export { domainSchema, validatePracticeWritePath } from './practice-domains.js';
-export const slugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).max(120);
+export { dateSchema, slugSchema } from './practice-schema.js';
 export const revisionSchema = z.string().min(1).max(256);
 const text = z.string().max(12000);
 const requiredText = text.refine(value => value.trim().length > 0);
-export const dateSchema = z.iso.date().refine(value => !value.startsWith('0000-'), { message: 'Year must be between 0001 and 9999' });
 export const addReviewSchema = z.strictObject({ id: slugSchema, domain: domainSchema, title: requiredText.max(200), prompt: requiredText,
   source: text.optional(), review_focus: text.optional() });
 export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: revisionSchema,
@@ -23,9 +23,6 @@ export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: rev
   outcome: z.enum(['independent', 'assisted', 'incomplete']), reflection: requiredText,
   completed_on: dateSchema, submission: text.optional(), observations: text.optional() });
 export const listReviewsSchema = z.strictObject({ domain: domainSchema, cursor: z.string().max(8192).optional() });
-const summarySchema = z.object({ id: slugSchema, domain: z.enum(['algorithm', 'system-design', 'behavioral']), title: z.string().min(1).max(200), status: z.enum(['active', 'archived']),
-  review_count: z.number().int().nonnegative(), stage: z.number().int().nonnegative(),
-  last_review: dateSchema.nullable(), next_review: dateSchema.nullable() });
 const itemSchema = summarySchema.extend({ prompt: requiredText, source: text.optional(), attempt_ids: z.array(z.string()).max(5000).default([]) });
 const moduleSchema = z.object({ enabled: z.boolean(), interval_days: z.array(z.number().int().min(1).max(3650)).min(1).max(20),
   retry_days: z.number().int().min(1).max(3650), archive_after_final: z.boolean().default(false),
@@ -34,7 +31,7 @@ const moduleSchema = z.object({ enabled: z.boolean(), interval_days: z.array(z.n
 type ModuleConfig = z.infer<typeof moduleSchema>;
 type DomainAvailability = { domain: PracticeDomain; label: string } & (
   { status: 'enabled'; time_limit: number } | { status: 'disabled' | 'unavailable'; reason: string });
-const prefix = 'Learning/Practice/Review/Items/';
+const prefix = REVIEW_ITEMS_PREFIX;
 const documents: Record<string, { text: string; sha256: string }> = bundle.documents;
 export class PracticeError extends OperationError {}
 function parseNote(value: string) {

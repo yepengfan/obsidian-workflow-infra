@@ -79,6 +79,12 @@ export class GitHubTrustStack extends Stack {
       ],
       resources: bucketArns,
     }));
+    execution.addToPolicy(new iam.PolicyStatement({
+      // Vault-only EventBridge delivery for the note index. S3 sends events to
+      // the default bus; matching rules are owned by the MCP stack.
+      actions: ['s3:PutBucketNotification'],
+      resources: [`arn:${this.partition}:s3:::${storage.buckets.vault.name}`],
+    }));
     const executionRole = execution.roleArn;
     if (deployment.metadataSearch) grantMetadataConfiguration(this, storage.buckets.vault.name, execution);
     // Dedicated application service role. IAM itself remains foundation-owned.
