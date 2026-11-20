@@ -61,10 +61,24 @@ describe('canonical spaced review policy', () => {
     { name: 'early extra practice', prior: { stage: 2, next_review: '2026-11-20' }, outcome: 'independent', date: '2026-11-14', stage: 2, due: '2026-11-20' },
     { name: 'assisted completion', prior: { stage: 3, next_review: '2026-11-14' }, outcome: 'assisted', date: '2026-11-14', stage: 3, due: '2026-11-15' },
     { name: 'incomplete round', prior: { stage: 1 }, outcome: 'incomplete', date: '2026-11-14', stage: 1, due: '2026-11-15' },
-    { name: 'final stage stays capped', prior: { stage: 4, next_review: '2026-11-14' }, outcome: 'independent', date: '2026-11-14', stage: 4, due: '2026-12-14' },
+    { name: 'final stage repeats without archiving', prior: { stage: 4, next_review: '2026-11-14' }, outcome: 'independent', date: '2026-11-14', stage: 4, due: '2027-01-13' },
     { name: 'month boundary', prior: {}, outcome: 'independent', date: '2026-12-31', stage: 0, due: '2027-01-01' },
   ])('$name', ({ prior, outcome, date, stage, due }) => {
-    expect(nextSchedule({ ...item, ...prior }, outcome, date, [1, 3, 7, 14, 30], 1)).toEqual({ stage, next_review: due, last_review: date, review_count: 1 });
+    expect(nextSchedule({ ...item, ...prior }, outcome, date, [1, 3, 7, 14, 60], 1)).toEqual({ stage, next_review: due, last_review: date, review_count: 1, status: 'active' });
+  });
+  it('archives an on-time independent final round when enabled', () => {
+    const final = { ...item, stage: 4, review_count: 5, last_review: '2026-09-15', next_review: '2026-11-14' };
+    expect(nextSchedule(final, 'independent', '2026-11-16', [1, 3, 7, 14, 60], 1, true)).toEqual({
+      stage: 4, next_review: null, last_review: '2026-11-16', review_count: 6, status: 'archived', archived_on: '2026-11-16' });
+    expect(nextSchedule({ ...final, stage: 3 }, 'independent', '2026-11-14', [1, 3, 7, 14, 60], 1, true)).toMatchObject({ stage: 4, next_review: '2027-01-13', status: 'active' });
+  });
+  it.each(['assisted', 'incomplete'])('retries an %s final round without archiving', outcome => {
+    const final = { ...item, stage: 4, next_review: '2026-11-14' };
+    expect(nextSchedule(final, outcome, '2026-11-14', [1, 3, 7, 14, 60], 1, true)).toMatchObject({ stage: 4, next_review: '2026-11-15', status: 'active' });
+  });
+  it('keeps early final-stage practice scheduled instead of archiving', () => {
+    expect(nextSchedule({ ...item, stage: 4, next_review: '2026-12-31' }, 'independent', '2026-11-14', [1, 3, 7, 14, 60], 1, true))
+      .toMatchObject({ stage: 4, next_review: '2026-12-31', status: 'active' });
   });
   it('uses the vault calendar rather than UTC and handles daylight saving', () => {
     expect(calendarDay('Australia/Brisbane', new Date('2026-11-14T15:00:00Z'))).toBe('2026-11-15');
@@ -169,6 +183,20 @@ describe('practice storage behavior', () => {
     const saved = store.files.get(path)!; expect(saved).toContain(oldBody); expect(saved).toContain('custom_field: retained');
     expect(saved).toContain(payload.reflection); expect(saved).toContain('历史记录');
     expect(await practice.record(payload)).toMatchObject({ recorded: false, review_count: 1 }); expect(store.files.get(path)).toBe(saved);
+  });
+  it('archives a passed final round, records it and removes it from the queue', async () => {
+    const { store, practice } = await seeded(); const path = items + item.id + '.md';
+    store.files.set(configPath, moduleText.replace(/^archive_after_final: .*\n/mu, '').replace('retry_days: 1\n', 'retry_days: 1\narchive_after_final: true\n'));
+    store.files.set(path, store.files.get(path)!.replace('stage: 0', 'stage: 4').replace('review_count: 0', 'review_count: 5')
+      .replace('last_review: null', 'last_review: 2026-09-15').replace('next_review: null', 'next_review: 2026-11-14'));
+    const prompt = await practice.review(item.id);
+    expect(await practice.record(attempt(prompt.revision))).toMatchObject({ recorded: true, status: 'archived', next_review: null, stage: 4, review_count: 6 });
+    const saved = parse(store.files.get(path)!.split('---\n')[1]!);
+    expect(saved).toMatchObject({ status: 'archived', archived_on: '2026-11-14', next_review: null, last_review: '2026-11-14' });
+    expect(store.files.get(path)).toContain('**independent** · Archived');
+    await expect(practice.review(item.id)).rejects.toThrow('review_archived');
+    const queue = await practice.reviews({ domain: 'algorithm' });
+    expect([...queue.overdue, ...queue.today, ...queue.unstarted, ...queue.upcoming]).toHaveLength(0);
   });
   it('rejects stale writes and preserves a concurrent Obsidian edit', async () => {
     const { store, practice } = await seeded(); const prompt = await practice.review(item.id);
