@@ -28,7 +28,8 @@ const summarySchema = z.object({ id: slugSchema, domain: z.enum(['algorithm', 's
   last_review: dateSchema.nullable(), next_review: dateSchema.nullable() });
 const itemSchema = summarySchema.extend({ prompt: requiredText, source: text.optional(), attempt_ids: z.array(z.string()).max(5000).default([]) });
 const moduleSchema = z.object({ enabled: z.boolean(), interval_days: z.array(z.number().int().min(1).max(3650)).min(1).max(20),
-  retry_days: z.number().int().min(1).max(3650), practice_flows: z.record(z.string(), z.unknown()),
+  retry_days: z.number().int().min(1).max(3650), archive_after_final: z.boolean().default(false),
+  practice_flows: z.record(z.string(), z.unknown()),
   review_time_limits: z.record(z.string(), z.unknown()) });
 type ModuleConfig = z.infer<typeof moduleSchema>;
 type DomainAvailability = { domain: PracticeDomain; label: string } & (
@@ -55,17 +56,21 @@ function addDays(day: string, days: number) {
   const date = new Date(`${day}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + days);
   return dateSchema.parse(date.toISOString().slice(0, 10));
 }
-export function nextSchedule(item: z.infer<typeof summarySchema>, outcome: string, day: string, intervals: number[], retry: number) {
+export function nextSchedule(item: z.infer<typeof summarySchema>, outcome: string, day: string, intervals: number[], retry: number,
+  archiveAfterFinal = false) {
   dateSchema.parse(day);
   if (item.last_review && day < item.last_review) throw new PracticeError('review_date_precedes_last_review');
   let stage = item.stage;
   if (stage >= intervals.length) throw new PracticeError('invalid_review_stage');
+  const counted = { last_review: day, review_count: item.review_count + 1 };
   let next: string;
   if (outcome !== 'independent') next = addDays(day, retry);
   else if (!item.next_review) { stage = 0; next = addDays(day, intervals[0]!); }
   else if (day < item.next_review) next = item.next_review;
+  // Passing the final interval on time completes the schedule.
+  else if (archiveAfterFinal && stage === intervals.length - 1) return { stage, next_review: null, ...counted, status: 'archived' as const, archived_on: day };
   else { stage = Math.min(stage + 1, intervals.length - 1); next = addDays(day, intervals[stage]!); }
-  return { stage, next_review: next, last_review: day, review_count: item.review_count + 1 };
+  return { stage, next_review: next, ...counted, status: 'active' as const };
 }
 
 /** Private note state lives only in S3. Bundled documents contain public workflow definitions. */
@@ -218,9 +223,9 @@ export class Practice {
     if (note.item.attempt_ids.includes(input.attempt_id)) return { ...summarySchema.parse(note.item), recorded: false };
     if (input.completed_on > this.today()) throw new PracticeError('review_date_is_in_future');
     if (input.revision !== note.revision) throw new PracticeError('revision_conflict');
-    const schedule = nextSchedule(note.item, input.outcome, input.completed_on, config.interval_days, config.retry_days);
+    const schedule = nextSchedule(note.item, input.outcome, input.completed_on, config.interval_days, config.retry_days, config.archive_after_final);
     const metadata = { ...note.metadata, ...schedule, last_outcome: input.outcome, attempt_ids: [...note.item.attempt_ids, input.attempt_id] };
-    let entry = `\n\n### ${input.completed_on} · Round ${schedule.review_count}\n\n**${input.outcome}** · Next review ${schedule.next_review}\n\n#### My reflection\n\n${input.reflection}\n`;
+    let entry = `\n\n### ${input.completed_on} · Round ${schedule.review_count}\n\n**${input.outcome}** · ${schedule.status === 'archived' ? 'Archived' : `Next review ${schedule.next_review}`}\n\n#### My reflection\n\n${input.reflection}\n`;
     if (input.submission) entry += `\n#### Submission\n\n${input.submission}\n`;
     if (input.observations) entry += `\n#### Feedback\n\n${input.observations}\n`;
     await this.put(note.path, serialize(metadata, note.body + entry), note.revision);

@@ -101,7 +101,7 @@ CI and Lambda use the committed snapshot. Runtime ZIP builds from the same
 committed snapshot remain deterministic.
 
 The live S3 practice-review manifest controls `enabled`, intervals, retry days,
-time limits and domain mapping. The selected domain's module guard and exact
+final-interval archiving, time limits and domain mapping. The selected domain's module guard and exact
 workflow mapping are checked before its actions. A disabled Algorithm module
 does not block System Design, or vice versa. Other domain settings in the shared
 manifest are ignored.
@@ -213,10 +213,16 @@ The backend follows the canonical scheduling policy:
 
 - First independent completion: first interval from actual completion day.
 - On-time/late independent completion: advance one interval, capped at the last.
+- On-time/late independent completion at the final stage with
+  `archive_after_final: true`: set `status: archived`, `archived_on` to the
+  completion day and `next_review: null`. Without the flag, repeat the final
+  interval. Archived items leave the queue and refuse further review records.
 - Early independent extra practice: keep the existing due date and stage.
 - Assisted/incomplete ended round: retry interval, preserving the stage.
 
-Defaults are 1/3/7/14/30 days and a one-day retry, read from the live manifest.
+Defaults are 1/3/7/14/60 days, a one-day retry and archiving after the final
+interval, read from the live manifest. `archive_after_final` defaults to false
+when the manifest omits it.
 The configured IANA timezone determines today; UTC does not silently replace
 the vault calendar. `completed_on` preserves the actual completion date on a
 later save. Future dates and dates preceding the last recorded review are
