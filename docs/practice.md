@@ -121,12 +121,14 @@ practice write tools.
 | `practice_read_note` | Read one complete bounded Algorithm or System Design note and its revision for a potential edit. |
 | `practice_design_template` | Draft unsaved session progress, Excalidraw files and native `canvas.drawing` data for a new System Design topic. |
 | `practice_design_canvas` | Read the exact selected session canvas as native drawing data, with its source revision; supports plain JSON and legacy compressed-json without saving. |
+| `practice_design_mode` | Read the global System Design coaching default or choose an override for this round. |
+| `practice_complete_design_round` | Count a confirmed, ended round toward the two introductory rounds. |
 | `practice_add_review` | Create an unstarted review object without overwriting an existing one. |
 | `practice_record_review` | Append an ended attempt/reflection and calculate scheduling deterministically. |
 | `practice_create_note` | Create an approved practice data Markdown file if absent. |
 | `practice_update_note` | Apply selected unique text-anchor edits with an expected revision. |
 
-The last four tools are absent from the catalog while writes are disabled.
+The five write tools are absent from the catalog while writes are disabled.
 Every write requires both the resource-bound read and write scopes and owners
 group membership. Tool annotations request careful host handling but are not
 proof of human approval. The workflow requires showing the intended change and
@@ -272,6 +274,28 @@ unchanged; the backend enforces each record's domain. Configuration, guides,
 indexes, templates, reference articles, shared attachments and other session
 files are not writable. Multiple note saves are independent operations. Report
 each result honestly, including partial success.
+
+## System Design coaching modes
+
+At the start of each new design or scheduled System Design review,
+`practice_design_mode` returns the mode for that round. Rounds one and two
+default to guided coaching. From round three onward the default is a mock
+interview, including on new topics. “Guide me” and “switch to mock interview”
+change the current round immediately. A confirmed checkpoint includes the
+round UUID and active mode so resuming keeps the same drawing and pace.
+
+The coach uses targeted hints in guided mode and holds design feedback for the
+mock interview debrief. The outcome of a scheduled review reflects the help
+actually received. Switching modes does not change its schedule.
+
+After an ended round, `practice_complete_design_round` accepts the confirmed
+round UUID. It remembers the first two distinct completions in
+`Learning/Practice/System-Design/Log/coaching-rounds.md` using conditional
+writes. A fresh vault starts at zero. Subsequent completions need no coaching
+log write. This dedicated tool shares the existing System Design log permission.
+A scheduled review still saves its own outcome and reflection. If only one
+save succeeds, retry the other with the same UUID. When writes are disabled
+or declined, progress can be carried in the current conversation only.
 
 ## System Design sessions
 

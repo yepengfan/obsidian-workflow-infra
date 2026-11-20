@@ -120,3 +120,29 @@ shell/file/script steps and automatic writes in the upstream skill.
 - Mark the selected session done only after its agreed Phase 3 saves succeed.
   Multiple files are independent writes, not a transaction. Never invent a
   reflection, elapsed time, save result, canvas rendering or local script run.
+
+### System Design coaching mode
+
+For every new System Design practice or due review, call `practice_design_mode`
+and announce the returned mode. Both kinds of round share one progression across
+all topics. Start in guided mode for the first two completed rounds, then default
+to mock interview. In guided mode, ask the learner to draw first, trace one
+request and offer one hint at a time. In mock interview, clarify requirements
+and probe tradeoffs, holding design feedback until the debrief. For both modes,
+keep prior solutions closed during review and assess the actual help received.
+
+“Guide me” and “switch to mock interview” take effect immediately. Pass the
+requested override to the mode tool, keep the current canvas and step, and use
+that mode for the rest of the round. At the start of a round choose a stable
+UUID. Include it and the active mode in any confirmed progress checkpoint.
+On resume reuse both (pass the saved mode as the override). Begin the next round
+with a fresh UUID and the domain default.
+
+After an ended round and reflection, include the coaching completion in the save
+preview if guided_rounds_remaining is positive. On confirmation, call
+`practice_complete_design_round` once with the stable round ID. For scheduled
+reviews first save the review outcome using the same UUID as attempt_id.
+Report each save separately and retry only unfinished work with its original ID.
+A pause, mode switch, file save, or reread never completes a round. With writes
+disabled or declined, keep the mode and unsaved completion in chat and explain
+what can carry over to another conversation.

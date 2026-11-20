@@ -1,10 +1,11 @@
 import { stringify } from 'yaml';
 import { z } from 'zod';
+import { DesignCoaching } from './design-coaching.js';
 import { PracticeWorkflow } from './practice-workflow.js';
 import { calendarDay, nextSchedule } from './review-schedule.js';
 import type { Settings } from './config.js';
 import { NoteError } from './paths.js';
-import type { NoteReader, NoteWriter } from './note-store.js';
+import type { NoteReader, NoteStore, NoteWriter } from './note-store.js';
 import { PracticeError } from './errors.js';
 import { type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
@@ -50,6 +51,10 @@ export class Practice {
     this.notes = new PracticeNotes(store, settings.prefix, signal, settings.practice.writesEnabled ? dependencies.writer : undefined);
     this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal);
   }
+  designCoaching(catalog: Pick<NoteStore, 'list'>) {
+    return new DesignCoaching(catalog, this.notes, this.settings.prefix, this.signal, () => this.workflows.config('system-design'));
+  }
+
   private today() { return calendarDay(this.settings.practice.timeZone, this.dependencies.now?.() ?? new Date()); }
   read(path: string) {
     return this.notes.read(path);

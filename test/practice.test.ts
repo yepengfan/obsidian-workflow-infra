@@ -504,6 +504,13 @@ it('supports a System Design session and review through the real MCP client with
         verifyScope: async () => { if (!writable) throw new AuthError(401); return owner; } })(new Request(input, init)),
     }));
     const call = (name: string, args: Record<string, unknown>) => client.callTool({ name, arguments: args });
+    const firstRound = 'e8c1dc3a-7cdd-4c93-a420-16278c975ba1';
+    const secondRound = 'e8c1dc3a-7cdd-4c93-a420-16278c975ba2';
+    const mode = (override?: string) => call('practice_design_mode', override ? { override } : {});
+    const complete = (id: string) => call('practice_complete_design_round', { round_id: id });
+    expect((await mode()).structuredContent).toMatchObject({ mode: 'guided', guided_rounds_remaining: 2 });
+    expect((await mode('mock_interview')).structuredContent).toMatchObject({ default_mode: 'guided', mode: 'mock_interview' });
+    expect((await complete(firstRound)).isError).toBe(true);
     const workflow = await call('practice', { domain: 'system-design' });
     expect(workflow.structuredContent).toMatchObject({ selected_domain: 'system-design', time_limits: { 'system-design': 45 } });
     const instructions = await call('practice_instruction', { path: '.agents/skills/sysd-solve/SKILL.md' });
@@ -531,9 +538,15 @@ it('supports a System Design session and review through the real MCP client with
     const prompt = await call('practice_review', { id: designRequest.id });
     expect(JSON.stringify(prompt.structuredContent)).not.toContain('collision handling');
     const reviewRevision = z.object({ revision: z.string() }).parse(prompt.structuredContent).revision;
-    const payload = { ...attempt(reviewRevision), id: designRequest.id, reflection: 'The redirect read path drives the latency target.', submission: 'My design and tradeoffs.' };
+    const payload = { ...attempt(reviewRevision), id: designRequest.id, attempt_id: secondRound, reflection: 'The redirect read path drives the latency target.', submission: 'My design and tradeoffs.' };
     expect((await call('practice_record_review', payload)).structuredContent).toMatchObject({ recorded: true, domain: 'system-design', next_review: '2026-11-15' });
     expect((await call('practice_record_review', payload)).structuredContent).toMatchObject({ recorded: false, review_count: 1 });
+    expect((await complete(firstRound)).structuredContent).toMatchObject({ added: true, guided_rounds_remaining: 1 });
+    expect((await complete(firstRound)).structuredContent).toMatchObject({ added: false, guided_rounds_remaining: 1 });
+    expect((await mode()).structuredContent).toMatchObject({ mode: 'guided' });
+    expect((await complete(secondRound)).structuredContent).toMatchObject({ added: true, guided_rounds_remaining: 0 });
+    expect((await mode('guided')).structuredContent).toMatchObject({ default_mode: 'mock_interview', mode: 'guided' });
+    expect((await mode()).structuredContent).toMatchObject({ mode: 'mock_interview' });
     const feedback = await call('practice_review', { id: designRequest.id, phase: 'feedback' });
     expect(feedback.structuredContent).toMatchObject({ history: expect.stringContaining(payload.reflection) });
     expect((await call('practice_reviews', { domain: 'system-design' })).structuredContent).toMatchObject({ domain: 'system-design', complete: true });
@@ -639,7 +652,9 @@ it('keeps write tools out of the read-only practice catalog', async () => {
       fetch: async (input, init) => createFetchHandler(options, { skills: [practiceSkill(options, new FileIndex(store))], store, writer: store, verify: async () => owner })(new Request(input, init)),
     }));
     const tools = (await client.listTools()).tools;
-    expect(tools).toHaveLength(10); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
+    expect(tools.map(tool => tool.name)).toContain('practice_design_mode');
+    expect(tools.map(tool => tool.name)).not.toContain('practice_complete_design_round');
+    expect(tools).toHaveLength(11); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
     expect((await client.callTool({ name: 'practice_design_template', arguments: { topic: 'Design Dropbox', short_topic: 'Dropbox' } })).structuredContent).toMatchObject({ saved: false });
     expect((await client.callTool({ name: 'practice_add_review', arguments: request })).isError).toBe(true); expect(store.writes).toHaveLength(0);
   } finally { await client.close(); }
@@ -708,4 +723,21 @@ it('starts generic practice with an overview through the real MCP client, then r
     expect(selected.structuredContent).toMatchObject({ status: 'ready', selected_domain: 'system-design', time_limits: { 'system-design': 45 } });
     expect(store.files).toEqual(before); expect(store.writes).toEqual([]);
   } finally { await client.close(); }
+});
+
+it('counts concurrent System Design completions once and preserves a damaged coaching log', async () => {
+  const { store, practice } = setup();
+  const coaching = practice.designCoaching(store);
+  const ids = ['af5cb179-2014-4830-8b2c-c39136ac046a', 'be7ac827-be1f-4e34-9dc3-bf82f00a32bb'];
+  await Promise.all([coaching.complete(ids[0]!), coaching.complete(ids[1]!), coaching.complete(ids[0]!)]);
+  expect(await coaching.mode()).toMatchObject({ mode: 'mock_interview' });
+  expect(store.writes).toHaveLength(2);
+  const path = 'Learning/Practice/System-Design/Log/coaching-rounds.md';
+  for (const id of ids) expect(store.files.get(root + path)).toContain(id);
+  expect(() => validatePracticeWritePath(path)).toThrow('invalid_path');
+  store.files.set(root + path, '# My existing note');
+  await expect(coaching.complete(ids[0]!)).rejects.toThrow('invalid_design_coaching_log');
+  expect(store.files.get(root + path)).toBe('# My existing note');
+  store.files.set(root + 'system/modules/system-design/module.md', '---\nenabled: false\n---\n');
+  await expect(coaching.mode()).rejects.toThrow('domain_module_disabled');
 });
