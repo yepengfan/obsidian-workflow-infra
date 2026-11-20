@@ -17,7 +17,7 @@ describe('GitHub OIDC foundation', () => {
     const template = Template.fromStack(new GitHubTrustStack(new App(), 'Trust', storage, github));
     template.resourceCountIs('AWS::IAM::OIDCProvider', 1);
     const roles = template.findResources('AWS::IAM::Role') as Record<string, Role>;
-    expect(Object.keys(roles)).toHaveLength(6);
+    expect(Object.keys(roles)).toHaveLength(7);
     const subjects = Object.values(roles).filter(role => role.Properties.AssumeRolePolicyDocument.Statement[0]?.Principal?.Federated).map((role) => {
       const statement = role.Properties.AssumeRolePolicyDocument.Statement[0]!;
       expect(statement.Condition?.StringEquals?.['token.actions.githubusercontent.com:aud']).toBe('sts.amazonaws.com');
@@ -28,8 +28,8 @@ describe('GitHub OIDC foundation', () => {
       `${github.repositorySubject}:environment:production-plan`,
     ]);
     expect(Object.values(template.toJSON().Resources).map((r) => (r as { Type: string }).Type).sort()).toEqual([
-      'AWS::IAM::OIDCProvider', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy',
-      'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role',
+      'AWS::IAM::ManagedPolicy', 'AWS::IAM::OIDCProvider', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy', 'AWS::IAM::Policy',
+      'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role', 'AWS::IAM::Role',
     ]);
   });
 
@@ -70,7 +70,7 @@ describe('GitHub OIDC foundation', () => {
     }
   });
 
-  it('limits CloudFormation to bucket metadata and five reviewed configuration writes', () => {
+  it('limits CloudFormation to bucket metadata, five reviewed configuration writes and vault EventBridge delivery', () => {
     const stack = new GitHubTrustStack(new App(), 'Trust', storage, github);
     const template = Template.fromStack(stack);
     const [id, role] = Object.entries(template.findResources('AWS::IAM::Role'))
@@ -84,9 +84,12 @@ describe('GitHub OIDC foundation', () => {
     const statements = (Object.values(template.findResources('AWS::IAM::Policy')) as Policy[])
       .filter(policy => policy.Properties.Roles.some(ref => ref.Ref === id))
       .flatMap(policy => policy.Properties.PolicyDocument.Statement);
-    expect(statements).toHaveLength(2);
+    expect(statements).toHaveLength(3);
     const expectedResources = [storage.buckets.vault.name, storage.buckets.library.name]
       .map(name => stack.resolve(`arn:${stack.partition}:s3:::${name}`));
+    const [notification] = statements.splice(statements.findIndex(statement => statement.Action === 's3:PutBucketNotification'), 1);
+    // Event delivery is enabled on the vault only; the library has no index.
+    expect(notification!.Resource).toEqual(stack.resolve(`arn:${stack.partition}:s3:::${storage.buckets.vault.name}`));
     for (const statement of statements) expect(statement.Resource).toEqual(expectedResources);
     const actions = statements.flatMap(statement => [statement.Action].flat());
     expect(actions.filter(action => !action.startsWith('s3:Get') && !action.startsWith('s3:List')).sort()).toEqual([
@@ -115,7 +118,7 @@ describe('GitHub OIDC foundation', () => {
     const statements = (Object.values(template.findResources('AWS::IAM::Policy')) as Policy[])
       .filter(policy => policy.Properties.Roles.some(ref => ref.Ref === id))
       .flatMap(policy => policy.Properties.PolicyDocument.Statement);
-    for (const statement of statements) expect(statement.Resource).toEqual(
+    for (const statement of statements.filter(statement => statement.Action !== 's3:PutBucketNotification')) expect(statement.Resource).toEqual(
       [changed.buckets.vault.name, changed.buckets.library.name].map(name => stack.resolve(`arn:${stack.partition}:s3:::${name}`)),
     );
   });
@@ -124,7 +127,7 @@ describe('GitHub OIDC foundation', () => {
     const roles = Object.values(Template.fromStack(new GitHubTrustStack(new App(), 'Trust', storage, github))
       .findResources('AWS::IAM::Role'));
     expect(roles.map(role => role.Properties.RoleName).sort()).toEqual(
-      [github.planRoleName, github.deployRoleName, github.executionRoleName, github.mcpExecutionRoleName, github.runtimeRoleName, github.codeRetentionRoleName].sort(),
+      [github.planRoleName, github.deployRoleName, github.executionRoleName, github.mcpExecutionRoleName, github.runtimeRoleName, github.codeRetentionRoleName, 'obsidian-mcp-indexer'].sort(),
     );
     for (const [name, environment] of [[github.planRoleName, 'production-plan'], [github.deployRoleName, 'production'], [github.codeRetentionRoleName, 'production-plan']]) {
       const role = roles.find(role => role.Properties.RoleName === name)!;

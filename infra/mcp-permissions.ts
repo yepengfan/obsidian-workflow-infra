@@ -5,6 +5,8 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import { z } from 'zod';
 import type { StorageConfig } from './storage-config.js';
 import { grantMetadataSearch } from './metadata-search.js';
+import { FUNCTION_MANAGEMENT_ACTIONS, LOG_GROUP_MANAGEMENT_ACTIONS } from './lambda-management.js';
+import { grantPracticeIndex, INDEX_RESOURCE_TYPES } from './practice-index-permissions.js';
 
 export const mcpDeploymentSchema = z.strictObject({
   practiceWrites: z.boolean().optional(),
@@ -55,22 +57,14 @@ export function grantMcpRuntime(
       conditions: { StringEquals: { 's3:x-amz-server-side-encryption': 'AES256' } } }));
   }
   runtime.addToPolicy(new iam.PolicyStatement({ actions: ['logs:CreateLogStream', 'logs:PutLogEvents'], resources: [`${group}:log-stream:*`] }));
+  grantPracticeIndex(stack, storage.buckets.vault.name, settings, execution, runtime);
 
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['iam:PassRole'], resources: [runtime.roleArn],
     conditions: { StringEquals: { 'iam:PassedToService': 'lambda.amazonaws.com' } } }));
-  execution.addToPolicy(new iam.PolicyStatement({ actions: [
-    'lambda:CreateFunction', 'lambda:DeleteFunction', 'lambda:GetFunction', 'lambda:GetFunctionConfiguration',
-    'lambda:UpdateFunctionCode', 'lambda:UpdateFunctionConfiguration',
-    'lambda:ListTags', 'lambda:TagResource', 'lambda:UntagResource',
-    'lambda:GetFunctionConcurrency', 'lambda:PutFunctionConcurrency', 'lambda:DeleteFunctionConcurrency',
-    'lambda:GetRuntimeManagementConfig', 'lambda:GetFunctionCodeSigningConfig',
-    'lambda:GetPolicy', 'lambda:RemovePermission',
-  ], resources: [functionArn] }));
+  execution.addToPolicy(new iam.PolicyStatement({ actions: [...FUNCTION_MANAGEMENT_ACTIONS], resources: [functionArn] }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['lambda:AddPermission'], resources: [functionArn],
     conditions: { StringEquals: { 'lambda:Principal': 'apigateway.amazonaws.com' } } }));
-  execution.addToPolicy(new iam.PolicyStatement({ actions: ['logs:CreateLogGroup', 'logs:DeleteLogGroup', 'logs:PutRetentionPolicy',
-    'logs:DeleteRetentionPolicy', 'logs:ListTagsForResource', 'logs:ListTagsLogGroup', 'logs:TagResource', 'logs:TagLogGroup'],
-  resources: [group, `${group}:*`] }));
+  execution.addToPolicy(new iam.PolicyStatement({ actions: [...LOG_GROUP_MANAGEMENT_ACTIONS], resources: [group, `${group}:*`] }));
   execution.addToPolicy(new iam.PolicyStatement({ actions: ['logs:GetDataProtectionPolicy'], resources: [group, `${group}:*`] }));
   // These metadata reads are required by the native LogGroup read handler and
   // do not support resource-level IAM authorization. They cannot read events.
@@ -120,5 +114,5 @@ export const MCP_RESOURCE_TYPES = [
   'AWS::S3::Bucket', 'AWS::S3::BucketPolicy', 'AWS::Lambda::Function', 'AWS::Lambda::Permission',
   'AWS::Logs::LogGroup', 'AWS::ApiGatewayV2::Api', 'AWS::ApiGatewayV2::Integration',
   'AWS::ApiGatewayV2::Route', 'AWS::ApiGatewayV2::Stage',
-  'AWS::Athena::WorkGroup', 'AWS::Glue::Catalog',
+  'AWS::Athena::WorkGroup', 'AWS::Glue::Catalog', ...INDEX_RESOURCE_TYPES,
 ];

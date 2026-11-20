@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { githubSchema, GitHubTrustStack } from '../infra/github-stack.js';
 import { storageSchema } from '../infra/storage-config.js';
 import { mcpDeploymentSchema } from '../infra/mcp-permissions.js';
+import { INDEX_RESOURCES } from '../infra/practice-index-resources.js';
 
 const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
 const config = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
@@ -16,7 +17,7 @@ function build(prefix = '', practiceWrites = false, journalWrites = false) {
   const template = Template.fromStack(stack);
   const statements = (name: string): Statement[] => {
     const [id] = Object.entries(template.findResources('AWS::IAM::Role')).find(([, r]) => r.Properties.RoleName === name)!;
-    return Object.values(template.findResources('AWS::IAM::Policy'))
+    return [...Object.values(template.findResources('AWS::IAM::Policy')), ...Object.values(template.findResources('AWS::IAM::ManagedPolicy'))]
       .filter(p => p.Properties.Roles.some((r: { Ref: string }) => r.Ref === id))
       .flatMap(p => p.Properties.PolicyDocument.Statement);
   };
@@ -28,7 +29,7 @@ describe('MCP runtime permission boundary', () => {
   it.each(['', 'Knowledge/'])('permits only bounded child listings and read-only Vault objects under %j', prefix => {
     const { stack, statements } = build(prefix);
     const runtime = statements(settings.runtimeRoleName);
-    expect(runtime.flatMap(actions).sort()).toEqual(['logs:CreateLogStream', 'logs:PutLogEvents', 's3:GetObject', 's3:ListBucket']);
+    expect(runtime.flatMap(actions).sort()).toEqual(['dynamodb:Query', 'logs:CreateLogStream', 'logs:PutLogEvents', 's3:GetObject', 's3:ListBucket']);
     expect(runtime.find(s => actions(s).includes('s3:ListBucket'))).toMatchObject({
       Resource: stack.resolve(`arn:${stack.partition}:s3:::${storage.buckets.vault.name}`),
       Condition: { StringLike: { 's3:prefix': [`${prefix}*`] }, StringEquals: { 's3:delimiter': '/' }, NumericLessThanEquals: { 's3:max-keys': 100 } },
@@ -77,7 +78,7 @@ describe('MCP runtime permission boundary', () => {
     }]);
     expect(statements(config.planRoleName).flatMap(actions).filter(a => a.startsWith('lambda:'))).toEqual([]);
   });
-  it('pins Cognito, constrains API ownership, and passes only the named Lambda role', () => {
+  it('pins Cognito, constrains API ownership, and passes only the named Lambda roles', () => {
     const { template, statements } = build();
     const execution = statements(config.mcpExecutionRoleName);
     expect(execution.flatMap(actions)).not.toContain('cognito-idp:CreateUserPool');
@@ -86,9 +87,10 @@ describe('MCP runtime permission boundary', () => {
     }
     const apiCreate = execution.find(s => s.Condition?.StringEquals?.['apigateway:Request/ApiName']);
     expect(apiCreate?.Condition?.StringEquals).toEqual({ 'aws:RequestTag/Project': 'obsidian-mcp', 'apigateway:Request/ApiName': settings.apiName });
-    const role = Object.entries(template.findResources('AWS::IAM::Role')).find(([, r]) => r.Properties.RoleName === settings.runtimeRoleName)!;
+    const roleId = (name: string) => Object.entries(template.findResources('AWS::IAM::Role')).find(([, r]) => r.Properties.RoleName === name)![0];
     const pass = execution.filter(s => actions(s).includes('iam:PassRole'));
-    expect(pass).toEqual([{ Action: 'iam:PassRole', Effect: 'Allow', Resource: { 'Fn::GetAtt': [role[0], 'Arn'] }, Condition: { StringEquals: { 'iam:PassedToService': 'lambda.amazonaws.com' } } }]);
+    expect(pass).toEqual([settings.runtimeRoleName, INDEX_RESOURCES.roleName].map(name => ({ Action: 'iam:PassRole', Effect: 'Allow',
+      Resource: { 'Fn::GetAtt': [roleId(name), 'Arn'] }, Condition: { StringEquals: { 'iam:PassedToService': 'lambda.amazonaws.com' } } })));
     for (const policy of Object.values(template.findResources('AWS::IAM::Policy'))) {
       for (const s of policy.Properties.PolicyDocument.Statement as Statement[]) expect(actions(s)).not.toContain('*');
     }
@@ -128,9 +130,8 @@ describe('MCP runtime permission boundary', () => {
     });
     const protection = execution.filter(s => actions(s).includes('logs:GetDataProtectionPolicy'));
     const group = `arn:${stack.partition}:logs:${storage.region}:${storage.account}:log-group:/aws/lambda/${settings.functionName}`;
-    expect(protection).toEqual([{
-      Effect: 'Allow', Action: 'logs:GetDataProtectionPolicy', Resource: stack.resolve([group, `${group}:*`]),
-    }]);
+    const indexGroup = `arn:${stack.partition}:logs:${storage.region}:${storage.account}:log-group:/aws/lambda/${INDEX_RESOURCES.functionName}`;
+    expect(protection.map(s => s.Resource)).toEqual([stack.resolve([group, `${group}:*`]), stack.resolve([indexGroup, `${indexGroup}:*`])]);
     for (const action of ['logs:GetLogEvents', 'logs:FilterLogEvents', 'logs:StartQuery', 'logs:PutIndexPolicy', 'logs:PutResourcePolicy', 'logs:PutDataProtectionPolicy']) {
       expect(execution.flatMap(actions)).not.toContain(action);
     }
@@ -140,15 +141,15 @@ describe('MCP runtime permission boundary', () => {
       }
     }
   });
-  it('allows native rollback to delete only the named function and log group', () => {
+  it('allows native rollback to delete only the named functions and log groups', () => {
     const { stack, statements } = build();
     const execution = statements(config.mcpExecutionRoleName);
-    expect(execution.filter(s => actions(s).includes('lambda:DeleteFunction'))).toHaveLength(1);
-    expect(execution.find(s => actions(s).includes('lambda:DeleteFunction'))?.Resource)
-      .toEqual(stack.resolve(`arn:${stack.partition}:lambda:${storage.region}:${storage.account}:function:${settings.functionName}`));
-    const group = `arn:${stack.partition}:logs:${storage.region}:${storage.account}:log-group:/aws/lambda/${settings.functionName}`;
-    expect(execution.filter(s => actions(s).includes('logs:DeleteLogGroup'))).toHaveLength(1);
-    expect(execution.find(s => actions(s).includes('logs:DeleteLogGroup'))?.Resource).toEqual(stack.resolve([group, `${group}:*`]));
+    const names = [settings.functionName, INDEX_RESOURCES.functionName];
+    expect(execution.filter(s => actions(s).includes('lambda:DeleteFunction')).map(s => s.Resource))
+      .toEqual(names.map(name => stack.resolve(`arn:${stack.partition}:lambda:${storage.region}:${storage.account}:function:${name}`)));
+    const group = (name: string) => `arn:${stack.partition}:logs:${storage.region}:${storage.account}:log-group:/aws/lambda/${name}`;
+    expect(execution.filter(s => actions(s).includes('logs:DeleteLogGroup')).map(s => s.Resource))
+      .toEqual(names.map(name => stack.resolve([group(name), `${group(name)}:*`])));
     for (const name of [config.planRoleName, config.deployRoleName, settings.runtimeRoleName, config.codeRetentionRoleName]) {
       expect(statements(name).flatMap(actions)).not.toContain('lambda:DeleteFunction');
       expect(statements(name).flatMap(actions)).not.toContain('logs:DeleteLogGroup');
