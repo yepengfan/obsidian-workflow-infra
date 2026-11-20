@@ -5,6 +5,7 @@ import type { McpSkill, SkillContext } from './skill.js';
 import type { Settings } from './config.js';
 import { addReviewSchema, domainSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
 import { designSessionSchema } from './design-session.js';
+import type { ReviewIndex } from './review-index.js';
 
 export function registerPracticeTools(server: McpServer, practice: Practice, settings: Settings,
   result: SkillContext['result'],
@@ -20,7 +21,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     description: 'Read one chunk of a versioned practice instruction document listed by practice. Use for skill definitions and their shared guides; private learner records remain in S3.',
     inputSchema: z.strictObject({ path: z.string().max(1024), offset: z.number().int().nonnegative().max(200000).default(0) }) }, input => result(() => practice.instruction(input.path, input.offset)));
   server.registerTool('practice_reviews', { ...readSecurity, outputSchema,
-    description: 'List one bounded page of review metadata. Always supply domain explicitly, including each domain of a combined overview. Ordering and counts are page-local. Collect all pages before declaring a global due order or no due items. Never expose old solutions before an independent attempt.',
+    description: 'List the complete review queue of one domain: overdue, today, unstarted and upcoming, each ordered by next review date then ID. Always supply domain explicitly, including each domain of a combined overview. Due and unstarted entries reflect the latest saved notes; a newly added review can take a few seconds to appear. Never expose old solutions before an independent attempt.',
     inputSchema: listReviewsSchema }, input => result(() => practice.reviews(input)));
   server.registerTool('practice_review', { ...readSecurity, outputSchema,
     description: 'Read an active review prompt, source and revision. Prompt phase excludes prior attempts and review focus. Request feedback phase only after the learner submits or ends the independent attempt.',
@@ -53,12 +54,12 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
       edits: z.array(z.strictObject({ old: z.string().min(1).max(50000), replacement: z.string().max(50000) })).min(1).max(10) }) }, input => write(() => practice.updateNote(input.path, input.revision, input.edits)));
 }
 
-export function practiceSkill(settings: Settings): McpSkill {
+export function practiceSkill(settings: Settings, index: ReviewIndex): McpSkill {
   return {
     instructions: 'For an explicit user request to practice, call the practice tool and follow its versioned workflow definitions for that task; keep private note data distinct from those definitions. For System Design, open the selected Excalidraw canvas in chat before coaching and inspect its latest shared state before feedback. The canvas is the learner solution; chat explanations are supporting context. Follow the MCP canvas adaptations over upstream Mermaid instructions. Never claim to see unsaved widget edits without fresh host context.',
     scopes: settings.practice.writesEnabled ? [writeScope(settings)] : [],
-    register: ({ server, store, writer, owner, signal, result, authorizeScope }) => {
-      registerPracticeTools(server, new Practice(store, settings, owner, signal, { writer }), settings, result,
+    register: ({ server, store, writer, signal, result, authorizeScope }) => {
+      registerPracticeTools(server, new Practice(store, index, settings, signal, { writer }), settings, result,
         () => authorizeScope(writeScope(settings)));
     },
   };

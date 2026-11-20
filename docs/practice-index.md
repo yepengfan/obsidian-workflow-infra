@@ -1,13 +1,13 @@
 # Practice review index
 
-The MCP practice queue is moving from a per-request S3 scan to a DynamoDB index
-that reads in one query. Notes stay the source of truth. Each table row is a
+The MCP practice queue reads a DynamoDB index in one query instead of scanning
+S3. Notes stay the source of truth. Each table row is a
 rebuildable projection of one note's frontmatter. Local tools (`review.py`, the
 vault Dashboard) keep reading the files directly.
 
-This guide covers the indexer, its deployment order and its operation. Switching
-`practice_reviews` to the index is a separate change; until then the index is
-written but not read.
+This guide covers the indexer, its deployment order and its operation. How
+`practice_reviews` uses the index, including read-your-writes for due items, is in
+[practice](practice.md#queue-and-schedule).
 
 ## Design
 
@@ -82,8 +82,8 @@ Permissions are part of the IAM foundation and follow
    An empty response or only `EventBridgeConfiguration` is safe.
 3. **Backfill.** After Apply, run one rebuild (below). The table is complete
    when the `rebuild` log's `queued` count has been indexed and the queue is empty.
-4. **Read switch.** A later PR moves `practice_reviews` to the GSI and removes
-   the S3 scan path. Recovery is a rebuild, not a fallback.
+4. **Read switch.** `practice_reviews` queries the `queue` GSI; the S3 scan path
+   is removed. Recovery is a rebuild, not a fallback.
 
 ## Operation
 
