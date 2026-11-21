@@ -79,6 +79,10 @@ shell/file/script steps and automatic writes in the upstream skill.
   are supporting context, not a substitute for the drawing. A review does not
   save the canvas. If the submission is missing, request another click. If the
   host cannot display the editor, the learner can share an exported scene.
+- Each submission carries timing metadata in the conversation. The countdown defaults to 60 minutes.
+  Choose a duration and press Start. Pause or resume as needed.
+  Reset or reopen the editor to configure a new timer. Use the sysd-solve checkpoint rules
+  to include the submitted timing records when the learner confirms a save.
 - The active chat canvas is authoritative during an attempt; the saved Obsidian
   canvas is its durable checkpoint. Do not reload S3 over unsaved widget edits.
   Before a save, obtain the latest complete edited scene and the current note

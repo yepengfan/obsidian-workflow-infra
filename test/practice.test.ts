@@ -468,7 +468,7 @@ it('loads and refreshes a saved canvas through the real MCP client without write
     expect(entry).toContain('before the first interview');
     expect(entry).toContain('Before every coaching turn');
     expect(entry).toContain('Review canvas');
-    const uri = 'ui://practice/design-canvas-v2.html';
+    const uri = 'ui://practice/design-canvas-v3.html';
     expect(tool?._meta?.ui).toEqual({ resourceUri: uri });
     const resource = await client.readResource({ uri });
     expect(resource.contents[0]).toMatchObject({ mimeType: 'text/html;profile=mcp-app', text: expect.stringContaining('Review canvas') });
