@@ -5,6 +5,7 @@ import { readToolSecurity, writeToolSecurity, type McpSkill, type SkillContext }
 import type { Settings } from './config.js';
 import { addReviewSchema, domainSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
 import { coachingMode, roundId, type DesignCoaching } from './design-coaching.js';
+import { canvasToolMetadata, registerCanvasWidget } from './practice-canvas-widget.js';
 import { designSessionSchema } from './design-session.js';
 import type { ReviewIndex } from './review-index.js';
 
@@ -32,11 +33,13 @@ export function registerPracticeTools(server: McpServer, practice: Practice, coa
   server.registerTool('practice_design_mode', { ...readSecurity, outputSchema,
     description: 'Choose coaching for a System Design round. With no override, the first two completed rounds across all topics determine the default. Pass guided or mock_interview to switch the current round without changing the drawing, schedule or saved progression.',
     inputSchema: z.strictObject({ override: coachingMode.optional() }) }, input => result(() => coaching.mode(input.override)));
-  server.registerTool('practice_design_template', { ...readSecurity, outputSchema,
-    description: 'Draft a new System Design session: six-step progress.md, an uncompressed Excalidraw file and native canvas.drawing for the host Excalidraw app. Render the canvas in chat before coaching. Does not save or check existing sessions. List the Solutions catalog first and resume a matching WIP/planned session. Confirm any save separately.',
+  registerCanvasWidget(server);
+  const canvasSecurity = { ...readSecurity, _meta: { ...readSecurity._meta, ...canvasToolMetadata } };
+  server.registerTool('practice_design_template', { ...canvasSecurity, outputSchema,
+    description: 'Draft a new System Design session: six-step progress.md, an uncompressed Excalidraw file and an interactive practice canvas. Use Review canvas to share edits before coaching. Does not save or check existing sessions. List the Solutions catalog first and resume a matching WIP/planned session. Confirm any save separately.',
     inputSchema: designSessionSchema }, input => result(() => practice.designTemplate(input)));
-  server.registerTool('practice_design_canvas', { ...readSecurity, outputSchema,
-    description: 'Read a selected saved System Design session canvas as native Excalidraw drawing data, including legacy compressed-json files. Select the exact path from the session catalog. Render drawing.elements with the host Excalidraw app, preserving IDs, layout and bindings. Does not save, assess, or read unsaved chat-widget edits; use current widget context for those. Never open prior solutions during an independent review.',
+  server.registerTool('practice_design_canvas', { ...canvasSecurity, outputSchema,
+    description: 'Read a selected saved System Design session canvas as native Excalidraw drawing data, including legacy compressed-json files. Select the exact path from the session catalog. Opens an interactive practice canvas with the saved elements and bindings. Does not save, assess, or read unsaved chat-widget edits; use Review canvas inside the editor for those. Never open prior solutions during an independent review.',
     inputSchema: z.strictObject({ path: z.string().max(1024) }) }, input => result(() => practice.designCanvas(input.path)));
   if (!settings.practice.writesEnabled) return;
   const writeSecurity = writeToolSecurity(settings);

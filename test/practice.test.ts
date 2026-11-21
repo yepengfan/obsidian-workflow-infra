@@ -467,8 +467,11 @@ it('loads and refreshes a saved canvas through the real MCP client without write
     const entry = (workflow.structuredContent as { entry: string }).entry;
     expect(entry).toContain('before the first interview');
     expect(entry).toContain('Before every coaching turn');
-    expect(entry).toContain('read_widget_context');
-    expect(entry).toContain('restoreCheckpoint');
+    expect(entry).toContain('Review canvas');
+    const uri = 'ui://practice/design-canvas-v1.html';
+    expect(tool?._meta?.ui).toEqual({ resourceUri: uri });
+    const resource = await client.readResource({ uri });
+    expect(resource.contents[0]).toMatchObject({ mimeType: 'text/html;profile=mcp-app', text: expect.stringContaining('Review canvas') });
     expect(entry).toContain('not a substitute for');
     const first = await client.callTool({ name: 'practice_design_canvas', arguments: { path } });
     expect(first.structuredContent).toMatchObject({ path, encoding: 'compressed-json', drawing: scene });

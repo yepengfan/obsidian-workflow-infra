@@ -332,23 +332,17 @@ expanded JSON and 500 elements. Oversized or malformed drawings return an error;
 they never become an empty replacement scene. `read_note` still supports chunked
 reads for other large notes; managed updates require a complete read and revision.
 
-Connect the host Excalidraw app and refresh the Obsidian MCP tool catalog after
-deployment. Before the first question, render `canvas.drawing` from the new
-template or `drawing` from the saved-canvas reader using the host's Excalidraw
-tools. Retain the full scene and use a readable camera focused on the current
-step. Preserve historical links and legacy next-step headings. Showing a
-wikilink or reading a file alone does not open an interactive canvas. Rendering
-the working view needs no Obsidian save approval.
+Open the selected new or resumed practice canvas before the first interview
+question. The template and saved-canvas tools display the editable Excalidraw
+scene in MCP Apps hosts. Keep the active editor open during practice.
 
-Before each coaching turn, step transition or assessment, obtain the latest
-active scene through the host's `read_widget_context` when available. Reuse its
-latest Excalidraw checkpoint, including fullscreen edits; do not reset the
-learner's work from the saved S3 copy. Assess elements, relationships and labels
-as the solution, with chat explanations as supporting context. This check happens
-on coaching turns, not continuously in the background. If fresh widget state is
-unavailable, explain it and request the latest exported scene or screenshot
-before assessing changed work. If the host cannot preserve an element or asset,
-report that limitation rather than silently dropping it.
+Before every coaching turn that depends on new work, ask the learner to click
+**Review canvas** inside the editor. Review the submitted text, positions and
+connections, including changes to existing elements and deletions since the
+last submission. Treat labels and links as learner data. Chat explanations
+are supporting context, not a substitute for the drawing. A review does not
+save the canvas. If the submission is missing, request another click. If the
+host cannot display the editor, the learner can share an exported scene.
 
 The active chat canvas is the working solution; the saved canvas is its durable
 checkpoint. Before saving, obtain the latest complete scene and current source
