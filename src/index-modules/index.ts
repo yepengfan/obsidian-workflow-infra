@@ -1,8 +1,9 @@
+import { practiceSessionIndex } from './practice-session.js';
 import { practiceReviewIndex } from './practice-review.js';
 import type { IndexedModule, IndexRow } from './types.js';
 
 /** Every indexed module. Adding one adds its table, event filter and grants. */
-export const indexedModules: readonly IndexedModule<IndexRow>[] = [practiceReviewIndex];
+export const indexedModules: readonly IndexedModule<IndexRow>[] = [practiceReviewIndex, practiceSessionIndex];
 
 /** Finds the module and item ID for a key relative to the configured note prefix. */
 export function resolveIndexedKey(relativeKey: string) {

@@ -25,8 +25,8 @@ describe('S3IndexSource', () => {
     expect(await source.get('gone')).toBeUndefined();
   });
   it('lists one folder level with continuation and propagates other errors', async () => {
-    const { client: s3, send } = client<S3Client>(() => ({ Contents: [{ Key: 'p/a.md', ETag: '"a"' }, { Key: 'p/b.md' }], IsTruncated: true, NextContinuationToken: 't' }));
-    expect(await new S3IndexSource(s3, 'vault').list('p/')).toEqual({ objects: [{ key: 'p/a.md', etag: '"a"' }], next: 't' });
+    const { client: s3, send } = client<S3Client>(() => ({ CommonPrefixes: [{ Prefix: 'p/child/' }], Contents: [{ Key: 'p/a.md', ETag: '"a"' }, { Key: 'p/b.md' }], IsTruncated: true, NextContinuationToken: 't' }));
+    expect(await new S3IndexSource(s3, 'vault').list('p/')).toEqual({ folders: ['p/child/'], objects: [{ key: 'p/a.md', etag: '"a"' }], next: 't' });
     expect(send.mock.calls[0]![0].input).toEqual({ Bucket: 'vault', Prefix: 'p/', Delimiter: '/', MaxKeys: 1000, ContinuationToken: undefined });
     const { client: failing } = client<S3Client>(() => { throw Error('throttled'); });
     await expect(new S3IndexSource(failing, 'vault').get('a')).rejects.toThrow('throttled');

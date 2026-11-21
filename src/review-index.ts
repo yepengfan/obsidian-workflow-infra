@@ -12,3 +12,7 @@ export interface ReviewIndex {
   /** Every active review of one domain, in any order. */
   activeReviews(domain: PracticeDomain, signal: AbortSignal): Promise<IndexedReview[]>;
 }
+
+export interface SessionIndex {
+  unfinishedSessions(signal: AbortSignal): Promise<{ folder: string; topic: string; current_step: string | null }[]>;
+}

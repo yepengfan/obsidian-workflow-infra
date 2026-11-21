@@ -25,6 +25,18 @@ describe('DynamoReviewIndex', () => {
     expect(calls[1]![0].input.ExclusiveStartKey).toEqual({ item_id: { S: 'a' } });
     expect(calls[0]![1].abortSignal).toBe(signal);
   });
+  it('queries only unfinished sessions and follows the status index cursor', async () => {
+    const saved = (id: string) => ({ item_id: { S: id }, topic: { S: id }, current_step: { S: 'Data Flow' } });
+    const cursor = { item_id: { S: 'Bitly' } };
+    const { index, send } = fixture([{ Items: [saved('Bitly')], LastEvaluatedKey: cursor }, { Items: [saved('Cache')] }]);
+    expect(await index.unfinishedSessions(AbortSignal.timeout(1000))).toEqual(['Bitly', 'Cache'].map(topic => ({
+      folder: `Learning/Practice/System-Design/Solutions/${topic}/`, topic, current_step: 'Data Flow',
+    })));
+    expect(send.mock.calls).toMatchObject([
+      [{ input: { IndexName: 'status', ExpressionAttributeValues: { ':wip': { S: 'wip' } } } }, {}],
+      [{ input: { ExclusiveStartKey: cursor } }, {}],
+    ]);
+  });
   it.each([['without a source revision', { source_etag: { NULL: true } }], ['with an invalid summary', { status: { S: 'paused' } }]])('rejects a row %s', async (_name, extra) => {
     const { index } = fixture([{ Items: [row('a', extra)] }]);
     await expect(index.activeReviews('algorithm', AbortSignal.timeout(1000))).rejects.toThrow();

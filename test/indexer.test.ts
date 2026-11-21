@@ -27,12 +27,12 @@ function fixture(prefix = '') {
       },
     },
     rows: {
-      put: async (module, item) => { expect(module.id).toBe('practice-review'); rows.set(item.item_id as string, item); },
+      put: async (module, item) => { expect(resolveIndexedKey(String(item.source_key).slice(prefix.length))?.module.id).toBe(module.id); rows.set(item.item_id as string, item); },
       remove: async (_module, id) => { rows.delete(id); },
     },
     index: {
-      scan: async (_module, cursor) => {
-        const all = [...rows.values()].map(row => ({ id: row.item_id as string, key: row.source_key as string, etag: row.source_etag as string }));
+      scan: async (module, cursor) => {
+        const all = [...rows.values()].filter(row => resolveIndexedKey(String(row.source_key).slice(prefix.length))?.module.id === module.id).map(row => ({ id: row.item_id as string, key: row.source_key as string, etag: row.source_etag as string }));
         const start = cursor ? Number(cursor) : 0;
         return { rows: all.slice(start, start + 2), ...(start + 2 < all.length ? { next: String(start + 2) } : {}) };
       },
@@ -79,6 +79,21 @@ describe('indexKey', () => {
     objects.delete(key);
     expect(await indexKey(deps, key)).toBe('removed');
     expect(rows.size).toBe(0);
+  });
+  it('discovers a saved solution and updates the same session through completion', async () => {
+    const { deps, objects, rows, queued } = fixture();
+    const folder = 'Learning/Practice/System-Design/Solutions/Bitly-2026-11-21/';
+    const key = folder + 'progress.md';
+    deps.sources.list = async prefix => prefix === folder.slice(0, -'Bitly-2026-11-21/'.length)
+      ? { folders: [folder], objects: [] } : { objects: prefix === key ? [{ key, etag: 'initial' }] : [] };
+    await reconcile(deps);
+    expect(queued.flat()).toEqual([key]);
+    for (const [step, state] of [['Requirements', 'wip'], ['Data Flow', 'wip'], ['Deep Dives', 'done']]) {
+      objects.set(key, { etag: String(step), text: `---\ntopic: Bitly\nstarted: 2026-11-21\ntags: [system-design/${state}]\n---\n| ${step} | 🔄 |` });
+      expect(await indexKey(deps, key)).toBe('indexed');
+      expect(rows.size).toBe(1);
+      expect(rows.get('Bitly-2026-11-21')).toMatchObject({ topic: 'Bitly', current_step: step, status_pk: state });
+    }
   });
   it('removes the previous row when a note becomes invalid or too large', async () => {
     const { deps, objects, rows, logs } = fixture(), key = `${items}lc-1.md`;
@@ -133,7 +148,8 @@ describe('reconcile', () => {
     objects.set(`${items}e.md`, { text: note({ id: 'e' }), etag: '"e1"' });
     const summary = await reconcile(deps);
     expect(queued.flat().sort()).toEqual([`${items}b.md`, `${items}c.md`, `${items}e.md`]);
-    expect(summary).toEqual([{ module: 'practice-review', sources: 4, rows: 4, queued: 3, orphaned: 1 }]);
+    expect(summary).toEqual([{ module: 'practice-review', sources: 4, rows: 4, queued: 3, orphaned: 1 },
+      { module: 'practice-session', sources: 0, rows: 0, queued: 0, orphaned: 0 }]);
     // Reconcile only queues. Applying the queue is the consumer's job.
     expect(rows.get('b')).toMatchObject({ stage: 1 });
     await handleIndexerEvent(deps, { Records: queued.flat().map((key, index) => ({ messageId: String(index), body: JSON.stringify({ key, requested_at: 'now' }) })) });

@@ -36,7 +36,7 @@ it.each(['', 'Knowledge/'])('routes only review item changes under %j to one FIF
   const resources = synth(prefix);
   expect(resources.IndexChangeRule.Properties).toMatchObject({ Name: INDEX_RESOURCES.changeRuleName, State: 'ENABLED', EventPattern: {
     source: ['aws.s3'], 'detail-type': ['Object Created', 'Object Deleted'],
-    detail: { bucket: { name: [aws.buckets.vault.name] }, object: { key: [{ prefix: `${prefix}Learning/Practice/Review/Items/` }] } } },
+    detail: { bucket: { name: [aws.buckets.vault.name] }, object: { key: [{ prefix: `${prefix}Learning/Practice/Review/Items/` }, { prefix: `${prefix}Learning/Practice/System-Design/Solutions/` }] } } },
   Targets: [{ Id: 'IndexQueue', Arn: { 'Fn::GetAtt': ['IndexQueue', 'Arn'] }, SqsParameters: { MessageGroupId: 'index' } }] });
   expect(resources.IndexQueuePolicy.Properties.PolicyDocument.Statement).toEqual([{ Sid: 'IndexChangeRule', Effect: 'Allow',
     Principal: { Service: 'events.amazonaws.com' }, Action: 'sqs:SendMessage', Resource: { 'Fn::GetAtt': ['IndexQueue', 'Arn'] },

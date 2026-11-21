@@ -19,6 +19,16 @@ practice/review mode menu.
   a brief explanation. An `unavailable` result stops before queue reads or domain
   actions and explains the returned reasons. Do not change module settings.
 
+On a fresh generic entry, use the returned unfinished_sessions before the
+new-practice handoff, even when both due queues are empty. With one match,
+show its topic and saved step and ask whether to resume. With multiple matches,
+list them with their folder or date and ask which one to resume. Offer ordinary
+practice as an alternative and wait; never auto-select. A null list means
+discovery failed: say so and offer retry. On selection, load the System Design
+workflow and read that exact folder's progress.md. Verify its current WIP tag,
+then reopen its saved canvas and continue the checkpoint before any new topic
+or due-review handoff. A declined reminder is not repeated during this entry.
+
 ## Build the combined due overview
 
 - For each available domain, call `practice_reviews` once with that explicit

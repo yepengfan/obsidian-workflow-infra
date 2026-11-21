@@ -34,7 +34,8 @@ export function grantPracticeIndex(stack: Stack, vaultBucket: string, settings: 
   });
   indexer.addToPolicy(new iam.PolicyStatement({ actions: ['s3:ListBucket'], resources: [vault],
     conditions: { StringLike: { 's3:prefix': sources.map(source => `${source}*`) }, StringEquals: { 's3:delimiter': '/' }, NumericLessThanEquals: { 's3:max-keys': 1000 } } }));
-  indexer.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObject'], resources: sources.map(source => `${vault}/${source}*`) }));
+  indexer.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObject'], resources: indexedModules.map(module =>
+    `${vault}/${settings.notePrefix}${module.sourcePrefix}*${module.childNote ? "/" + module.childNote : ""}`) }));
   indexer.addToPolicy(new iam.PolicyStatement({ actions: ['dynamodb:PutItem', 'dynamodb:DeleteItem', 'dynamodb:Scan'], resources: arns.tables }));
   indexer.addToPolicy(new iam.PolicyStatement({ actions: ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:ChangeMessageVisibility',
     'sqs:GetQueueAttributes', 'sqs:SendMessage'], resources: [arns.queue] }));

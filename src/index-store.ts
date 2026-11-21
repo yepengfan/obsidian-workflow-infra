@@ -24,7 +24,8 @@ export class S3IndexSource implements SourceReader, SourceCatalog {
   async list(prefix: string, cursor?: string) {
     const result = await this.client.send(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, Delimiter: '/', MaxKeys: 1000, ContinuationToken: cursor }));
     if (result.IsTruncated && !result.NextContinuationToken) throw Error('Truncated listing without a continuation token');
-    return { objects: (result.Contents ?? []).flatMap(item => item.Key && item.ETag ? [{ key: item.Key, etag: item.ETag }] : []),
+    return { folders: (result.CommonPrefixes ?? []).flatMap(item => item.Prefix ? [item.Prefix] : []),
+      objects: (result.Contents ?? []).flatMap(item => item.Key && item.ETag ? [{ key: item.Key, etag: item.ETag }] : []),
       ...(result.IsTruncated ? { next: result.NextContinuationToken! } : {}) };
   }
 }

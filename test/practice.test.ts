@@ -10,7 +10,7 @@ import type { NoteStore, NoteWriter, WriteCondition } from '../src/note-store.js
 import { parseFrontmatter } from '../src/frontmatter.js';
 import { reviewSummarySchema } from '../src/practice-schema.js';
 import { practiceSkill } from '../src/practice-tools.js';
-import type { IndexedReview, ReviewIndex } from '../src/review-index.js';
+import type { IndexedReview, ReviewIndex, SessionIndex } from '../src/review-index.js';
 import { owner, runtimeSettings } from './runtime-fixtures.js';
 
 const root = 'Vault/';
@@ -50,6 +50,8 @@ class PracticeStore implements NoteStore, NoteWriter {
 class FileIndex implements ReviewIndex {
   frozen?: IndexedReview[]; queries: string[] = []; failure?: Error;
   constructor(private readonly store: PracticeStore) {}
+  sessions: Awaited<ReturnType<SessionIndex['unfinishedSessions']>> = [];
+  async unfinishedSessions() { return this.sessions; }
   current() {
     return [...this.store.files].filter(([key]) => key.startsWith(items) && !key.slice(items.length).includes('/')).flatMap(([key, text]) => {
       const row = reviewSummarySchema.safeParse(parseFrontmatter(text)?.metadata);
@@ -423,6 +425,30 @@ describe('practice storage behavior', () => {
     await expect(practice.updateNote(path, (await practice.readNote(path)).revision, [{ old: 'Missing', replacement: 'Wrong' }])).rejects.toThrow('anchor_not_unique');
   });
 
+});
+
+it('offers saved checkpoints on fresh practice entry even with empty queues', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { index, store } = setup();
+  const options = settings();
+  const handler = createFetchHandler(options, { skills: [practiceSkill(options, index)], store, writer: store, verify: async () => owner });
+  const client = new Client({ name: 'resume-practice-test', version: '1' });
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), {
+      fetch: (input, init) => handler(new Request(input, init)),
+    }));
+    const enter = async (args = {}) => (await client.callTool({ name: 'practice', arguments: args })).structuredContent;
+    for (const topic of ['Bitly', 'Dropbox']) {
+      index.sessions.push({ topic, folder: `Learning/Practice/System-Design/Solutions/${topic}-2026-11-21/`, current_step: 'Data Flow' });
+      expect(await enter()).toMatchObject({ unfinished_sessions: [...index.sessions] });
+    }
+    expect(await enter({ domain: 'algorithm' })).not.toHaveProperty('unfinished_sessions');
+    index.unfinishedSessions = async () => { throw Error('index unavailable'); };
+    expect(await enter()).toMatchObject({ unfinished_sessions: null });
+    expect(store.writes).toEqual([]);
+  } finally { await client.close(); }
 });
 
 it('rejects a topic that can corrupt Excalidraw Markdown through the real MCP client', async () => {

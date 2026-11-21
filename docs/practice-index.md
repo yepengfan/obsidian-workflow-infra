@@ -2,7 +2,7 @@
 
 The MCP practice queue reads a DynamoDB index in one query instead of scanning
 S3. Notes stay the source of truth. Each table row is a
-rebuildable projection of one note's frontmatter. Local tools (`review.py`, the
+rebuildable projection of one note. Local tools (`review.py`, the
 vault Dashboard) keep reading the files directly.
 
 This guide covers the indexer, its deployment order and its operation. How
@@ -127,3 +127,14 @@ source, row and queued counts.
 On-demand DynamoDB, a FIFO queue, the indexer and the alarms cost well under
 one US dollar a month at this volume, mostly the three standard alarms. S3
 events to the default event bus are free.
+
+## System Design sessions
+
+The practice-session table holds one record per Solution folder. Its status GSI
+groups planned, WIP and completed attempts. Each saved progress.md replaces the
+same row across chats and steps. The dashboard queries WIP summaries, including
+the topic, folder and current step, independently of the spaced-repetition queue.
+Canvas reviews do not create session rows. Obsidian remains authoritative.
+Changes are indexed asynchronously. Run the existing reconcile after rollout to
+backfill existing sessions, or allow the scheduled reconcile to pick them up.
+Apply the index IAM foundation updates before deploying the runtime table.

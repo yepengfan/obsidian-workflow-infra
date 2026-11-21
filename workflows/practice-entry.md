@@ -11,6 +11,16 @@ Read `{{flow}}`, its domain guide and
 `Learning/Practice/Review/Content/{{domain}}.md` using `practice_instruction`.
 The server checks the live practice-review and selected domain's module guards.
 
+On a fresh generic entry, use the returned unfinished_sessions before the
+new-practice handoff, even when both due queues are empty. With one match,
+show its topic and saved step and ask whether to resume. With multiple matches,
+list them with their folder or date and ask which one to resume. Offer ordinary
+practice as an alternative and wait; never auto-select. A null list means
+discovery failed: say so and offer retry. On selection, load the System Design
+workflow and read that exact folder's progress.md. Verify its current WIP tag,
+then reopen its saved canvas and continue the checkpoint before any new topic
+or due-review handoff. A declined reminder is not repeated during this entry.
+
 List this domain's due reviews using `practice_reviews` with
 `domain: {{domain}}`. One call returns the complete queue, with overdue/today
 ordered by next review date then ID. Use
@@ -115,7 +125,11 @@ shell/file/script steps and automatic writes in the upstream skill.
   daily entries and metadata. Save Insights only when supported by actual learning
   evidence. Core Concepts, Key Technologies, Design Patterns, templates, indexes
   and guidance remain read-only. Attachments and arbitrary files are not writable.
-- Mark the selected session done only after its agreed Phase 3 saves succeed.
+- On final completion, use the existing review item or register it with
+  `practice_add_review`. After reflection and save confirmation, use
+  `practice_record_review` with the round UUID and actual completion date.
+  Mark the selected session done only after the scheduled review and agreed
+  Phase 3 saves succeed. Reuse that UUID after any partial save.
   Multiple files are independent writes, not a transaction. Never invent a
   reflection, elapsed time, save result, canvas rendering or local script run.
 

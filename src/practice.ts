@@ -12,7 +12,7 @@ import { designSessionTemplate, designSessionSchema } from './design-session.js'
 import { readDesignCanvas } from './design-canvas.js';
 import { dateSchema, REVIEW_ITEMS_PREFIX, reviewSummarySchema as summarySchema, slugSchema, type ReviewSummary } from './practice-schema.js';
 import { parsePracticeNote, PracticeNotes } from './practice-note.js';
-import type { IndexedReview, ReviewIndex } from './review-index.js';
+import type { IndexedReview, ReviewIndex, SessionIndex } from './review-index.js';
 
 export { calendarDay, nextSchedule } from './review-schedule.js';
 export { PracticeError } from './errors.js';
@@ -46,7 +46,7 @@ export class Practice {
   private readonly notes: PracticeNotes;
   private readonly workflows: PracticeWorkflow;
 
-  constructor(store: NoteReader, private readonly index: ReviewIndex, private readonly settings: Pick<Settings, 'prefix' | 'practice'>,
+  constructor(store: NoteReader, private readonly index: ReviewIndex & SessionIndex, private readonly settings: Pick<Settings, 'prefix' | 'practice'>,
     private readonly signal: AbortSignal, private readonly dependencies: { writer?: NoteWriter; now?: () => Date } = {}) {
     this.notes = new PracticeNotes(store, settings.prefix, signal, settings.practice.writesEnabled ? dependencies.writer : undefined);
     this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal);
@@ -60,8 +60,15 @@ export class Practice {
     return this.notes.read(path);
   }
 
-  workflow(domain?: PracticeDomain) {
-    return this.workflows.workflow(domain);
+  async workflow(domain?: PracticeDomain) {
+    const workflow = await this.workflows.workflow(domain);
+    if (domain || !workflow.available_domains.some(item => item.domain === 'system-design')) return workflow;
+    try {
+      return { ...workflow, unfinished_sessions: await this.index.unfinishedSessions(this.signal) };
+    } catch {
+      this.signal.throwIfAborted();
+      return { ...workflow, unfinished_sessions: null };
+    }
   }
 
   instruction(path: string, offset: number) {

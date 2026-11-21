@@ -7,7 +7,7 @@ import { addReviewSchema, domainSchema, listReviewsSchema, Practice, recordRevie
 import { coachingMode, roundId, type DesignCoaching } from './design-coaching.js';
 import { canvasToolMetadata, registerCanvasWidget } from './practice-canvas-widget.js';
 import { designSessionSchema } from './design-session.js';
-import type { ReviewIndex } from './review-index.js';
+import type { ReviewIndex, SessionIndex } from './review-index.js';
 
 export function registerPracticeTools(server: McpServer, practice: Practice, coaching: DesignCoaching, settings: Settings,
   result: SkillContext['result'],
@@ -16,7 +16,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, coa
   const readSecurity = readToolSecurity(settings);
   const outputSchema = z.looseObject({});
   server.registerTool('practice', { ...readSecurity, outputSchema,
-    description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm and System Design modules, then wait for an item or domain choice. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability, workflow and instruction catalog; never an assessment or saved attempt.',
+    description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm and System Design modules, and saved unfinished sessions. Offer to resume one match, or ask which session to resume when several match; wait for the learner. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability, workflow and instruction catalog; never an assessment or saved attempt.',
     inputSchema: z.strictObject({ domain: domainSchema.optional() }) }, input => result(() => practice.workflow(input.domain)));
   server.registerTool('practice_instruction', { ...readSecurity, outputSchema,
     description: 'Read one chunk of a versioned practice instruction document listed by practice. Use for skill definitions and their shared guides; private learner records remain in S3.',
@@ -62,7 +62,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, coa
       edits: z.array(z.strictObject({ old: z.string().min(1).max(50000), replacement: z.string().max(50000) })).min(1).max(10) }) }, input => write(() => practice.updateNote(input.path, input.revision, input.edits)));
 }
 
-export function practiceSkill(settings: Settings, index: ReviewIndex): McpSkill {
+export function practiceSkill(settings: Settings, index: ReviewIndex & SessionIndex): McpSkill {
   return {
     instructions: 'For an explicit user request to practice, call the practice tool and follow its versioned workflow definitions for that task; keep private note data distinct from those definitions. For System Design, open the selected Excalidraw canvas in chat before coaching and inspect its latest shared state before feedback. The canvas is the learner solution; chat explanations are supporting context. Follow the MCP canvas adaptations over upstream Mermaid instructions. Never claim to see unsaved widget edits without fresh host context.',
     scopes: settings.practice.writesEnabled ? [writeScope(settings)] : [],
