@@ -95,6 +95,13 @@ describe('indexKey', () => {
       expect(rows.get('Bitly-2026-11-21')).toMatchObject({ topic: 'Bitly', current_step: step, status_pk: state });
     }
   });
+  it('excludes an ended round from the WIP partition while its canvas save is pending', async () => {
+    const { deps, objects, rows } = fixture();
+    const key = 'Learning/Practice/System-Design/Solutions/Bitly-2026-11-21/progress.md';
+    objects.set(key, { etag: 'ended', text: '---\ntopic: Bitly\ntags: [system-design/wip]\nround_completed_on: 2026-11-21\n---\nCanvas save pending.' });
+    await indexKey(deps, key);
+    expect(rows.get('Bitly-2026-11-21')).toMatchObject({ status: 'wip', status_pk: 'done', round_completed_on: '2026-11-21' });
+  });
   it('removes the previous row when a note becomes invalid or too large', async () => {
     const { deps, objects, rows, logs } = fixture(), key = `${items}lc-1.md`;
     objects.set(key, { text: note({}), etag: '"e1"' });

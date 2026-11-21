@@ -17,7 +17,7 @@ show its topic and saved step and ask whether to resume. With multiple matches,
 list them with their folder or date and ask which one to resume. Offer ordinary
 practice as an alternative and wait; never auto-select. A null list means
 discovery failed: say so and offer retry. On selection, load the System Design
-workflow and read that exact folder's progress.md. Verify its current WIP tag,
+workflow and read that exact folder's progress.md. Verify its current WIP tag and absence of a round_completed_on date,
 then reopen its saved canvas and continue the checkpoint before any new topic
 or due-review handoff. A declined reminder is not repeated during this entry.
 
@@ -129,6 +129,7 @@ shell/file/script steps and automatic writes in the upstream skill.
 - On final completion, use the existing review item or register it with
   `practice_add_review`. After reflection and save confirmation, use
   `practice_record_review` with the round UUID and actual completion date.
+  Save round_completed_on in progress.md when the confirmed round outcome is recorded, including when an artifact save is pending. Only open rounds qualify for resume.
   Mark the selected session done only after the scheduled review and agreed
   Phase 3 saves succeed. Reuse that UUID after any partial save.
   Multiple files are independent writes, not a transaction. Never invent a
