@@ -480,13 +480,14 @@ it('creates, updates and reopens a large editable canvas through MCP', async () 
   const handler = createFetchHandler(options, { skills: [practiceSkill(options, index)], store, writer: store,
     verify: async () => owner, verifyScope: async () => owner });
   const client = new Client({ name: 'large-canvas', version: '1' });
-  const scene = { type: 'excalidraw', version: 2, elements: Array.from({ length: 1200 }, (_, index) => ({
+  const scene = { type: 'excalidraw', version: 2, elements: Array.from({ length: 11500 }, (_, index) => ({
     id: String(index), type: 'text', x: index, y: index, width: 300, height: 60,
     text: createHash('sha256').update(String(index)).digest('hex'),
   })), appState: {}, files: {} };
   const encode = () => LZString.compressToBase64(JSON.stringify(scene));
   const original = encode();
-  expect(original.length).toBeGreaterThan(65536);
+  expect(original.length).toBeGreaterThan(512 * 1024);
+  expect(Buffer.byteLength(JSON.stringify(scene))).toBeGreaterThan(1024 * 1024);
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
     const content = '## Drawing\n```compressed-json\n' + original + '\n```\n';
