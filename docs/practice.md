@@ -344,6 +344,13 @@ are supporting context, not a substitute for the drawing. A review does not
 save the canvas. If the submission is missing, request another click. If the
 host cannot display the editor, the learner can share an exported scene.
 
+Each submission carries timing metadata in the conversation. The timer starts
+when the editor is ready and continues between reviews, including idle time.
+A reopened editor starts a new timer. On a confirmed progress.md checkpoint,
+include the submitted timing records in a `canvas_reviews` frontmatter list.
+Preserve existing entries and deduplicate by startedAt and reviewNumber.
+Keep timing separate from the learner's drawing and assessment.
+
 The active chat canvas is the working solution; the saved canvas is its durable
 checkpoint. Before saving, obtain the latest complete scene and current source
 revision, preview the proposed canvas/progress edits, and confirm the writes.
