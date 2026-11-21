@@ -353,6 +353,9 @@ Keep timing separate from the learner's drawing and assessment.
 
 Review canvas requests immediate submission to the active chat. The message
 carries the review prompt and a labeled Practice canvas attachment together.
+If the composer cannot submit and the host supports text context updates, the
+widget shares the same snapshot as model context. Say or type “Review my canvas”
+on the next turn.
 The attachment includes the native Excalidraw export in `scene`, including
 off-screen elements, bindings, exportable app settings and referenced image
 data. The payload identifies the selected canvas with `sessionPath`, the
