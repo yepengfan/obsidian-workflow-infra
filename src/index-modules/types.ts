@@ -12,8 +12,7 @@ export interface IndexKeys<Row extends IndexRow> {
 
 /**
  * Declares how one module's Markdown notes become rows in its own table.
- * The note stays the source of truth. A row is a rebuildable projection of its
- * frontmatter; `metadata` is the only contract between the two.
+ * The note stays the source of truth.
  */
 export interface IndexedModule<Row extends IndexRow> {
   /** Stable module ID. It names the table, so it must not change once deployed. */
@@ -25,7 +24,9 @@ export interface IndexedModule<Row extends IndexRow> {
   /** Validates frontmatter and projects it to the stored row attributes. */
   readonly metadata: z.ZodType<Row>;
   /** The table partition key value. It must equal the ID matches() derived from the path. */
-  key(row: Row): string;
+  key?(row: Row): string;
+  readonly childNote?: string;
+  detail?(body: string): IndexRow;
   /** GSI definitions by name. Attribute names are `<name>_pk` and `<name>_sk`. */
   readonly indexes: Readonly<Record<string, IndexKeys<Row>>>;
 }

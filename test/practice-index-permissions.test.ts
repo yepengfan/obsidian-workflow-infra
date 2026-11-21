@@ -34,9 +34,9 @@ describe('note index permission boundary', () => {
     expect(indexer.flatMap(actions).sort()).toEqual(['dynamodb:DeleteItem', 'dynamodb:PutItem', 'dynamodb:Scan', 'logs:CreateLogStream', 'logs:PutLogEvents',
       's3:GetObject', 's3:ListBucket', 'sqs:ChangeMessageVisibility', 'sqs:DeleteMessage', 'sqs:GetQueueAttributes', 'sqs:ReceiveMessage', 'sqs:SendMessage']);
     expect(indexer.find(s => actions(s).includes('s3:ListBucket'))).toMatchObject({ Resource: stack.resolve(vault), Condition: {
-      StringLike: { 's3:prefix': [`${prefix}Learning/Practice/Review/Items/*`] }, StringEquals: { 's3:delimiter': '/' }, NumericLessThanEquals: { 's3:max-keys': 1000 } } });
-    expect(indexer.find(s => actions(s).includes('s3:GetObject'))!.Resource).toEqual(stack.resolve(`${vault}/${prefix}Learning/Practice/Review/Items/*`));
-    expect(indexer.find(s => actions(s).includes('dynamodb:PutItem'))!.Resource).toEqual(arn('dynamodb', 'table/obsidian-mcp-index-practice-review'));
+      StringLike: { 's3:prefix': [`${prefix}Learning/Practice/Review/Items/*`, `${prefix}Learning/Practice/System-Design/Solutions/*`] }, StringEquals: { 's3:delimiter': '/' }, NumericLessThanEquals: { 's3:max-keys': 1000 } } });
+    expect(indexer.find(s => actions(s).includes('s3:GetObject'))!.Resource).toEqual(stack.resolve([`${vault}/${prefix}Learning/Practice/Review/Items/*`, `${vault}/${prefix}Learning/Practice/System-Design/Solutions/*/progress.md`]));
+    expect(indexer.find(s => actions(s).includes('dynamodb:PutItem'))!.Resource).toEqual(['practice-review', 'practice-session'].map(id => arn('dynamodb', 'table/obsidian-mcp-index-' + id)));
     // The consumer can never read or drain the dead-letter queue.
     expect(indexer.find(s => actions(s).includes('sqs:ReceiveMessage'))!.Resource).toEqual(arn('sqs', INDEX_RESOURCES.queueName));
     expect(JSON.stringify(indexer)).not.toContain(storage.buckets.library.name);
@@ -45,7 +45,7 @@ describe('note index permission boundary', () => {
   it('gives the MCP runtime read-only queries on index GSIs only', () => {
     const { statements, arn } = build();
     const dynamo = statements(config.runtimeRoleName).filter(s => actions(s).some(a => a.startsWith('dynamodb:')));
-    expect(dynamo).toEqual([{ Effect: 'Allow', Action: 'dynamodb:Query', Resource: arn('dynamodb', 'table/obsidian-mcp-index-practice-review/index/*') }]);
+    expect(dynamo).toEqual([{ Effect: 'Allow', Action: 'dynamodb:Query', Resource: ['practice-review', 'practice-session'].map(id => arn('dynamodb', 'table/obsidian-mcp-index-' + id + '/index/*')) }]);
   });
 
   it('keeps every index deployment grant in one named policy without data-plane access', () => {

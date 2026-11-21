@@ -17,7 +17,7 @@ export interface SourceReader {
 }
 
 export interface SourceCatalog {
-  list(prefix: string, cursor?: string): Promise<{ objects: SourceObject[]; next?: string }>;
+  list(prefix: string, cursor?: string): Promise<{ objects: SourceObject[]; folders?: string[]; next?: string }>;
 }
 
 export interface IndexWriter {
@@ -60,9 +60,10 @@ export type IndexOutcome = 'indexed' | 'removed' | 'invalid_source' | 'ignored';
 
 export function buildRow(module: IndexedModule<IndexRow>, id: string, key: string, etag: string, text: string, indexedAt: string) {
   const parsed = parseFrontmatter(text);
-  const metadata = parsed ? module.metadata.safeParse(parsed.metadata) : undefined;
-  if (!metadata?.success || module.key(metadata.data) !== id) return undefined;
-  const row: Record<string, IndexValue> = { ...metadata.data };
+  if (!parsed) return undefined;
+  const metadata = module.metadata.safeParse(parsed.metadata);
+  if (!metadata.success || (module.key && module.key(metadata.data) !== id)) return undefined;
+  const row: Record<string, IndexValue> = { ...metadata.data, ...module.detail?.(parsed.body) };
   for (const [name, keys] of Object.entries(module.indexes)) {
     const attributes = indexAttributes(name);
     row[attributes.partition] = keys.partition(metadata.data);
@@ -95,16 +96,25 @@ export async function indexKey(deps: ApplyDependencies, key: string): Promise<In
 
 async function listModuleSources(catalog: SourceCatalog, module: IndexedModule<IndexRow>, prefix: string) {
   const sources = new Map<string, SourceObject>();
-  let cursor: string | undefined;
-  do {
-    const page = await catalog.list(prefix, cursor);
-    for (const object of page.objects) {
-      if (!object.key.startsWith(prefix)) continue;
-      const id = module.matches(object.key.slice(prefix.length));
-      if (id !== undefined) sources.set(id, object);
-    }
-    cursor = page.next;
-  } while (cursor);
+  async function list(listPrefix: string) {
+    let cursor: string | undefined;
+    do {
+      const page = await catalog.list(listPrefix, cursor);
+      for (const object of page.objects) {
+        if (!object.key.startsWith(prefix)) continue;
+        const id = module.matches(object.key.slice(prefix.length));
+        if (id !== undefined) sources.set(id, object);
+      }
+      if (module.childNote && listPrefix === prefix) {
+        for (const folder of page.folders ?? []) {
+          const key = folder + module.childNote;
+          if (folder.startsWith(prefix) && module.matches(key.slice(prefix.length))) await list(key);
+        }
+      }
+      cursor = page.next;
+    } while (cursor);
+  }
+  await list(prefix);
   return sources;
 }
 
