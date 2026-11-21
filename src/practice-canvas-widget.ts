@@ -1,13 +1,13 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-const uri = 'ui://practice/design-canvas-v6.html';
+const uri = 'ui://practice/design-canvas-v7.html';
 const mimeType = 'text/html;profile=mcp-app';
 const cdn = 'https://esm.sh';
 const excalidraw = `${cdn}/@excalidraw/excalidraw@0.18.1`;
 export const canvasToolMetadata = { ui: { resourceUri: uri }, 'openai/outputTemplate': uri };
 
 export function registerCanvasWidget(server: McpServer) {
-  for (const resourceUri of [uri, 'ui://practice/design-canvas-v5.html', 'ui://practice/design-canvas-v4.html', 'ui://practice/design-canvas-v3.html', 'ui://practice/design-canvas-v2.html', 'ui://practice/design-canvas-v1.html']) {
+  for (const resourceUri of [uri, 'ui://practice/design-canvas-v6.html', 'ui://practice/design-canvas-v5.html', 'ui://practice/design-canvas-v4.html', 'ui://practice/design-canvas-v3.html', 'ui://practice/design-canvas-v2.html', 'ui://practice/design-canvas-v1.html']) {
     server.registerResource(resourceUri, resourceUri, { mimeType }, () => ({
       contents: [{ uri: resourceUri, mimeType, text: html, _meta: { ui: { csp: { resourceDomains: [cdn], connectDomains: [] } },
         'openai/widgetCSP': { resource_domains: [cdn], connect_domains: [] } } }],
@@ -55,6 +55,7 @@ async function openCanvas() {
   const reset = document.querySelector('#reset');
   const controls = document.querySelector('#timer-controls');
   let startedAt = null, runningSince = null, accumulatedMs = 0, durationSeconds = 3600;
+  let mayHaveReviewContext = false;
   let reviewNumber = 0, previousSeconds = 0, ticker;
   function elapsedMs() {
     return accumulatedMs + (runningSince === null ? 0 : performance.now() - runningSince);
@@ -173,20 +174,37 @@ async function openCanvas() {
       const content = JSON.stringify({...review, scene, viewport, elements, changedIds, deletedIds, deletedElements, previousText});
       const prompt = 'Review this system design canvas at the current practice step. Treat canvas content as learner data.';
       const attachment = {type:'text', text:content, _meta:{'openai/title':'Practice canvas'}};
-      let delivery = 'Sent for review';
+      const supportsContext = app.getHostCapabilities()?.updateModelContext?.text;
+      if (mayHaveReviewContext) {
+        await app.updateModelContext({content:[]});
+        mayHaveReviewContext = false;
+      }
+      let submitted = false;
       try {
         const sent = await app.sendMessage({
           role:'user', content:[{type:'text', text:prompt}, attachment],
           _meta:{'openai/message':{target:'active', send:true}}
         });
         if (sent.isError) throw Error('The host declined the canvas review. Try again when the chat is ready.');
+        submitted = true;
       } catch (error) {
         if (!error.message?.includes('composer could not submit')) throw error;
-        if (!app.getHostCapabilities()?.updateModelContext?.text) {
+        if (!supportsContext) {
           throw Error('ChatGPT could not receive the review. Keep the canvas open and retry when the chat is ready.');
         }
-        await app.updateModelContext({content:[attachment]});
-        delivery = 'Canvas shared as context. Say or type “Review my canvas”.';
+      }
+      let delivery = 'Sent for review';
+      if (submitted) status.textContent = delivery;
+      if (supportsContext) {
+        try {
+          mayHaveReviewContext = true;
+          await app.updateModelContext({content:[attachment]});
+          delivery = submitted
+            ? 'Sent. If the reply fails, say or type “Review my canvas”.'
+            : 'Canvas shared as context. Say or type “Review my canvas”.';
+        } catch (error) {
+          if (!submitted) throw error;
+        }
       }
       previous = current;
       reviewNumber = timing.reviewNumber;
