@@ -85,11 +85,15 @@ shell/file/script steps and automatic writes in the upstream skill.
   to include the submitted timing records when the learner confirms a save.
 - The active chat canvas is authoritative during an attempt; the saved Obsidian
   canvas is its durable checkpoint. Do not reload S3 over unsaved widget edits.
-  Before a save, obtain the latest complete edited scene and the current note
-  revision, preview the proposed canvas and progress updates, then confirm the
-  writes. A widget checkpoint ID alone is not a saved Obsidian file or an export
-  of edited elements. If the host cannot export the complete scene, explain that
-  limitation instead of saving an older snapshot. For an independent review,
+  Review canvas exports the active Excalidraw scene (elements, appState and
+  referenced files) with sessionPath, snapshotId and sourceRevision. Use the
+  scene for the matching submission when preparing a drawing checkpoint.
+  Confirm the exact destination, preserve its Markdown and drawing encoding,
+  and check the current revision against the version the edits are based on.
+  Preview and confirm writes. Reopen the saved drawing to verify the checkpoint.
+  If the snapshot is incomplete, stale or exceeds the write limit, keep the
+  drawing pending and report its status separately from progress.md.
+  For an independent review,
   use a fresh neutral canvas and keep prior solution canvases closed until the
   attempt ends.
 - Use `practice_read_note` and `practice_update_note` for checkpoints and
