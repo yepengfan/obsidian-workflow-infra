@@ -351,7 +351,9 @@ include the submitted timing records in a `canvas_reviews` frontmatter list.
 Preserve existing entries and deduplicate by startedAt and reviewNumber.
 Keep timing separate from the learner's drawing and assessment.
 
-Review canvas includes the native Excalidraw export in `scene`, including
+Review canvas requests immediate submission to the active chat. The message
+carries the review prompt and a labeled Practice canvas attachment together.
+The attachment includes the native Excalidraw export in `scene`, including
 off-screen elements, bindings, exportable app settings and referenced image
 data. The payload identifies the selected canvas with `sessionPath`, the
 submission with `snapshotId`, and the loaded vault revision with
