@@ -51,7 +51,9 @@ export function environmentSettings(env: NodeJS.ProcessEnv): Settings {
   // previous single-client configuration during rollout/rollback only when the
   // new allowlist is absent; a present invalid allowlist must fail closed.
   const clientIds = env.OAUTH_CLIENT_IDS === undefined ? [required('OAUTH_CLIENT_ID')] : JSON.parse(required('OAUTH_CLIENT_IDS'));
-  return { ...runtimeOptionsSchema.parse(JSON.parse(required('MCP_OPTIONS'))), bucket: required('NOTE_BUCKET'),
+  const options = JSON.parse(required('MCP_OPTIONS'));
+  if (env.MCP_LIMITS !== undefined) options.limits = JSON.parse(env.MCP_LIMITS);
+  return { ...runtimeOptionsSchema.parse(options), bucket: required('NOTE_BUCKET'),
     prefix: env.NOTE_PREFIX ?? '', region: required('AWS_REGION'), issuer,
     clientIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/u).max(128)).min(1).max(2)
       .refine(ids => new Set(ids).size === ids.length, 'OAuth client IDs must be unique').parse(clientIds),
