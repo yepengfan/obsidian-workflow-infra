@@ -351,12 +351,17 @@ include the submitted timing records in a `canvas_reviews` frontmatter list.
 Preserve existing entries and deduplicate by startedAt and reviewNumber.
 Keep timing separate from the learner's drawing and assessment.
 
-The active chat canvas is the working solution; the saved canvas is its durable
-checkpoint. Before saving, obtain the latest complete scene and current source
-revision, preview the proposed canvas/progress edits, and confirm the writes.
-A widget checkpoint ID is not an export of the edited scene or a saved Obsidian
-file. If the host cannot export the complete edited scene, do not save an older
-snapshot. No automatic synchronization or background watcher is introduced.
+Review canvas includes the native Excalidraw export in `scene`, including
+off-screen elements, bindings, exportable app settings and referenced image
+data. The payload identifies the selected canvas with `sessionPath`, the
+submission with `snapshotId`, and the loaded vault revision with
+`sourceRevision` (null for a new draft). The viewport is recorded separately.
+The element summary and timer remain available for coaching.
+
+On a confirmed save, check the destination and revision, preserve the existing
+Obsidian Markdown structure and drawing encoding, and reopen the saved drawing
+to verify it. Report any size or revision error separately from the status of
+the progress note.
 
 Initialization, progress checkpoints, planned/wip/done transitions and Phase 3
 Pattern/Insight/Log saves all require previews and explicit confirmation. This
