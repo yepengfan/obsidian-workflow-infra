@@ -1,16 +1,18 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-const uri = 'ui://practice/design-canvas-v1.html';
+const uri = 'ui://practice/design-canvas-v2.html';
 const mimeType = 'text/html;profile=mcp-app';
 const cdn = 'https://esm.sh';
 const excalidraw = `${cdn}/@excalidraw/excalidraw@0.18.1`;
 export const canvasToolMetadata = { ui: { resourceUri: uri }, 'openai/outputTemplate': uri };
 
 export function registerCanvasWidget(server: McpServer) {
-  server.registerResource('practice-design-canvas', uri, { mimeType }, () => ({
-    contents: [{ uri, mimeType, text: html, _meta: { ui: { csp: { resourceDomains: [cdn], connectDomains: [] } },
-      'openai/widgetCSP': { resource_domains: [cdn], connect_domains: [] } } }],
-  }));
+  for (const resourceUri of [uri, 'ui://practice/design-canvas-v1.html']) {
+    server.registerResource(resourceUri, resourceUri, { mimeType }, () => ({
+      contents: [{ uri: resourceUri, mimeType, text: html, _meta: { ui: { csp: { resourceDomains: [cdn], connectDomains: [] } },
+        'openai/widgetCSP': { resource_domains: [cdn], connect_domains: [] } } }],
+    }));
+  }
 }
 
 const html = `<!doctype html>
@@ -19,9 +21,11 @@ const html = `<!doctype html>
 <link rel="stylesheet" href="${excalidraw}/dist/prod/index.css">
 <style>
 *{box-sizing:border-box}body{margin:0;font:14px system-ui;color:#202124}
+body{display:grid;grid-template-rows:auto minmax(0,1fr);height:var(--panel-height,100dvh)}
+body:not([data-expanded]){min-height:410px}
 header{display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:8px;border-bottom:1px solid #ddd}
 #review{background:#48439b;color:white;font:inherit;border:0;border-radius:6px;padding:8px 14px}
-#review:disabled{opacity:.55}#board{height:clamp(360px,76vh,850px)}
+#review:disabled{opacity:.55}#board{min-height:0;min-width:0}
 </style>
 <header><span role="status">Opening canvas…</span><button id="review" disabled>Review canvas</button></header>
 <main id="board"></main>
@@ -67,7 +71,18 @@ async function openCanvas() {
       }));
     } catch { status.textContent = 'Could not load the canvas editor. Reopen the canvas to retry.'; }
   };
+  function sizePanel() {
+    const context = app.getHostContext();
+    const expanded = context?.displayMode === 'fullscreen' || context?.displayMode === 'pip';
+    document.body.toggleAttribute('data-expanded', expanded);
+    const bounds = context?.containerDimensions;
+    const height = expanded && (bounds?.height ?? bounds?.maxHeight);
+    if (height > 0 && Number.isFinite(height)) document.body.style.setProperty('--panel-height', height + 'px');
+    else document.body.style.removeProperty('--panel-height');
+  }
+  app.onhostcontextchanged = sizePanel;
   await app.connect();
+  sizePanel();
   button.onclick = async () => {
     button.disabled = true;
     try {
