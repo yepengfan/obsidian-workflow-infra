@@ -55,11 +55,11 @@ export function registerPracticeTools(server: McpServer, practice: Practice, coa
     inputSchema: recordReviewSchema }, input => write(() => practice.record(input)));
   server.registerTool('practice_create_note', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit save confirmation, create an approved Algorithm Pattern/Atom/Log or System Design Pattern/Insight/Log/session progress/canvas file. Create-if-absent only; files save independently. No configuration, guide, template or arbitrary vault writes.',
-    inputSchema: z.strictObject({ path: z.string().max(1024), content: z.string().min(1).max(50000) }) }, input => write(() => practice.createNote(input.path, input.content)));
+    inputSchema: z.strictObject({ path: z.string().max(1024), content: z.string().min(1).max(settings.limits.practiceEditCharacters) }) }, input => write(() => practice.createNote(input.path, input.content)));
   server.registerTool('practice_update_note', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit confirmation, update selected exact unique text anchors in an approved practice note. Supply its current revision from practice_read_note. Preserve human text and metadata outside approved edits. Conflicts require rereading and renewed review.',
     inputSchema: z.strictObject({ path: z.string().max(1024), revision: revisionSchema,
-      edits: z.array(z.strictObject({ old: z.string().min(1).max(50000), replacement: z.string().max(50000) })).min(1).max(10) }) }, input => write(() => practice.updateNote(input.path, input.revision, input.edits)));
+      edits: z.array(z.strictObject({ old: z.string().min(1).max(settings.limits.practiceEditCharacters), replacement: z.string().max(settings.limits.practiceEditCharacters) })).min(1).max(10) }) }, input => write(() => practice.updateNote(input.path, input.revision, input.edits)));
 }
 
 export function practiceSkill(settings: Settings, index: ReviewIndex & SessionIndex): McpSkill {

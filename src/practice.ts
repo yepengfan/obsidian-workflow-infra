@@ -46,9 +46,9 @@ export class Practice {
   private readonly notes: PracticeNotes;
   private readonly workflows: PracticeWorkflow;
 
-  constructor(store: NoteReader, private readonly index: ReviewIndex & SessionIndex, private readonly settings: Pick<Settings, 'prefix' | 'practice'>,
+  constructor(store: NoteReader, private readonly index: ReviewIndex & SessionIndex, private readonly settings: Pick<Settings, 'prefix' | 'practice' | 'limits'>,
     private readonly signal: AbortSignal, private readonly dependencies: { writer?: NoteWriter; now?: () => Date } = {}) {
-    this.notes = new PracticeNotes(store, settings.prefix, signal, settings.practice.writesEnabled ? dependencies.writer : undefined);
+    this.notes = new PracticeNotes(store, settings.prefix, signal, settings.limits.practiceNoteBytes, settings.practice.writesEnabled ? dependencies.writer : undefined);
     this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal);
   }
   designCoaching(catalog: Pick<NoteStore, 'list'>) {
@@ -166,7 +166,7 @@ export class Practice {
       !path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !path.endsWith('.excalidraw.md')) throw new NoteError('invalid_path');
     await this.workflows.config('system-design');
     const note = await this.read(path);
-    return { path, revision: note.revision, ...readDesignCanvas(note.text) };
+    return { path, revision: note.revision, ...readDesignCanvas(note.text, this.settings.limits) };
   }
   async createNote(path: string, content: string) {
     await this.workflows.config(validatePracticeWritePath(path));

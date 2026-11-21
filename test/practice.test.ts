@@ -471,6 +471,39 @@ it('rejects a topic that can corrupt Excalidraw Markdown through the real MCP cl
   } finally { await client.close(); }
 });
 
+it('creates, updates and reopens a large editable canvas through MCP', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { store, index } = setup(), options = settings();
+  const path = 'Learning/Practice/System-Design/Solutions/Cache-2026-11-14/Cache.excalidraw.md';
+  const handler = createFetchHandler(options, { skills: [practiceSkill(options, index)], store, writer: store,
+    verify: async () => owner, verifyScope: async () => owner });
+  const client = new Client({ name: 'large-canvas', version: '1' });
+  const scene = { type: 'excalidraw', version: 2, elements: Array.from({ length: 1200 }, (_, index) => ({
+    id: String(index), type: 'text', x: index, y: index, width: 300, height: 60,
+    text: createHash('sha256').update(String(index)).digest('hex'),
+  })), appState: {}, files: {} };
+  const encode = () => LZString.compressToBase64(JSON.stringify(scene));
+  const original = encode();
+  expect(original.length).toBeGreaterThan(65536);
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
+    const content = '## Drawing\n```compressed-json\n' + original + '\n```\n';
+    const create = await client.callTool({ name: 'practice_create_note', arguments: { path, content } });
+    expect(create.structuredContent).toMatchObject({ created: true });
+    const read = await client.callTool({ name: 'practice_read_note', arguments: { path } });
+    expect(read.structuredContent).toMatchObject({ text: content });
+    scene.elements[0]!.text = 'Final architecture';
+    const update = await client.callTool({ name: 'practice_update_note', arguments: {
+      path, revision: (read.structuredContent as { revision: string }).revision, edits: [{ old: original, replacement: encode() }],
+    } });
+    expect(update.structuredContent).toMatchObject({ updated: true });
+    const reopened = await client.callTool({ name: 'practice_design_canvas', arguments: { path } });
+    expect(reopened.structuredContent).toMatchObject({ drawing: scene });
+  } finally { await client.close(); }
+});
+
 it('loads and refreshes a saved canvas through the real MCP client without writes or text-summary reconstruction', async () => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');

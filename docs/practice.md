@@ -327,8 +327,7 @@ the Text Elements summary. The tool rechecks the live System Design module
 guard and accepts only direct session `*.excalidraw.md` files. It uses existing
 read scope, including when writes are disabled. It does not read the active chat
 widget or decompress/execute arbitrary programs. Drawing data is parsed only.
-Its limits are 64 KiB for a source note, 16 KiB of compressed base64, 96 KiB of
-expanded JSON and 500 elements. Oversized or malformed drawings return an error;
+Configure the note, edit, compressed drawing, decoded scene, element count and HTTP payload limits in `config/mcp-runtime.json` under `limits`. Oversized or malformed drawings return an error;
 they never become an empty replacement scene. `read_note` still supports chunked
 reads for other large notes; managed updates require a complete read and revision.
 
@@ -377,7 +376,7 @@ done only after its agreed saves succeed. Host rendering, manual edits, fresh
 widget-context reads, confirmation and native Obsidian rendering require live
 acceptance checks after deployment; local MCP tests cannot prove host UI behavior.
 
-Individual managed notes are limited to 64 KiB. General `read_note` supports
+Managed practice notes use the configured `practiceNoteBytes` limit. General `read_note` supports
 chunked reads of larger notes; the write tools refuse to replace a partially
 read or oversized note. No history truncation, archive move or object deletion
 is implemented. Obsidian remains responsible for rendering Dataview views.
