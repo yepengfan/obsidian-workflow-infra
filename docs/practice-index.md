@@ -138,3 +138,5 @@ Canvas reviews do not create session rows. Obsidian remains authoritative.
 Changes are indexed asynchronously. Run the existing reconcile after rollout to
 backfill existing sessions, or allow the scheduled reconcile to pick them up.
 Apply the index IAM foundation updates before deploying the runtime table.
+
+A recorded `round_completed_on` places the attempt in the done partition even while its source tag remains WIP for pending saves. After deploying this projection change, run the indexer with `{"action":"rebuild"}` to reproject existing notes with unchanged ETags.

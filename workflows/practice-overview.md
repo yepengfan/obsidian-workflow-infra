@@ -25,7 +25,7 @@ show its topic and saved step and ask whether to resume. With multiple matches,
 list them with their folder or date and ask which one to resume. Offer ordinary
 practice as an alternative and wait; never auto-select. A null list means
 discovery failed: say so and offer retry. On selection, load the System Design
-workflow and read that exact folder's progress.md. Verify its current WIP tag,
+workflow and read that exact folder's progress.md. Verify its current WIP tag and absence of a round_completed_on date,
 then reopen its saved canvas and continue the checkpoint before any new topic
 or due-review handoff. A declined reminder is not repeated during this entry.
 
