@@ -1,13 +1,13 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-const uri = 'ui://practice/design-canvas-v7.html';
+const uri = 'ui://practice/design-canvas-v8.html';
 const mimeType = 'text/html;profile=mcp-app';
 const cdn = 'https://esm.sh';
 const excalidraw = `${cdn}/@excalidraw/excalidraw@0.18.1`;
 export const canvasToolMetadata = { ui: { resourceUri: uri }, 'openai/outputTemplate': uri };
 
 export function registerCanvasWidget(server: McpServer) {
-  for (const resourceUri of [uri, 'ui://practice/design-canvas-v6.html', 'ui://practice/design-canvas-v5.html', 'ui://practice/design-canvas-v4.html', 'ui://practice/design-canvas-v3.html', 'ui://practice/design-canvas-v2.html', 'ui://practice/design-canvas-v1.html']) {
+  for (const resourceUri of [uri, 'ui://practice/design-canvas-v7.html', 'ui://practice/design-canvas-v6.html', 'ui://practice/design-canvas-v5.html', 'ui://practice/design-canvas-v4.html', 'ui://practice/design-canvas-v3.html', 'ui://practice/design-canvas-v2.html', 'ui://practice/design-canvas-v1.html']) {
     server.registerResource(resourceUri, resourceUri, { mimeType }, () => ({
       contents: [{ uri: resourceUri, mimeType, text: html, _meta: { ui: { csp: { resourceDomains: [cdn], connectDomains: [] } },
         'openai/widgetCSP': { resource_domains: [cdn], connect_domains: [] } } }],
@@ -49,6 +49,7 @@ async function openCanvas() {
     import('${excalidraw}?deps=react@19.2.0,react-dom@19.2.0')
   ]);
   let editor, opened = false, path, sourceRevision, previous;
+  const openedText = new Map();
   const minutes = document.querySelector('#minutes');
   const countdown = document.querySelector('#elapsed');
   const toggle = document.querySelector('#toggle');
@@ -116,6 +117,9 @@ async function openCanvas() {
     const source = result.structuredContent?.canvas ?? result.structuredContent;
     if (!source?.drawing) { status.textContent = 'Canvas unavailable.'; return; }
     opened = true;
+    for (const element of source.drawing.elements) {
+      if (element.type === 'text') openedText.set(element.id, element.originalText ?? element.text);
+    }
     path = source.path;
     sourceRevision = source.revision ?? null;
     try {
@@ -157,6 +161,11 @@ async function openCanvas() {
       const liveElements = editor.getSceneElements();
       const appState = editor.getAppState();
       const scene = JSON.parse(serializeAsJSON(liveElements, appState, editor.getFiles(), 'local'));
+      for (const element of scene.elements) {
+        if (element.type !== 'text') continue;
+        const text = element.originalText ?? element.text;
+        if (text !== openedText.get(element.id)) element.rawText = text;
+      }
       if (scene.elements.some(e => e.type === 'image' && !scene.files[e.fileId]?.dataURL)) {
         throw Error('An embedded image is unavailable. Restore the image and review again.');
       }
