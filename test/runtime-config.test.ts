@@ -8,6 +8,13 @@ const environment = {
   OAUTH_CLIENT_IDS: JSON.stringify(['test-client']), OAUTH_SCOPE: `${resource}/read`,
 };
 
+it('uses legacy limits until the new environment supplies its configured limits', () => {
+  const legacy = { ...environment, MCP_OPTIONS: JSON.stringify({ limits: { requestBytes: 65536 } }) };
+  expect(environmentSettings(legacy).limits.requestBytes).toBe(65536);
+  const limits = { requestBytes: 3145728, canvasElements: 3000 };
+  expect(environmentSettings({ ...legacy, MCP_LIMITS: JSON.stringify(limits) }).limits).toMatchObject(limits);
+});
+
 it('loads a read scope assigned to the exact MCP resource', () => {
   expect(environmentSettings(environment)).toMatchObject({ resource, scope: `${resource}/read`, clientIds: ['test-client'] });
 });

@@ -134,7 +134,7 @@ describe('authenticated stateless Streamable HTTP', () => {
     const authorization = `Bearer ${await token()}`;
     expect((await fetch(new Request(settings.resource, { method: 'POST', headers: { Authorization: authorization, Origin: 'https://evil.example' }, body: '{}' }))).status).toBe(403);
     for (const method of ['GET', 'DELETE']) expect((await fetch(new Request(settings.resource, { method, headers: { Authorization: authorization } }))).status).toBe(405);
-    const large = await fetch(new Request(settings.resource, { method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: 'x'.repeat(65537) }));
+    const large = await fetch(new Request(settings.resource, { method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }, body: 'x'.repeat(settings.limits.requestBytes + 1) }));
     expect(large.status).toBe(413); expect(store.calls).toHaveLength(0);
   });
   it.each([

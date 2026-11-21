@@ -22,9 +22,8 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   const { notePrefix, ...rawOptions } = application.options;
   if (notePrefix !== deployment.notePrefix) throw Error('Runtime prefix must match the IAM boundary');
   const options = runtimeOptionsSchema.parse(rawOptions);
-  // Keep infrastructure-only Claude callbacks out of MCP_OPTIONS so the previous
-  // strict runtime schema can still start during a configuration-first update.
-  const { claudeCallbackUrls, ...runtimeOptions } = options;
+  // Previous runtimes use their bundled limits during a configuration-first rollout.
+  const { claudeCallbackUrls, limits, ...runtimeOptions } = options;
   if (options.metadataSearch !== (deployment.metadataSearch ?? false)) throw Error('Metadata search configuration must match the IAM boundary');
   const metadata = options.metadataSearch ? addMetadataSearch(scope) : undefined;
   if (options.practice.writesEnabled !== (deployment.practiceWrites ?? false)) throw Error('Practice write configuration must match the IAM boundary');
@@ -84,7 +83,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
       NOTE_BUCKET: application.noteBucket,
       NOTE_PREFIX: deployment.notePrefix, OAUTH_ISSUER: `https://cognito-idp.${stack.region}.amazonaws.com/${pool.ref}`,
       OAUTH_CLIENT_ID: chatGptClient.ref, OAUTH_CLIENT_IDS: JSON.stringify(clientIds),
-      OAUTH_SCOPE: scopeName, MCP_RESOURCE: endpoint, MCP_OPTIONS: JSON.stringify(runtimeOptions),
+      OAUTH_SCOPE: scopeName, MCP_RESOURCE: endpoint, MCP_OPTIONS: JSON.stringify(runtimeOptions), MCP_LIMITS: JSON.stringify(limits),
     } }, tags: [{ key: 'Project', value: 'obsidian-mcp' }],
   });
   runtime.overrideLogicalId('McpFunction'); runtime.addResourceDependency(logs); runtime.addResourceDependency(ownerGroup);

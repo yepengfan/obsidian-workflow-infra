@@ -1,5 +1,8 @@
 import { z } from 'zod';
+import runtimeConfig from '../config/mcp-runtime.json' with { type: 'json' };
 import { practiceOptionsSchema } from './practice-options.js';
+
+const defaults = runtimeConfig.limits;
 
 export const limitsSchema = z.strictObject({
   pageSize: z.number().int().min(1).max(100).default(20),
@@ -7,8 +10,13 @@ export const limitsSchema = z.strictObject({
   parallelReads: z.number().int().min(1).max(8).default(4),
   searchBytesPerNote: z.number().int().min(1024).max(262144).default(262144),
   readChunkBytes: z.number().int().min(256).max(16384).default(16384),
-  requestBytes: z.number().int().min(1024).max(65536).default(65536),
-  responseBytes: z.number().int().min(8192).max(262144).default(262144),
+  requestBytes: z.number().int().min(1024).max(6 * 1024 * 1024).default(defaults.requestBytes),
+  responseBytes: z.number().int().min(8192).max(6 * 1024 * 1024).default(defaults.responseBytes),
+  practiceNoteBytes: z.number().int().positive().default(defaults.practiceNoteBytes),
+  practiceEditCharacters: z.number().int().positive().default(defaults.practiceEditCharacters),
+  canvasCompressedCharacters: z.number().int().positive().default(defaults.canvasCompressedCharacters),
+  canvasSceneBytes: z.number().int().positive().default(defaults.canvasSceneBytes),
+  canvasElements: z.number().int().positive().default(defaults.canvasElements),
   deadlineMs: z.number().int().min(1000).max(8000).default(5000),
 });
 export const runtimeOptionsSchema = z.strictObject({
@@ -23,7 +31,7 @@ export const runtimeOptionsSchema = z.strictObject({
   }, 'Copy the exact ChatGPT production callback URI')).max(2).default([]),
   claudeCallbackUrls: z.array(z.literal('https://claude.ai/api/mcp/auth_callback')).max(1).default([]),
   allowedOrigins: z.array(z.url().refine(value => new URL(value).origin === value && value.startsWith('https://'))).max(5).default(['https://chatgpt.com']),
-  limits: limitsSchema.default({ pageSize: 20, selectedNotes: 20, parallelReads: 4, searchBytesPerNote: 262144, readChunkBytes: 16384, requestBytes: 65536, responseBytes: 262144, deadlineMs: 5000 }),
+  limits: limitsSchema.default(defaults),
 });
 export type RuntimeOptions = z.infer<typeof runtimeOptionsSchema>;
 /** Any enabled write feature needs the shared write scope, IAM grant and writer port. */
@@ -43,7 +51,9 @@ export function environmentSettings(env: NodeJS.ProcessEnv): Settings {
   // previous single-client configuration during rollout/rollback only when the
   // new allowlist is absent; a present invalid allowlist must fail closed.
   const clientIds = env.OAUTH_CLIENT_IDS === undefined ? [required('OAUTH_CLIENT_ID')] : JSON.parse(required('OAUTH_CLIENT_IDS'));
-  return { ...runtimeOptionsSchema.parse(JSON.parse(required('MCP_OPTIONS'))), bucket: required('NOTE_BUCKET'),
+  const options = JSON.parse(required('MCP_OPTIONS'));
+  if (env.MCP_LIMITS !== undefined) options.limits = JSON.parse(env.MCP_LIMITS);
+  return { ...runtimeOptionsSchema.parse(options), bucket: required('NOTE_BUCKET'),
     prefix: env.NOTE_PREFIX ?? '', region: required('AWS_REGION'), issuer,
     clientIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/u).max(128)).min(1).max(2)
       .refine(ids => new Set(ids).size === ids.length, 'OAuth client IDs must be unique').parse(clientIds),

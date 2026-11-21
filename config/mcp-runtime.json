@@ -18,9 +18,14 @@
     "parallelReads": 4,
     "searchBytesPerNote": 262144,
     "readChunkBytes": 16384,
-    "requestBytes": 65536,
-    "responseBytes": 262144,
-    "deadlineMs": 5000
+    "requestBytes": 5242880,
+    "responseBytes": 5767168,
+    "deadlineMs": 5000,
+    "practiceNoteBytes": 2097152,
+    "practiceEditCharacters": 2097152,
+    "canvasCompressedCharacters": 2097152,
+    "canvasSceneBytes": 2097152,
+    "canvasElements": 25000
   },
   "practice": {
     "enabled": true,

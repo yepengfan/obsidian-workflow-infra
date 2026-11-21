@@ -53,6 +53,8 @@ it.each([false, true])('synthesizes the protected runtime with callback enabled:
   expect(resources.NotesResourceServer.Properties.Scopes.map((scope: { ScopeName: string }) => scope.ScopeName)).toEqual(['read']);
   expect(template.toJSON().Outputs.NotesScope.Value).toEqual(readScope);
   expect(resources.ChatGptClient.DependsOn).toContain('NotesResourceServer');
+  expect(JSON.parse(resources.McpFunction.Properties.Environment.Variables.MCP_LIMITS)).toEqual(options.limits);
+  expect(JSON.parse(resources.McpFunction.Properties.Environment.Variables.MCP_OPTIONS)).not.toHaveProperty('limits');
   expect(JSON.parse(resources.McpFunction.Properties.Environment.Variables.MCP_OPTIONS).ownerGroup).toBe(options.ownerGroup);
   expect(JSON.parse(resources.McpFunction.Properties.Environment.Variables.MCP_OPTIONS)).not.toHaveProperty('ownerSubjects');
   template.resourceCountIs('AWS::Cognito::UserPoolGroup', 1);
