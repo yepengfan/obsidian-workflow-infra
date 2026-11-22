@@ -20,8 +20,9 @@ it('drafts matching progress and valid canvas files with no fabricated learner w
   expect(drawing).toMatchObject({ type: 'excalidraw', version: 2, files: {} });
   const elements = drawing.elements as { id: string; text: string; y: number; height: number }[];
   expect(new Set(elements.map(element => element.id)).size).toBe(elements.length);
-  expect(elements.map(element => element.text).filter(text => /^\d\. /u.test(text))).toHaveLength(6);
-  expect(elements).toHaveLength(7);
+  expect(elements.map(element => element.text).filter(text => /^\d\. /u.test(text))).toHaveLength(7);
+  expect(elements).toHaveLength(8);
+  expect(elements.at(-1)).toMatchObject({ type: 'text', text: '7. Final Design', locked: false });
   for (const prompt of ['Functional Requirements', 'Non-Functional Requirements', 'Below the line', 'Back-of-Envelope']) {
     expect(elements[1]!.text).toContain(prompt);
   }
