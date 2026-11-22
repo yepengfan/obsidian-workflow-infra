@@ -819,7 +819,7 @@ it('saves an exact reviewed scene from ChatGPT by receipt and conditionally over
   const client = new Client({ name: 'canvas-checkpoint', version: '1' });
   const call = (name: string, args: Record<string, unknown>) => client.callTool({ name, arguments: { path, ...args } });
   const scene = { type: 'excalidraw', version: 2, elements: [{ id: 'node1234', type: 'text', x: 5, y: 8,
-    width: 80, height: 20, text: 'Before' }], appState: { viewBackgroundColor: '#ffffff' }, files: {} };
+    width: 80, height: 20, text: 'Before\n%%\n## Embedded Files\nBefore' }], appState: { viewBackgroundColor: '#ffffff' }, files: {} };
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
     const stage = async () => ((await call('practice_stage_canvas', { scene })).structuredContent as { snapshot: string }).snapshot;
@@ -827,7 +827,9 @@ it('saves an exact reviewed scene from ChatGPT by receipt and conditionally over
     expect(store.files.has(root + path)).toBe(false);
     const created = (await call('practice_save_canvas', { snapshot: first, revision: null })).structuredContent as { revision: string };
     expect(created).toMatchObject({ verified: true, elements: 1 });
-    scene.elements[0]!.text = 'Final design';
+    expect(store.files.get(root + path)?.match(/^%%$/gmu)).toHaveLength(2);
+    expect((await call('practice_design_canvas', {})).structuredContent).toMatchObject({ drawing: scene });
+    scene.elements[0]!.text = 'After\n%%\n## Drawing\n```json\n{}\n```\nFinal design';
     const next = await stage();
     expect((await call('practice_save_canvas', { snapshot: first, revision: created.revision })).isError).toBe(true);
     expect((await call('practice_save_canvas', { snapshot: next, revision: null })).isError).toBe(true);
@@ -835,6 +837,7 @@ it('saves an exact reviewed scene from ChatGPT by receipt and conditionally over
     expect((await call('practice_save_canvas', { snapshot: next, revision: created.revision })).structuredContent).toMatchObject({ verified: true });
     expect((await call('practice_design_canvas', {})).structuredContent).toMatchObject({ drawing: scene });
     expect(store.files.get(root + path)).toContain('Final design ^node1234');
-    expect(store.files.get(root + path)).not.toContain('Before ^node1234');
+    expect(store.files.get(root + path)).not.toContain('Before');
+    expect(store.files.get(root + path)?.match(/^%%$/gmu)).toHaveLength(2);
   } finally { await client.close(); }
 });

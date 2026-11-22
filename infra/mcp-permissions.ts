@@ -42,7 +42,7 @@ export function grantMcpRuntime(
   runtime.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObject'], resources: [`${vault}/${settings.notePrefix}*`] }));
   if (settings.metadataSearch) grantMetadataSearch(stack, storage.buckets.vault.name, runtime, execution);
   if (settings.practiceWrites) {
-    const resources = [...practiceWriteResources, 'Learning/Practice/.canvas-reviews/*.md'].map(path => `${vault}/${settings.notePrefix}${path}`);
+    const resources = practiceWriteResources.map(path => `${vault}/${settings.notePrefix}${path}`);
     for (const condition of [{ StringEquals: { 's3:if-none-match': '*', 's3:x-amz-server-side-encryption': 'AES256' } },
       { StringEquals: { 's3:x-amz-server-side-encryption': 'AES256' }, Null: { 's3:if-match': 'false' } }]) {
       runtime.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject'], resources, conditions: condition }));

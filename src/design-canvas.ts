@@ -50,7 +50,12 @@ export function parseScene(json: string, limits: CanvasLimits) {
 export function writeDesignCanvas(previous: string | undefined, scene: ReturnType<typeof parseScene>) {
   const json = JSON.stringify(scene);
   const labels = scene.elements.filter(e => e.type === 'text' && !e.isDeleted)
-    .map(e => `${e.rawText ?? e.originalText ?? e.text} ^${e.id}`).join('\n\n');
+    .map(e => {
+      const label = String(e.rawText ?? e.originalText ?? e.text)
+        .replaceAll('%%', '&#37;&#37;')
+        .replace(/^([ \t]*)(#{1,6}(?=\s)|`{3,}|~{3,})/gmu, '$1\\$2');
+      return `${label} ^${e.id}`;
+    }).join('\n\n');
   const section = '## Text Elements\n' + labels + '\n\n';
   const drawing = (encoding: string) => '## Drawing\n```' + encoding + '\n' +
     (encoding === 'compressed-json' ? LZString.compressToBase64(json) : json) + '\n```';

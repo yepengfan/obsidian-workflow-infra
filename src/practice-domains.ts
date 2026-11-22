@@ -35,8 +35,10 @@ export function practiceDocuments(domain: PracticeDomain) {
   return [...sharedPracticeDocuments, definition.flow, definition.module, ...definition.documents];
 }
 
+export const CANVAS_REVIEW_PREFIX = 'Learning/Practice/.canvas-reviews/';
 export const practiceWriteResources = ['Learning/Practice/Review/Items/*.md',
-  ...Object.values(practiceDomains).flatMap(domain => domain.writes.map(path => domain.root + path))];
+  ...Object.values(practiceDomains).flatMap(domain => domain.writes.map(path => domain.root + path)),
+  CANVAS_REVIEW_PREFIX + '*.md'];
 
 export function practiceNoteDomain(path: string): PracticeDomain {
   validPath(path);

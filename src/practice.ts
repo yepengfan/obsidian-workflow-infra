@@ -9,7 +9,7 @@ import type { Settings } from './config.js';
 import { NoteError } from './paths.js';
 import type { NoteReader, NoteStore, NoteWriter } from './note-store.js';
 import { PracticeError } from './errors.js';
-import { type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
+import { CANVAS_REVIEW_PREFIX, type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
 import { readDesignCanvas, parseScene, writeDesignCanvas } from './design-canvas.js';
 import { dateSchema, REVIEW_ITEMS_PREFIX, reviewSummarySchema as summarySchema, slugSchema, type ReviewSummary } from './practice-schema.js';
@@ -175,7 +175,7 @@ export class Practice {
     return { path, revision: note.revision, ...readDesignCanvas(note.text, this.settings.limits) };
   }
   private reviewPath(path: string) {
-    return 'Learning/Practice/.canvas-reviews/' + createHash('sha256').update(path).digest('hex') + '.md';
+    return CANVAS_REVIEW_PREFIX + createHash('sha256').update(path).digest('hex') + '.md';
   }
 
   async stageCanvas(path: string, scene: Record<string, unknown>) {
