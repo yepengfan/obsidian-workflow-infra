@@ -15,18 +15,21 @@ export function designRound(completed: number) {
   return { next_round: completed + 1, coaching_mode: completed < 2 ? 'guided' : 'mock_interview' };
 }
 
-export function designHistory(item: ReviewSummary, body: string, intervals: number[]) {
+export function designHistory(item: ReviewSummary, body: string, intervals: number[], retry: number) {
   if (item.domain !== 'system-design' || item.completed_design_rounds !== undefined) return {};
   const entries = [...body.matchAll(/^### (\d{4}-\d{2}-\d{2}) · (?:Round (\d+)|第 (\d+) 轮)\s*\n\*\*(independent|assisted|incomplete|独立完成|提示后完成|未完成)\*\* · /gmu)];
   if (entries.length !== item.review_count || entries.some((m, i) => Number(m[2] ?? m[3]) !== i + 1)) return { completed_design_rounds: 0 };
-  const full = entries.filter(m => !['incomplete', '未完成'].includes(m[4]!));
-  const completed = full.length;
-  const last = full.at(-1);
-  if (item.status === 'active' && last && last === entries.at(-1) && completed <= 2 && last[1] === item.last_review) {
-    const stage = Math.min(completed - 1, intervals.length - 1);
-    return { completed_design_rounds: completed, stage, next_review: addDays(item.last_review, intervals[stage]!) };
+  const translations: Record<string, string> = { '独立完成': 'independent', '提示后完成': 'assisted', '未完成': 'incomplete' };
+  let replay: ReviewSummary = { ...item, stage: 0, review_count: 0, completed_design_rounds: 0, next_review: null, last_review: null };
+  for (const entry of entries) {
+    const outcome = translations[entry[4]!] ?? entry[4]!;
+    replay = { ...replay, ...nextSchedule(replay, outcome, entry[1]!, intervals, retry) };
   }
-  return { completed_design_rounds: completed };
+  const progress = { completed_design_rounds: replay.completed_design_rounds! };
+  if (entries.length && item.status === 'active' && replay.last_review === item.last_review) {
+    return { ...progress, stage: replay.stage, next_review: replay.next_review };
+  }
+  return progress;
 }
 
 export function nextSchedule(item: ReviewSummary, outcome: string, day: string, intervals: number[], retry: number,

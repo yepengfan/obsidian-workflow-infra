@@ -44,6 +44,8 @@ function reviewQueue(rows: readonly ReviewSummary[], day: string) {
   return queue;
 }
 
+type ScheduleConfig = Pick<Awaited<ReturnType<PracticeWorkflow['config']>>, 'interval_days' | 'retry_days'>;
+
 export class Practice {
   private readonly notes: PracticeNotes;
   private readonly workflows: PracticeWorkflow;
@@ -73,7 +75,7 @@ export class Practice {
     return this.workflows.instruction(path, offset);
   }
 
-  private async item(id: string, forQueue = false, intervals?: number[]) {
+  private async item(id: string, forQueue = false, config?: ScheduleConfig) {
     const path = REVIEW_ITEMS_PREFIX + slugSchema.parse(id) + '.md';
     const note = await this.read(path);
     const parsed = parsePracticeNote(note.text);
@@ -81,8 +83,8 @@ export class Practice {
     if (item.id !== id) throw new PracticeError('review_id_mismatch');
     if (!forQueue && !domainSchema.safeParse(item.domain).success) throw new PracticeError('unsupported_practice_domain');
     if (item.domain === 'system-design' && item.completed_design_rounds === undefined) {
-      const days = intervals ?? (await this.workflows.config('system-design')).interval_days;
-      Object.assign(item, designHistory(item, parsed.body, days));
+      const schedule = config ?? await this.workflows.config('system-design');
+      Object.assign(item, designHistory(item, parsed.body, schedule.interval_days, schedule.retry_days));
     }
     return { ...note, ...parsed, item, path };
   }
@@ -90,7 +92,7 @@ export class Practice {
     domainSchema.parse(input.domain);
     const config = await this.workflows.config(input.domain);
     const day = this.today();
-    const rows = await this.currentReviews(await this.indexedReviews(input.domain), day, config.interval_days);
+    const rows = await this.currentReviews(await this.indexedReviews(input.domain), day, config);
     const queue = reviewQueue(rows.filter(row => row.domain === input.domain && row.status === 'active'), day);
     return { date: day, time_zone: this.settings.practice.timeZone, domain: input.domain, ...queue, complete: true };
   }
@@ -101,7 +103,7 @@ export class Practice {
       throw new PracticeError('review_index_unavailable');
     }
   }
-  private async currentReviews(indexed: IndexedReview[], day: string, intervals: number[]) {
+  private async currentReviews(indexed: IndexedReview[], day: string, config: ScheduleConfig) {
     const summary = (row: ReviewSummary): ReviewSummary => summarySchema.parse(row);
     const needsNote = (row: IndexedReview) => row.next_review === null || row.next_review <= day ||
       (row.domain === 'system-design' && row.completed_design_rounds === undefined);
@@ -109,7 +111,7 @@ export class Practice {
     const unconfirmed = indexed.filter(needsNote);
     for (let index = 0; index < unconfirmed.length; index += 4) {
       rows.push(...await Promise.all(unconfirmed.slice(index, index + 4).map(async row => {
-        const note = await this.item(row.id, true, intervals);
+        const note = await this.item(row.id, true, config);
         return summary(note.item);
       })));
     }

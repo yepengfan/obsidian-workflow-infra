@@ -798,6 +798,9 @@ it('projects a legacy two-round guided topic into the first independent review w
   store.files.set(key, '---\n' + JSON.stringify(fixture) + '\n---\n' + history);
   expect(await practice.review(designRequest.id)).toMatchObject({ next_round: 3, coaching_mode: 'mock_interview', next_review: '2026-11-25' });
   expect((await practice.reviews({ domain: 'system-design' })).upcoming[0]).toMatchObject({ next_round: 3, next_review: '2026-11-25' });
+  const third = { ...fixture, review_count: 3, stage: 1, last_review: '2026-11-25', next_review: '2026-11-28' };
+  store.files.set(key, '---\n' + JSON.stringify(third) + '\n---\n' + history + '\n### 2026-11-25 · Round 3\n\n**independent** · Next review 2026-11-28');
+  expect(await practice.review(designRequest.id)).toMatchObject({ next_round: 4, stage: 2, next_review: '2026-12-02' });
   expect(store.writes).toHaveLength(0);
 });
 
