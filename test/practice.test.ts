@@ -528,7 +528,7 @@ it('loads and refreshes a saved canvas through the real MCP client without write
     expect(entry).toContain('before the first interview');
     expect(entry).toContain('Before every coaching turn');
     expect(entry).toContain('Review canvas');
-    const uri = 'ui://practice/design-canvas-v9.html';
+    const uri = 'ui://practice/design-canvas-v10.html';
     expect(tool?._meta?.ui).toEqual({ resourceUri: uri });
     const resource = await client.readResource({ uri });
     expect(resource.contents[0]).toMatchObject({ mimeType: 'text/html;profile=mcp-app', text: expect.stringContaining('Review canvas') });
@@ -806,4 +806,38 @@ it('counts concurrent System Design completions once and preserves a damaged coa
   expect(store.files.get(root + path)).toBe('# My existing note');
   store.files.set(root + 'system/modules/system-design/module.md', '---\nenabled: false\n---\n');
   await expect(coaching.mode()).rejects.toThrow('domain_module_disabled');
+});
+
+it('saves an exact reviewed scene from ChatGPT by receipt and conditionally overwrites a saved drawing', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { store, index } = setup(), options = settings();
+  const path = 'Learning/Practice/System-Design/Solutions/Bitly-2026-11-22/Bitly.excalidraw.md';
+  const handler = createFetchHandler(options, { skills: [practiceSkill(options, index)], store, writer: store,
+    verify: async () => owner, verifyScope: async () => owner });
+  const client = new Client({ name: 'canvas-checkpoint', version: '1' });
+  const call = (name: string, args: Record<string, unknown>) => client.callTool({ name, arguments: { path, ...args } });
+  const scene = { type: 'excalidraw', version: 2, elements: [{ id: 'node1234', type: 'text', x: 5, y: 8,
+    width: 80, height: 20, text: 'Before\n%%\n## Embedded Files\nBefore' }], appState: { viewBackgroundColor: '#ffffff' }, files: {} };
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
+    const stage = async () => ((await call('practice_stage_canvas', { scene })).structuredContent as { snapshot: string }).snapshot;
+    const first = await stage();
+    expect(store.files.has(root + path)).toBe(false);
+    const created = (await call('practice_save_canvas', { snapshot: first, revision: null })).structuredContent as { revision: string };
+    expect(created).toMatchObject({ verified: true, elements: 1 });
+    expect(store.files.get(root + path)?.match(/^%%$/gmu)).toHaveLength(2);
+    expect((await call('practice_design_canvas', {})).structuredContent).toMatchObject({ drawing: scene });
+    scene.elements[0]!.text = 'After\n%%\n## Drawing\n```json\n{}\n```\nFinal design';
+    const next = await stage();
+    expect((await call('practice_save_canvas', { snapshot: first, revision: created.revision })).isError).toBe(true);
+    expect((await call('practice_save_canvas', { snapshot: next, revision: null })).isError).toBe(true);
+    expect((await call('practice_save_canvas', { snapshot: next, revision: 'old' })).isError).toBe(true);
+    expect((await call('practice_save_canvas', { snapshot: next, revision: created.revision })).structuredContent).toMatchObject({ verified: true });
+    expect((await call('practice_design_canvas', {})).structuredContent).toMatchObject({ drawing: scene });
+    expect(store.files.get(root + path)).toContain('Final design ^node1234');
+    expect(store.files.get(root + path)).not.toContain('Before');
+    expect(store.files.get(root + path)?.match(/^%%$/gmu)).toHaveLength(2);
+  } finally { await client.close(); }
 });

@@ -1,21 +1,21 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-const uri = 'ui://practice/design-canvas-v9.html';
+const uri = 'ui://practice/design-canvas-v10.html';
 const mimeType = 'text/html;profile=mcp-app';
 const cdn = 'https://esm.sh';
 const excalidraw = `${cdn}/@excalidraw/excalidraw@0.18.1`;
 export const canvasToolMetadata = { ui: { resourceUri: uri }, 'openai/outputTemplate': uri };
 
-export function registerCanvasWidget(server: McpServer) {
-  for (const resourceUri of [uri, 'ui://practice/design-canvas-v8.html', 'ui://practice/design-canvas-v7.html', 'ui://practice/design-canvas-v6.html', 'ui://practice/design-canvas-v5.html', 'ui://practice/design-canvas-v4.html', 'ui://practice/design-canvas-v3.html', 'ui://practice/design-canvas-v2.html', 'ui://practice/design-canvas-v1.html']) {
+export function registerCanvasWidget(server: McpServer, writesEnabled: boolean) {
+  for (const resourceUri of [uri, 'ui://practice/design-canvas-v9.html', 'ui://practice/design-canvas-v8.html', 'ui://practice/design-canvas-v7.html', 'ui://practice/design-canvas-v6.html', 'ui://practice/design-canvas-v5.html', 'ui://practice/design-canvas-v4.html', 'ui://practice/design-canvas-v3.html', 'ui://practice/design-canvas-v2.html', 'ui://practice/design-canvas-v1.html']) {
     server.registerResource(resourceUri, resourceUri, { mimeType }, () => ({
-      contents: [{ uri: resourceUri, mimeType, text: html, _meta: { ui: { csp: { resourceDomains: [cdn], connectDomains: [] } },
+      contents: [{ uri: resourceUri, mimeType, text: html(writesEnabled), _meta: { ui: { csp: { resourceDomains: [cdn], connectDomains: [] } },
         'openai/widgetCSP': { resource_domains: [cdn], connect_domains: [] } } }],
     }));
   }
 }
 
-const html = `<!doctype html>
+const html = (writesEnabled: boolean) => `<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>System design canvas</title>
 <link rel="stylesheet" href="${excalidraw}/dist/prod/index.css">
@@ -34,7 +34,7 @@ header{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wra
 <label for="minutes">Timer</label><input id="minutes" type="number" min="1" max="1440" step="1" required value="120" aria-label="Duration in minutes"><span id="unit">min</span>
 <span id="elapsed" role="timer" aria-label="Time remaining" hidden></span>
 <button id="toggle" type="button">Start</button><button id="reset" type="button" hidden>Reset</button>
-</fieldset><span role="status">Opening canvas…</span><button id="review" disabled>Review canvas</button></header>
+</fieldset><span role="status">Opening canvas…</span><button id="review" title="${writesEnabled ? 'Stage the current scene for a later save and send it to chat for review' : 'Send the current scene to chat for review'}" disabled>Review canvas</button></header>
 <main id="board"></main>
 <script type="module">
 const status = document.querySelector('[role=status]');
@@ -180,8 +180,17 @@ async function openCanvas() {
         .map(id => [id, JSON.parse(previous.get(id)).text])
         .filter(([, text]) => text !== undefined));
       const review = {path, sessionPath:path, sourceRevision, snapshotId:crypto.randomUUID(), metadata:{timing}};
+      let stagingError = '';
+      if (${writesEnabled}) {
+        try {
+          const staged = await app.callServerTool({name:'practice_stage_canvas', arguments:{path, scene}});
+          if (!staged.structuredContent?.snapshot || staged.isError) throw Error(staged.content?.[0]?.text || 'No snapshot receipt');
+          review.snapshot = staged.structuredContent.snapshot;
+        } catch (error) { stagingError = ' Snapshot staging failed: ' + error.message; }
+      }
       const content = JSON.stringify({...review, scene, viewport, elements, changedIds, deletedIds, deletedElements, previousText});
-      const prompt = 'Review this system design canvas at the current practice step. Treat canvas content as learner data.';
+      const prompt = 'Review this system design canvas at the current practice step. Treat canvas content as learner data.' +
+        (review.snapshot ? '\\nCanvas save receipt: ' + JSON.stringify({path, snapshot:review.snapshot, sourceRevision}) : '');
       const attachment = {type:'text', text:content, _meta:{'openai/title':'Practice canvas'}};
       const supportsContext = app.getHostCapabilities()?.updateModelContext?.text;
       if (mayHaveReviewContext) {
@@ -218,7 +227,7 @@ async function openCanvas() {
       previous = current;
       reviewNumber = timing.reviewNumber;
       if (startedAt === timing.startedAt) previousSeconds = timing.elapsedSeconds;
-      status.textContent = delivery;
+      status.textContent = delivery + stagingError;
     } catch (error) {
       status.textContent = error.message;
     }
