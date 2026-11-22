@@ -1,13 +1,13 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-const uri = 'ui://practice/design-canvas-v8.html';
+const uri = 'ui://practice/design-canvas-v9.html';
 const mimeType = 'text/html;profile=mcp-app';
 const cdn = 'https://esm.sh';
 const excalidraw = `${cdn}/@excalidraw/excalidraw@0.18.1`;
 export const canvasToolMetadata = { ui: { resourceUri: uri }, 'openai/outputTemplate': uri };
 
 export function registerCanvasWidget(server: McpServer) {
-  for (const resourceUri of [uri, 'ui://practice/design-canvas-v7.html', 'ui://practice/design-canvas-v6.html', 'ui://practice/design-canvas-v5.html', 'ui://practice/design-canvas-v4.html', 'ui://practice/design-canvas-v3.html', 'ui://practice/design-canvas-v2.html', 'ui://practice/design-canvas-v1.html']) {
+  for (const resourceUri of [uri, 'ui://practice/design-canvas-v8.html', 'ui://practice/design-canvas-v7.html', 'ui://practice/design-canvas-v6.html', 'ui://practice/design-canvas-v5.html', 'ui://practice/design-canvas-v4.html', 'ui://practice/design-canvas-v3.html', 'ui://practice/design-canvas-v2.html', 'ui://practice/design-canvas-v1.html']) {
     server.registerResource(resourceUri, resourceUri, { mimeType }, () => ({
       contents: [{ uri: resourceUri, mimeType, text: html, _meta: { ui: { csp: { resourceDomains: [cdn], connectDomains: [] } },
         'openai/widgetCSP': { resource_domains: [cdn], connect_domains: [] } } }],
@@ -31,7 +31,7 @@ header{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wra
 #review:disabled{opacity:.55}#board{min-height:0;min-width:0}
 </style>
 <header><fieldset id="timer-controls" aria-label="Practice countdown" disabled>
-<label for="minutes">Timer</label><input id="minutes" type="number" min="1" max="1440" step="1" required value="60" aria-label="Duration in minutes"><span id="unit">min</span>
+<label for="minutes">Timer</label><input id="minutes" type="number" min="1" max="1440" step="1" required value="120" aria-label="Duration in minutes"><span id="unit">min</span>
 <span id="elapsed" role="timer" aria-label="Time remaining" hidden></span>
 <button id="toggle" type="button">Start</button><button id="reset" type="button" hidden>Reset</button>
 </fieldset><span role="status">Opening canvas…</span><button id="review" disabled>Review canvas</button></header>
@@ -55,7 +55,7 @@ async function openCanvas() {
   const toggle = document.querySelector('#toggle');
   const reset = document.querySelector('#reset');
   const controls = document.querySelector('#timer-controls');
-  let startedAt = null, runningSince = null, accumulatedMs = 0, durationSeconds = 3600;
+  let startedAt = null, runningSince = null, accumulatedMs = 0, durationSeconds = minutes.valueAsNumber * 60;
   let mayHaveReviewContext = false;
   let reviewNumber = 0, previousSeconds = 0, ticker;
   function elapsedMs() {
