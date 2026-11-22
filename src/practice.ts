@@ -2,12 +2,11 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { stringify } from 'yaml';
 import { z } from 'zod';
-import { DesignCoaching } from './design-coaching.js';
 import { PracticeWorkflow } from './practice-workflow.js';
-import { calendarDay, nextSchedule } from './review-schedule.js';
+import { calendarDay, designHistory, designRound, nextSchedule } from './review-schedule.js';
 import type { Settings } from './config.js';
 import { NoteError } from './paths.js';
-import type { NoteReader, NoteStore, NoteWriter } from './note-store.js';
+import type { NoteReader, NoteWriter } from './note-store.js';
 import { PracticeError } from './errors.js';
 import { CANVAS_REVIEW_PREFIX, type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
@@ -36,10 +35,11 @@ function reviewQueue(rows: readonly ReviewSummary[], day: string) {
   const queue: Record<'overdue' | 'today' | 'unstarted' | 'upcoming', ReviewSummary[]> = { overdue: [], today: [], unstarted: [], upcoming: [] };
   const ordered = [...rows].sort((a, b) => (a.next_review ?? '').localeCompare(b.next_review ?? '') || a.id.localeCompare(b.id));
   for (const row of ordered) {
-    if (row.next_review === null) queue.unstarted.push(row);
-    else if (row.next_review < day) queue.overdue.push(row);
-    else if (row.next_review === day) queue.today.push(row);
-    else queue.upcoming.push(row);
+    const entry = { ...row, ...(row.domain === 'system-design' ? designRound(row.completed_design_rounds ?? 0) : {}) };
+    if (row.next_review === null) queue.unstarted.push(entry);
+    else if (row.next_review < day) queue.overdue.push(entry);
+    else if (row.next_review === day) queue.today.push(entry);
+    else queue.upcoming.push(entry);
   }
   return queue;
 }
@@ -53,10 +53,6 @@ export class Practice {
     this.notes = new PracticeNotes(store, settings.prefix, signal, settings.limits.practiceNoteBytes, settings.practice.writesEnabled ? dependencies.writer : undefined);
     this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal);
   }
-  designCoaching(catalog: Pick<NoteStore, 'list'>) {
-    return new DesignCoaching(catalog, this.notes, this.settings.prefix, this.signal, () => this.workflows.config('system-design'));
-  }
-
   private today() { return calendarDay(this.settings.practice.timeZone, this.dependencies.now?.() ?? new Date()); }
   read(path: string) {
     return this.notes.read(path);
@@ -77,20 +73,24 @@ export class Practice {
     return this.workflows.instruction(path, offset);
   }
 
-  private async item(id: string, forQueue = false) {
+  private async item(id: string, forQueue = false, intervals?: number[]) {
     const path = REVIEW_ITEMS_PREFIX + slugSchema.parse(id) + '.md';
     const note = await this.read(path);
     const parsed = parsePracticeNote(note.text);
     const item = itemSchema.parse(parsed.metadata);
     if (item.id !== id) throw new PracticeError('review_id_mismatch');
     if (!forQueue && !domainSchema.safeParse(item.domain).success) throw new PracticeError('unsupported_practice_domain');
+    if (item.domain === 'system-design' && item.completed_design_rounds === undefined) {
+      const days = intervals ?? (await this.workflows.config('system-design')).interval_days;
+      Object.assign(item, designHistory(item, parsed.body, days));
+    }
     return { ...note, ...parsed, item, path };
   }
   async reviews(input: z.infer<typeof listReviewsSchema>) {
     domainSchema.parse(input.domain);
-    await this.workflows.config(input.domain);
+    const config = await this.workflows.config(input.domain);
     const day = this.today();
-    const rows = await this.currentReviews(await this.indexedReviews(input.domain), day);
+    const rows = await this.currentReviews(await this.indexedReviews(input.domain), day, config.interval_days);
     const queue = reviewQueue(rows.filter(row => row.domain === input.domain && row.status === 'active'), day);
     return { date: day, time_zone: this.settings.practice.timeZone, domain: input.domain, ...queue, complete: true };
   }
@@ -101,19 +101,16 @@ export class Practice {
       throw new PracticeError('review_index_unavailable');
     }
   }
-  /**
-   * The index trails note saves by seconds. Confirm every due or unstarted row
-   * against its note so a just-recorded round never reappears as due. Upcoming
-   * rows are not read; the daily reconcile bounds their staleness.
-   */
-  private async currentReviews(indexed: IndexedReview[], day: string) {
+  private async currentReviews(indexed: IndexedReview[], day: string, intervals: number[]) {
     const summary = (row: ReviewSummary): ReviewSummary => summarySchema.parse(row);
-    const rows = indexed.filter(row => row.next_review !== null && row.next_review > day).map(summary);
-    const unconfirmed = indexed.filter(row => row.next_review === null || row.next_review <= day);
+    const needsNote = (row: IndexedReview) => row.next_review === null || row.next_review <= day ||
+      (row.domain === 'system-design' && row.completed_design_rounds === undefined);
+    const rows = indexed.filter(row => !needsNote(row)).map(summary);
+    const unconfirmed = indexed.filter(needsNote);
     for (let index = 0; index < unconfirmed.length; index += 4) {
       rows.push(...await Promise.all(unconfirmed.slice(index, index + 4).map(async row => {
-        const note = await this.item(row.id, true);
-        return note.revision === row.revision ? summary(row) : summarySchema.parse(note.item);
+        const note = await this.item(row.id, true, intervals);
+        return summary(note.item);
       })));
     }
     return rows;
@@ -122,14 +119,14 @@ export class Practice {
     const note = await this.item(id);
     await this.workflows.config(domainSchema.parse(note.item.domain));
     if (note.item.status !== 'active') throw new PracticeError('review_archived');
-    return { ...summarySchema.parse(note.item), prompt: note.item.prompt, source: note.item.source ?? null,
+    return { ...summarySchema.parse(note.item), ...(note.item.domain === 'system-design' ? designRound(note.item.completed_design_rounds!) : {}), prompt: note.item.prompt, source: note.item.source ?? null,
       revision: note.revision, ...(includeHistory ? { history: note.body } : {}) };
   }
   async add(input: z.infer<typeof addReviewSchema>) {
     domainSchema.parse(input.domain);
     await this.workflows.config(input.domain);
     const metadata = { id: input.id, domain: input.domain, title: input.title.trim(), status: 'active', prompt: input.prompt,
-      review_count: 0, stage: 0, last_review: null, next_review: null, attempt_ids: [], ...(input.source ? { source: input.source } : {}) };
+      review_count: 0, stage: 0, ...(input.domain === 'system-design' ? { completed_design_rounds: 0 } : {}), last_review: null, next_review: null, attempt_ids: [], ...(input.source ? { source: input.source } : {}) };
     const body = `# ${metadata.title.replace(/[\r\n]/gu, ' ')}\n\n${input.review_focus ? '## Review focus\n\n' + input.review_focus + '\n\n' : ''}## Practice history\n`;
     try { await this.notes.put(REVIEW_ITEMS_PREFIX + input.id + '.md', serialize(metadata, body)); }
     catch (error) {

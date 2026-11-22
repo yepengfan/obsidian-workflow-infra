@@ -11,6 +11,24 @@ function addDays(day: string, days: number) {
   date.setUTCDate(date.getUTCDate() + days);
   return dateSchema.parse(date.toISOString().slice(0, 10));
 }
+export function designRound(completed: number) {
+  return { next_round: completed + 1, coaching_mode: completed < 2 ? 'guided' : 'mock_interview' };
+}
+
+export function designHistory(item: ReviewSummary, body: string, intervals: number[]) {
+  if (item.domain !== 'system-design' || item.completed_design_rounds !== undefined) return {};
+  const entries = [...body.matchAll(/^### (\d{4}-\d{2}-\d{2}) · (?:Round (\d+)|第 (\d+) 轮)\s*\n\*\*(independent|assisted|incomplete|独立完成|提示后完成|未完成)\*\* · /gmu)];
+  if (entries.length !== item.review_count || entries.some((m, i) => Number(m[2] ?? m[3]) !== i + 1)) return { completed_design_rounds: 0 };
+  const full = entries.filter(m => !['incomplete', '未完成'].includes(m[4]!));
+  const completed = full.length;
+  const last = full.at(-1);
+  if (item.status === 'active' && last && last === entries.at(-1) && completed <= 2 && last[1] === item.last_review) {
+    const stage = Math.min(completed - 1, intervals.length - 1);
+    return { completed_design_rounds: completed, stage, next_review: addDays(item.last_review, intervals[stage]!) };
+  }
+  return { completed_design_rounds: completed };
+}
+
 export function nextSchedule(item: ReviewSummary, outcome: string, day: string, intervals: number[], retry: number,
   archiveAfterFinal = false) {
   dateSchema.parse(day);
@@ -18,8 +36,13 @@ export function nextSchedule(item: ReviewSummary, outcome: string, day: string, 
   const stage = item.stage;
   const finalStage = intervals.length - 1;
   if (stage > finalStage) throw new PracticeError('invalid_review_stage');
-  const active = { last_review: day, review_count: item.review_count + 1, status: 'active' as const };
+  const completed = item.domain === 'system-design' ? item.completed_design_rounds ?? 0 : undefined;
+  const active = { ...(completed === undefined ? {} : { completed_design_rounds: completed + Number(outcome !== 'incomplete') }), last_review: day, review_count: item.review_count + 1, status: 'active' as const };
 
+  if (completed !== undefined && completed < 2 && outcome !== 'incomplete') {
+    const learningStage = Math.min(completed, finalStage);
+    return { ...active, stage: learningStage, next_review: addDays(day, intervals[learningStage]!) };
+  }
   if (outcome !== 'independent') return { ...active, stage, next_review: addDays(day, retry) };
   if (!item.next_review) return { ...active, stage: 0, next_review: addDays(day, intervals[0]!) };
   if (day < item.next_review) return { ...active, stage, next_review: item.next_review };

@@ -95,3 +95,5 @@ now-explicit new-practice domain so completing those reviews does not ask the
 same domain question again. Use the mapped workflow's topic-input step if no
 new topic was supplied. Keep the existing assessment, reflection, registration
 and explicitly confirmed save rules.
+
+Show each System Design topic with its next_round, coaching_mode and next_review date. Label round 3 as the first independent review.

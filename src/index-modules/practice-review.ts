@@ -5,9 +5,7 @@ import type { IndexedModule } from './types.js';
 /** Unstarted items sort before every real date in the queue index. */
 export const UNSTARTED_SORT = '0000-00-00';
 
-const row = reviewSummarySchema.extend({ archived_on: dateSchema.nullable().default(null) })
-  .transform(({ id, domain, title, status, review_count, stage, last_review, next_review, archived_on }) =>
-    ({ id, domain, title, status, review_count, stage, last_review, next_review, archived_on }));
+const row = reviewSummarySchema.extend({ archived_on: dateSchema.nullable().default(null) });
 export type PracticeReviewRow = z.output<typeof row>;
 
 export const practiceReviewIndex: IndexedModule<PracticeReviewRow> = {

@@ -4,12 +4,11 @@ import { writeScope } from './auth.js';
 import { readToolSecurity, writeToolSecurity, type McpSkill, type SkillContext } from './skill.js';
 import type { Settings } from './config.js';
 import { addReviewSchema, domainSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
-import { coachingMode, roundId, type DesignCoaching } from './design-coaching.js';
 import { canvasToolMetadata, registerCanvasWidget } from './practice-canvas-widget.js';
 import { designSessionSchema } from './design-session.js';
 import type { ReviewIndex, SessionIndex } from './review-index.js';
 
-export function registerPracticeTools(server: McpServer, practice: Practice, coaching: DesignCoaching, settings: Settings,
+export function registerPracticeTools(server: McpServer, practice: Practice, settings: Settings,
   result: SkillContext['result'],
   authorizeWrite: () => Promise<void>) {
   if (!settings.practice.enabled) return;
@@ -30,9 +29,6 @@ export function registerPracticeTools(server: McpServer, practice: Practice, coa
   server.registerTool('practice_read_note', { ...readSecurity, outputSchema,
     description: 'Read one bounded Algorithm or System Design practice note with its revision for a later conditional update. Larger notes must use read_note chunks; no partial overwrite is allowed.',
     inputSchema: z.strictObject({ path: z.string().max(1024) }) }, input => result(() => practice.readNote(input.path)));
-  server.registerTool('practice_design_mode', { ...readSecurity, outputSchema,
-    description: 'Choose coaching for a System Design round. With no override, the first two completed rounds across all topics determine the default. Pass guided or mock_interview to switch the current round without changing the drawing, schedule or saved progression.',
-    inputSchema: z.strictObject({ override: coachingMode.optional() }) }, input => result(() => coaching.mode(input.override)));
   registerCanvasWidget(server, settings.practice.writesEnabled);
   const canvasSecurity = { ...readSecurity, _meta: { ...readSecurity._meta, ...canvasToolMetadata } };
   server.registerTool('practice_design_template', { ...canvasSecurity, outputSchema,
@@ -54,9 +50,6 @@ export function registerPracticeTools(server: McpServer, practice: Practice, coa
     description: 'On user confirmation save a staged canvas by path and snapshot receipt and verify the drawing by reading it back. Use null revision for a new file or the reviewed source revision for an update. For an explicitly requested overwrite read the current destination revision first.',
     inputSchema: z.strictObject({ path: canvasPath, snapshot: revisionSchema, revision: revisionSchema.nullable() }) },
   input => write(() => practice.saveCanvas(input.path, input.snapshot, input.revision)));
-  server.registerTool('practice_complete_design_round', { ...writeSecurity, outputSchema,
-    description: 'After an ended System Design practice or review and explicit save confirmation, count this round toward the two-round coaching introduction. Reuse the round UUID on retry and resume. Skip checkpoints. This does not record a review outcome or change its schedule.',
-    inputSchema: z.strictObject({ round_id: roundId }) }, input => write(() => coaching.complete(input.round_id)));
   server.registerTool('practice_add_review', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit user confirmation, register a neutral review object without overwriting an existing one. Never invent an attempt or reflection. New entries have no scheduled date until a round is recorded.',
     inputSchema: addReviewSchema }, input => write(() => practice.add(input)));
@@ -78,7 +71,7 @@ export function practiceSkill(settings: Settings, index: ReviewIndex & SessionIn
     scopes: settings.practice.writesEnabled ? [writeScope(settings)] : [],
     register: ({ server, store, writer, signal, result, authorizeScope }) => {
       const practice = new Practice(store, index, settings, signal, { writer });
-      registerPracticeTools(server, practice, practice.designCoaching(store), settings, result,
+      registerPracticeTools(server, practice, settings, result,
         () => authorizeScope(writeScope(settings)));
     },
   };
