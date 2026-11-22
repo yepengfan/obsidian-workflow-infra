@@ -26,7 +26,7 @@ export function designSessionTemplate(input: z.infer<typeof designSessionSchema>
     'Non-Functional Requirements\n1.\n2.\n3.', 'Below the line (out of scope)\n1.\n2.',
     'Back-of-Envelope\n- read/write ratio:\n- QPS:\n- storage:'].join('\n\n');
   const sections = [`Design: ${topic}`, requirements, '2. Core Entities', '3. API / Interface',
-    '4. Data Flow\n\nWrite Flow:\n\nRead Flow:', '5. High-Level Design', '6. Deep Dives'];
+    '4. Data Flow\n\nWrite Flow:\n\nRead Flow:', '5. High-Level Design', '6. Deep Dives', '7. Final Design'];
   let y = 0;
   const elements = sections.map((text, i) => {
     const fontSize = i === 0 ? 36 : text.includes('\n') ? 20 : 28;
