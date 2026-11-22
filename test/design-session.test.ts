@@ -21,6 +21,11 @@ it('drafts matching progress and valid canvas files with no fabricated learner w
   const elements = drawing.elements as { id: string; text: string; y: number; height: number }[];
   expect(new Set(elements.map(element => element.id)).size).toBe(elements.length);
   expect(elements.map(element => element.text).filter(text => /^\d\. /u.test(text))).toHaveLength(6);
+  expect(elements).toHaveLength(7);
+  for (const prompt of ['Functional Requirements', 'Non-Functional Requirements', 'Below the line', 'Back-of-Envelope']) {
+    expect(elements[1]!.text).toContain(prompt);
+  }
+  expect(elements[4]!.text).toContain('Write Flow:\n\nRead Flow:');
   elements.forEach((element, i) => {
     expect(canvas!.content).toContain(`${element.text} ^${element.id}`);
     if (i > 0) expect(element.y).toBeGreaterThan(elements[i - 1]!.y + elements[i - 1]!.height);
