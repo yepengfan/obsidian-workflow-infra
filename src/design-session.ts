@@ -22,13 +22,14 @@ export function designSessionTemplate(input: z.infer<typeof designSessionSchema>
   const canvas = `${folder}/${name}.excalidraw.md`;
   const progress = `---\n${stringify({ topic, started: day, ...(source ? { source } : {}), excalidraw: `[[${canvas.slice(0, -3)}]]`, tags: ['system-design/wip'] })}---\n\n# ${topic.replace(/[\r\n]/gu, ' ')}\n\n![[${canvas.slice(0, -3)}]]\n\n## Progress\n\n| Step | Status | Notes |\n| --- | --- | --- |\n${steps.map((step, i) => `| ${i + 1}. ${step} | ⬜ | |`).join('\n')}\n\n## Pending Questions\n\n## Key Learnings\n\n## Next Session\n\nStart Step 1: Requirements.\n`;
   // Native draft of the canonical six-step canvas, without running its CLI.
-  const sections = [`Design: ${topic}`, '1. Requirements', 'Functional Requirements', '1.\n2.\n3.',
-    'Non-Functional Requirements', '1.\n2.\n3.', 'Below the line (out of scope)',
-    'Back-of-Envelope', '- read/write ratio:\n- QPS:\n- storage:', '2. Core Entities',
-    '3. API / Interface', '4. Data Flow', 'Write Flow:', 'Read Flow:', '5. High-Level Design', '6. Deep Dives'];
+  const requirements = ['1. Requirements', 'Functional Requirements\n1.\n2.\n3.',
+    'Non-Functional Requirements\n1.\n2.\n3.', 'Below the line (out of scope)\n1.\n2.',
+    'Back-of-Envelope\n- read/write ratio:\n- QPS:\n- storage:'].join('\n\n');
+  const sections = [`Design: ${topic}`, requirements, '2. Core Entities', '3. API / Interface',
+    '4. Data Flow\n\nWrite Flow:\n\nRead Flow:', '5. High-Level Design', '6. Deep Dives'];
   let y = 0;
   const elements = sections.map((text, i) => {
-    const fontSize = i === 0 ? 36 : /^\d\. /u.test(text) ? 28 : 20;
+    const fontSize = i === 0 ? 36 : text.includes('\n') ? 20 : 28;
     const height = text.split('\n').length * fontSize * 1.25;
     const element = { id: `sd-template-${i}`, type: 'text', x: 100, y,
       width: Math.max(500, ...text.split('\n').map(line => line.length * fontSize * 0.7)), height, angle: 0,
@@ -38,7 +39,7 @@ export function designSessionTemplate(input: z.infer<typeof designSessionSchema>
       versionNonce: i + 1, isDeleted: false, boundElements: null, updated: 0, link: null, locked: false,
       text, fontSize, fontFamily: 5, textAlign: 'left', verticalAlign: 'top', containerId: null,
       originalText: text, autoResize: true, lineHeight: 1.25 };
-    y += height + (fontSize >= 28 ? 120 : 60);
+    y += height + 120;
     return element;
   });
   const drawing = { type: 'excalidraw', version: 2, source: 'https://github.com/zsviczian/obsidian-excalidraw-plugin',
