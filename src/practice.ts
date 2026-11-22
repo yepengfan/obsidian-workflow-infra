@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { stringify } from 'yaml';
 import { z } from 'zod';
 import { DesignCoaching } from './design-coaching.js';
@@ -9,7 +11,7 @@ import type { NoteReader, NoteStore, NoteWriter } from './note-store.js';
 import { PracticeError } from './errors.js';
 import { type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
-import { readDesignCanvas } from './design-canvas.js';
+import { readDesignCanvas, parseScene, writeDesignCanvas } from './design-canvas.js';
 import { dateSchema, REVIEW_ITEMS_PREFIX, reviewSummarySchema as summarySchema, slugSchema, type ReviewSummary } from './practice-schema.js';
 import { parsePracticeNote, PracticeNotes } from './practice-note.js';
 import type { IndexedReview, ReviewIndex, SessionIndex } from './review-index.js';
@@ -161,13 +163,58 @@ export class Practice {
     await this.workflows.config('system-design');
     return designSessionTemplate(input, this.today());
   }
-  async designCanvas(path: string) {
+  private async checkCanvasPath(path: string) {
     if (validatePracticeWritePath(path) !== 'system-design' ||
       !path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !path.endsWith('.excalidraw.md')) throw new NoteError('invalid_path');
     await this.workflows.config('system-design');
+  }
+
+  async designCanvas(path: string) {
+    await this.checkCanvasPath(path);
     const note = await this.read(path);
     return { path, revision: note.revision, ...readDesignCanvas(note.text, this.settings.limits) };
   }
+  private reviewPath(path: string) {
+    return 'Learning/Practice/.canvas-reviews/' + createHash('sha256').update(path).digest('hex') + '.md';
+  }
+
+  async stageCanvas(path: string, scene: Record<string, unknown>) {
+    await this.checkCanvasPath(path);
+    const json = JSON.stringify(scene);
+    const drawing = parseScene(json, this.settings.limits);
+    for (const element of drawing.elements) {
+      if (element.type !== 'image' || element.isDeleted) continue;
+      const file = typeof element.fileId === 'string' && drawing.files?.[element.fileId];
+      if (!file || typeof file !== 'object' || !('dataURL' in file) || !file.dataURL) {
+        throw new PracticeError('canvas_image_missing');
+      }
+    }
+    const key = this.reviewPath(path);
+    let snapshot;
+    try { snapshot = await this.notes.put(key, json); }
+    catch (error) {
+      if (!(error instanceof NoteError) || error.code !== 'revision_conflict') throw error;
+      const prior = await this.read(key);
+      snapshot = prior.text === json ? prior.revision : await this.notes.put(key, json, prior.revision);
+    }
+    return { path, snapshot };
+  }
+
+  async saveCanvas(path: string, snapshot: string, revision: string | null) {
+    await this.checkCanvasPath(path);
+    const staged = await this.read(this.reviewPath(path));
+    if (staged.revision !== snapshot) throw new PracticeError('canvas_review_superseded');
+    const scene = parseScene(staged.text, this.settings.limits);
+    const prior = revision === null ? undefined : await this.read(path);
+    if (prior && prior.revision !== revision) throw new PracticeError('revision_conflict');
+    const content = writeDesignCanvas(prior?.text, scene);
+    readDesignCanvas(content, this.settings.limits);
+    await this.notes.put(path, content, prior?.revision);
+    const saved = await this.designCanvas(path);
+    if (!isDeepStrictEqual(saved.drawing, scene)) throw new PracticeError('canvas_verification_failed');
+    return { path, snapshot, revision: saved.revision, elements: scene.elements.length, verified: true };
+  }
+
   async createNote(path: string, content: string) {
     await this.workflows.config(validatePracticeWritePath(path));
     await this.notes.put(path, content);

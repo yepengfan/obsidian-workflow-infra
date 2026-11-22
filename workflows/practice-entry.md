@@ -99,7 +99,11 @@ shell/file/script steps and automatic writes in the upstream skill.
   canvas is its durable checkpoint. Do not reload S3 over unsaved widget edits.
   Review canvas exports the active Excalidraw scene (elements, appState and
   referenced files) with sessionPath, snapshotId and sourceRevision. Use the
-  scene for the matching submission when preparing a drawing checkpoint.
+  snapshot receipt (`snapshot`) returned by the widget to call `practice_save_canvas` when the learner asks to save that scene.
+  Pass the sessionPath and sourceRevision (null to create). For an explicitly requested overwrite, read the current target revision and pass it.
+  A successful result verifies the saved scene and returns its revision. Use that revision for subsequent saves to this file.
+  For older open widgets without a receipt, call `practice_stage_canvas` with the exact full scene from the matching submission if available, then save with its receipt.
+  A snapshotId alone cannot recover a legacy submission. Report the actual tool error on failure.
   Confirm the exact destination, preserve its Markdown and drawing encoding,
   and check the current revision against the version the edits are based on.
   Preview and confirm writes. Reopen the saved drawing to verify the checkpoint.

@@ -364,6 +364,8 @@ submission with `snapshotId`, and the loaded vault revision with
 `sourceRevision` (null for a new draft). The viewport is recorded separately.
 The element summary and timer remain available for coaching.
 
+With practice writes enabled, Review canvas calls `practice_stage_canvas` from the ChatGPT widget. One encrypted draft per canvas path is kept under `Learning/Practice/.canvas-reviews/`. Each successful review returns its storage revision as a snapshot receipt. The next review can replace this draft. The session drawing changes only on a confirmed `practice_save_canvas` call. That operation reads the staged scene, conditionally creates or updates the target, and verifies it by reading back the scene. The model only needs to pass the receipt, path and target revision. Deploy the runtime role's conditional write grant for the draft prefix before the application update.
+
 On a confirmed save, check the destination and revision, preserve the existing
 Obsidian Markdown structure and drawing encoding, and reopen the saved drawing
 to verify it. Report any size or revision error separately from the status of

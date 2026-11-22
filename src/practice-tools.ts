@@ -33,7 +33,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, coa
   server.registerTool('practice_design_mode', { ...readSecurity, outputSchema,
     description: 'Choose coaching for a System Design round. With no override, the first two completed rounds across all topics determine the default. Pass guided or mock_interview to switch the current round without changing the drawing, schedule or saved progression.',
     inputSchema: z.strictObject({ override: coachingMode.optional() }) }, input => result(() => coaching.mode(input.override)));
-  registerCanvasWidget(server);
+  registerCanvasWidget(server, settings.practice.writesEnabled);
   const canvasSecurity = { ...readSecurity, _meta: { ...readSecurity._meta, ...canvasToolMetadata } };
   server.registerTool('practice_design_template', { ...canvasSecurity, outputSchema,
     description: 'Draft a new System Design session: six-step progress.md, an uncompressed Excalidraw file and an interactive practice canvas. Use Review canvas to share edits before coaching. Does not save or check existing sessions. List the Solutions catalog first and resume a matching WIP/planned session. Confirm any save separately.',
@@ -44,6 +44,16 @@ export function registerPracticeTools(server: McpServer, practice: Practice, coa
   if (!settings.practice.writesEnabled) return;
   const writeSecurity = writeToolSecurity(settings);
   const write = (work: () => Promise<object>) => result(async () => { await authorizeWrite(); return work(); });
+  const canvasPath = z.string().max(1024);
+  server.registerTool('practice_stage_canvas', { ...writeSecurity, outputSchema,
+    _meta: { ...writeSecurity._meta, ui: { visibility: ['app', 'model'] }, 'openai/widgetAccessible': true },
+    description: 'Stage a complete reviewed Excalidraw scene for a later confirmed save. For an older canvas use this only if the exact full scene is available. Returns a snapshot receipt.',
+    inputSchema: z.strictObject({ path: canvasPath, scene: z.record(z.string(), z.unknown()) }) },
+  input => write(() => practice.stageCanvas(input.path, input.scene)));
+  server.registerTool('practice_save_canvas', { ...writeSecurity, outputSchema,
+    description: 'On user confirmation save a staged canvas by path and snapshot receipt and verify the drawing by reading it back. Use null revision for a new file or the reviewed source revision for an update. For an explicitly requested overwrite read the current destination revision first.',
+    inputSchema: z.strictObject({ path: canvasPath, snapshot: revisionSchema, revision: revisionSchema.nullable() }) },
+  input => write(() => practice.saveCanvas(input.path, input.snapshot, input.revision)));
   server.registerTool('practice_complete_design_round', { ...writeSecurity, outputSchema,
     description: 'After an ended System Design practice or review and explicit save confirmation, count this round toward the two-round coaching introduction. Reuse the round UUID on retry and resume. Skip checkpoints. This does not record a review outcome or change its schedule.',
     inputSchema: z.strictObject({ round_id: roundId }) }, input => write(() => coaching.complete(input.round_id)));
