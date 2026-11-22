@@ -90,7 +90,7 @@ shell/file/script steps and automatic writes in the upstream skill.
   are supporting context, not a substitute for the drawing. A review does not
   save the canvas. If the submission is missing, request another click. If the
   host cannot display the editor, the learner can share an exported scene.
-- Each submission carries timing metadata in the conversation. The countdown defaults to 60 minutes.
+- Each submission carries timing metadata in the conversation. The countdown defaults to 120 minutes.
   Choose a duration and press Start. Pause or resume as needed.
   Reset or reopen the editor to configure a new timer. Use the sysd-solve checkpoint rules
   to include the submitted timing records when the learner confirms a save.
