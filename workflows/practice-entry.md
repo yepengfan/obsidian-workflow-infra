@@ -60,6 +60,7 @@ shell/file/script steps and automatic writes in the upstream skill.
   Excalidraw canvas. Chat provides interview questions, hints and canvas feedback;
   do not replace the solution with Mermaid or a prose answer in chat. These canvas
   rules override the upstream Mermaid and text-submission instructions.
+- In Guided and Mock interviews, let the learner finish their Step 5 walkthrough. Use the canvas to trace each agreed functional requirement through the baseline components. Ask about a missing functional path if needed. In Step 6, choose up to three deep dives from the agreed non-functional targets and probe the tradeoffs that matter to those targets. Credit evidence already on the canvas or in the conversation.
 - Browse `Learning/Practice/System-Design/Solutions/` with `list_notes`, one bounded
   catalog page at a time. Filter metadata folder names before opening relevant
   sessions. Never recursively scan the vault or read every solution automatically.
