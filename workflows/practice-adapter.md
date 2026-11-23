@@ -10,6 +10,7 @@ Use `practice_instruction` for listed workflow definitions and `read_note` /
 `list_notes` for private S3 notes. Replace local review.py due/show/add/record
 with `practice_reviews` / `practice_review` / `practice_add_review` /
 `practice_record_review`. Always supply the domain to queue and add calls.
+For confirmed rounds in any enrolled module, map local `finish` to `practice_finish_round`. Include the selected session's progress_path for System Design. At practice entry offer Finish registration for pending_finalizations, separately from resuming open rounds. Check the saved item and progress for prior registration, reuse the original attempt ID and completion date, and retry any saved confirmed_registration before asking for input again.
 Each `practice_reviews` call returns one domain's complete queue, already
 ordered; there are no pages or cursors. A newly added review can take a few
 seconds to appear.

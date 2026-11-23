@@ -11,6 +11,8 @@ Read `{{flow}}`, its domain guide and
 `Learning/Practice/Review/Content/{{domain}}.md` using `practice_instruction`.
 The server checks the live practice-review and selected domain's module guards.
 
+When pending_finalizations contains an ended WIP round, offer Finish registration using its existing progress.md. Keep it separate from practice resumption. Report discovery failure when this field is null.
+
 On a fresh generic entry, use the returned unfinished_sessions before the
 new-practice handoff, even when both due queues are empty. With one match,
 show its topic and saved step and ask whether to resume. With multiple matches,
@@ -130,12 +132,7 @@ shell/file/script steps and automatic writes in the upstream skill.
   daily entries and metadata. Save Insights only when supported by actual learning
   evidence. Core Concepts, Key Technologies, Design Patterns, templates, indexes
   and guidance remain read-only. Attachments and arbitrary files are not writable.
-- On final completion, use the existing review item or register it with
-  `practice_add_review`. After reflection and save confirmation, use
-  `practice_record_review` with the round UUID and actual completion date.
-  Save round_completed_on in progress.md when the confirmed round outcome is recorded, including when an artifact save is pending. Only open rounds qualify for resume.
-  Mark the selected session done only after the scheduled review and agreed
-  Phase 3 saves succeed. Reuse that UUID after any partial save.
+- For every confirmed final outcome call `practice_finish_round` with the neutral topic and attempt. For System Design include the active session's progress_path. Use the original UUID and completion date, verify the returned schedule and track any outstanding artifact saves separately.
   Multiple files are independent writes, not a transaction. Never invent a
   reflection, elapsed time, save result, canvas rendering or local script run.
 
@@ -144,6 +141,6 @@ shell/file/script steps and automatic writes in the upstream skill.
 Identify the topic by its stable review item ID. For an existing topic, use
 `practice_review` and announce its next_round and coaching_mode. A new topic
 starts at round 1 in guided mode. Follow the saved mode and UUID when resuming.
-Record an ended round once using `practice_record_review`. Include actual help
+Record an ended round once using `practice_finish_round`. Include actual help
 in the outcome. The per-topic schedule returned by the tool applies to every
 full design attempt, including the first two guided learning rounds.

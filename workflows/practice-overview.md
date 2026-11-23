@@ -19,6 +19,8 @@ practice/review mode menu.
   a brief explanation. An `unavailable` result stops before queue reads or domain
   actions and explains the returned reasons. Do not change module settings.
 
+When pending_finalizations contains an ended WIP round, offer Finish registration using its existing progress.md. Keep it separate from practice resumption. Report discovery failure when this field is null.
+
 On a fresh generic entry, use the returned unfinished_sessions before the
 new-practice handoff, even when both due queues are empty. With one match,
 show its topic and saved step and ask whether to resume. With multiple matches,

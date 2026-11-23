@@ -14,5 +14,6 @@ export interface ReviewIndex {
 }
 
 export interface SessionIndex {
+  pendingFinalizations(signal: AbortSignal): Promise<{ folder: string; topic: string; round_completed_on: string }[]>;
   unfinishedSessions(signal: AbortSignal): Promise<{ folder: string; topic: string; current_step: string | null }[]>;
 }
