@@ -71,8 +71,10 @@ unsaved draft and distinguishing it from the persisted queue. Re-fetch the
 chosen queue before claiming its due work is complete. A failed queue read
 does not authorize an automatic new-problem handoff.
 
-For System Design apply the sysd-solve maximum of 45 active minutes across sittings, or a shorter agreed budget. Other domains follow their own time budgets. Use verified timing evidence. At a pause or exhausted budget, summarize remaining
-work and wait rather than automatically beginning a new problem.
+For System Design, use the sysd-solve limit of 45 active minutes across sittings
+or a shorter agreed budget. At verified expiry, go directly to the final review.
+An explicit pause preserves progress for resumption. Other domains follow their
+own time budgets. At the end of the sitting, wait before starting another problem.
 
 ## Choose a domain for new practice
 
