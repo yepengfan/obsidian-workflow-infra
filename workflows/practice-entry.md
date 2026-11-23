@@ -114,7 +114,7 @@ shell/file/script steps and automatic writes in the upstream skill.
   attempt ends.
 - Use `practice_read_note` and `practice_update_note` for checkpoints and
   planned/wip/done transitions. Each step advance checkpoints the current reviewed canvas first, then progress.md. Include entry into Final Design or the debrief. If edits have occurred since the review, obtain a fresh Review canvas. Verify both files before reporting a saved transition. If only the progress write failed, keep the verified canvas revision and retry progress after reconciling the note. On conflict keep the active drawing and reconcile before overwriting. Announce transition autosave at start/resume and save these two active-session files automatically unless the learner opts out. Other writes retain their preview and confirmation rules.
-  If the learner declines, retain the draft in chat and continue coaching.
+  If the learner opts out of transition autosave, skip both writes, mark the checkpoint Unsaved in chat and advance with the active drawing and draft progress.
 - A System Design session can span multiple days. Saving progress or a canvas is
   a checkpoint, not an ended review round. Preserve the original started date
   and WIP state; do not call `practice_record_review`, create a due date or advance
