@@ -162,16 +162,21 @@ export class Practice {
   }
   async finishRound({ topic, attempt, progress_path }: z.infer<typeof finishRoundSchema>) {
     if (attempt.completed_on > this.today()) throw new PracticeError('review_date_is_in_future');
+    if (topic.domain === 'system-design' && !progress_path) throw new PracticeError('session_progress_required');
     if (progress_path) {
       if (topic.domain !== 'system-design' || validatePracticeWritePath(progress_path) !== topic.domain ||
         !progress_path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !progress_path.endsWith('/progress.md')) throw new NoteError('invalid_path');
       const note = await this.read(progress_path);
       const { metadata, body } = parsePracticeNote(note.text);
       const tags = Array.isArray(metadata.tags) ? metadata.tags : [metadata.tags];
+      if (metadata.review_item_id == null &&
+        (typeof metadata.topic !== 'string' || metadata.topic.trim().toLowerCase() !== topic.title.trim().toLowerCase())) {
+        throw new PracticeError('session_topic_mismatch');
+      }
       const bound = metadata.round_id === attempt.attempt_id && metadata.review_item_id === topic.id;
       if ((!tags.includes('system-design/wip') && !(bound && tags.includes('system-design/done'))) ||
         (metadata.round_id && metadata.round_id !== attempt.attempt_id) ||
-        (metadata.review_item_id && metadata.review_item_id !== topic.id) ||
+        (metadata.review_item_id != null && metadata.review_item_id !== topic.id) ||
         (metadata.round_completed_on && metadata.round_completed_on !== attempt.completed_on)) throw new PracticeError('session_round_mismatch');
       if (metadata.confirmed_registration && !isDeepStrictEqual(metadata.confirmed_registration, { topic, attempt })) throw new PracticeError('confirmed_registration_mismatch');
       if (tags.includes('system-design/wip') && !metadata.confirmed_registration) {

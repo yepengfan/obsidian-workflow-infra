@@ -605,21 +605,29 @@ it('supports a System Design session and review through the real MCP client with
     const roundTopic = { ...designRequest, id: 'sysd-dropbox-closeout', title: 'Dropbox' };
     const finish = { topic: roundTopic, progress_path: progress.path, attempt: {
       attempt_id: 'closeout-round', outcome: 'assisted', reflection: 'Chunk uploads can resume.', completed_on: '2026-11-14' } };
+    const writesBeforeFinish = store.writes.length;
+    expect((await call('practice_finish_round', { topic: roundTopic, attempt: finish.attempt })).isError).toBe(true);
+    expect((await call('practice_finish_round', finish)).isError).toBe(true);
+    expect(store.writes).toHaveLength(writesBeforeFinish);
+    const dropboxDraft = await call('practice_design_template', { topic: 'Dropbox', short_topic: 'Dropbox' });
+    const dropboxProgress = z.object({ files: z.array(z.object({ path: z.string(), content: z.string() })) }).parse(dropboxDraft.structuredContent).files[0]!;
+    expect((await call('practice_create_note', dropboxProgress)).isError).not.toBe(true);
+    finish.progress_path = dropboxProgress.path;
     const unfinished = await call('practice_read_note', { path: progress.path });
     expect((await call('practice_update_note', { path: progress.path, revision: z.object({ revision: z.string() }).parse(unfinished.structuredContent).revision,
       edits: [{ old: 'system-design/wip', replacement: 'system-design/done' }] })).isError).toBe(true);
     store.beforePut = key => {
-      if (key === root + progress.path && store.files.get(items + roundTopic.id + '.md')?.includes('closeout-round')) {
+      if (key === root + finish.progress_path && store.files.get(items + roundTopic.id + '.md')?.includes('closeout-round')) {
         throw new NoteError('note_unavailable');
       }
     };
     expect((await call('practice_finish_round', finish)).isError).toBe(true);
-    expect(store.files.get(root + progress.path)).toContain('system-design/wip');
+    expect(store.files.get(root + finish.progress_path)).toContain('system-design/wip');
     delete store.beforePut;
     for (let retry = 0; retry < 2; retry++) {
       expect((await call('practice_finish_round', finish)).structuredContent).toMatchObject({ verified: true, review_count: 1, next_review: '2026-11-15' });
     }
-    expect((await call('practice_read_note', { path: progress.path })).structuredContent).toMatchObject({ text: expect.stringContaining('system-design/done') });
+    expect((await call('practice_read_note', { path: finish.progress_path })).structuredContent).toMatchObject({ text: expect.stringContaining('system-design/done') });
     const algorithmFinish = { topic: { ...request, id: 'lc-closeout' }, attempt: { ...finish.attempt, attempt_id: 'algorithm-closeout' } };
     for (let retry = 0; retry < 2; retry++) {
       expect((await call('practice_finish_round', algorithmFinish)).structuredContent).toMatchObject({ verified: true, review_count: 1 });
