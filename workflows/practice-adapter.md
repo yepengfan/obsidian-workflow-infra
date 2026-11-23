@@ -17,7 +17,7 @@ seconds to appear.
 Use neutral prompts until the independent submission ends. Keep learner
 reflections verbatim. Preview and obtain explicit save confirmation before every
 write call, including initialization, checkpoints and status transitions. A
-submission is not consent. Use `practice_create_note` / `practice_update_note`
+submission is not consent. System Design step-transition autosave is enabled for the active round's canvas and progress note unless the learner opts out. This narrow exception covers both checkpoint writes. Use `practice_create_note` / `practice_update_note`
 for approved practice notes. Do not toggle modules through note writes.
 
 No local shell, Python, Git or arbitrary program execution is available. If

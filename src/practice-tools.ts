@@ -47,9 +47,9 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     inputSchema: z.strictObject({ path: canvasPath, scene: z.record(z.string(), z.unknown()) }) },
   input => write(() => practice.stageCanvas(input.path, input.scene)));
   server.registerTool('practice_save_canvas', { ...writeSecurity, outputSchema,
-    description: 'On user confirmation save a staged canvas by path and snapshot receipt and verify the drawing by reading it back. Use null revision for a new file or the reviewed source revision for an update. For an explicitly requested overwrite read the current destination revision first.',
-    inputSchema: z.strictObject({ path: canvasPath, snapshot: revisionSchema, revision: revisionSchema.nullable() }) },
-  input => write(() => practice.saveCanvas(input.path, input.snapshot, input.revision)));
+    description: 'Save an authorized checkpoint and verify the drawing by read-back. Supply either the server snapshot receipt or the exact complete reviewed scene if staging was unavailable. Use null revision for a new file or the reviewed source revision for an update. For an explicitly requested overwrite read the current destination revision first.',
+    inputSchema: z.strictObject({ path: canvasPath, snapshot: revisionSchema.optional(), scene: z.record(z.string(), z.unknown()).optional(), revision: revisionSchema.nullable() }) },
+  input => write(() => practice.saveCanvas(input.path, input, input.revision)));
   server.registerTool('practice_add_review', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit user confirmation, register a neutral review object without overwriting an existing one. Never invent an attempt or reflection. New entries have no scheduled date until a round is recorded.',
     inputSchema: addReviewSchema }, input => write(() => practice.add(input)));
