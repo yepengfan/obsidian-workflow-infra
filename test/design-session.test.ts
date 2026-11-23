@@ -22,6 +22,8 @@ it('drafts matching progress and valid canvas files with no fabricated learner w
   expect(new Set(elements.map(element => element.id)).size).toBe(elements.length);
   expect(elements.map(element => element.text).filter(text => /^\d\. /u.test(text))).toHaveLength(7);
   expect(elements).toHaveLength(8);
+  expect(drawing.appState.currentItemFontSize).toBe(20);
+  for (const element of elements) expect(element).toHaveProperty('fontSize', 20);
   expect(elements.at(-1)).toMatchObject({ type: 'text', text: '7. Final Design', locked: false });
   for (const prompt of ['Functional Requirements', 'Non-Functional Requirements', 'Below the line', 'Back-of-Envelope']) {
     expect(elements[1]!.text).toContain(prompt);

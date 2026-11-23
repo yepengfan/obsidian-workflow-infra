@@ -27,9 +27,9 @@ export function designSessionTemplate(input: z.infer<typeof designSessionSchema>
     'Back-of-Envelope\n- read/write ratio:\n- QPS:\n- storage:'].join('\n\n');
   const sections = [`Design: ${topic}`, requirements, '2. Core Entities', '3. API / Interface',
     '4. Data Flow\n\nWrite Flow:\n\nRead Flow:', '5. High-Level Design', '6. Deep Dives', '7. Final Design'];
+  const fontSize = 20;
   let y = 0;
   const elements = sections.map((text, i) => {
-    const fontSize = i === 0 ? 36 : text.includes('\n') ? 20 : 28;
     const height = text.split('\n').length * fontSize * 1.25;
     const element = { id: `sd-template-${i}`, type: 'text', x: 100, y,
       width: Math.max(500, ...text.split('\n').map(line => line.length * fontSize * 0.7)), height, angle: 0,
@@ -43,7 +43,7 @@ export function designSessionTemplate(input: z.infer<typeof designSessionSchema>
     return element;
   });
   const drawing = { type: 'excalidraw', version: 2, source: 'https://github.com/zsviczian/obsidian-excalidraw-plugin',
-    elements, appState: { theme: 'light', viewBackgroundColor: '#ffffff' }, files: {} };
+    elements, appState: { currentItemFontSize: fontSize, theme: 'light', viewBackgroundColor: '#ffffff' }, files: {} };
   const content = `---\nexcalidraw-plugin: parsed\ntags: [excalidraw]\n---\n\n# Excalidraw Data\n\n## Text Elements\n${elements.map(element => `${element.text} ^${element.id}`).join('\n\n')}\n\n%%\n## Drawing\n\`\`\`json\n${JSON.stringify(drawing)}\n\`\`\`\n%%\n`;
   return { saved: false, started: day, canvas: { path: canvas, drawing }, files: [{ path: `${folder}/progress.md`, content: progress }, { path: canvas, content }] };
 }
