@@ -71,9 +71,10 @@ unsaved draft and distinguishing it from the persisted queue. Re-fetch the
 chosen queue before claiming its due work is complete. A failed queue read
 does not authorize an automatic new-problem handoff.
 
-Honor a supplied time budget; do not invent a default session length or claim a
-timer ran without a host tool. At a pause or exhausted budget, summarize remaining
-work and wait rather than automatically beginning a new problem.
+For System Design, use the shortest of the returned `time_limits["system-design"]`,
+45 active minutes across sittings, and any shorter agreed budget. At verified expiry, go directly to the final review.
+An explicit pause preserves progress for resumption. Other domains follow their
+own time budgets. At the end of the sitting, wait before starting another problem.
 
 ## Choose a domain for new practice
 

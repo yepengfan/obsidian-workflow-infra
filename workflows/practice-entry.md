@@ -60,7 +60,7 @@ shell/file/script steps and automatic writes in the upstream skill.
   Excalidraw canvas. Chat provides interview questions, hints and canvas feedback;
   do not replace the solution with Mermaid or a prose answer in chat. These canvas
   rules override the upstream Mermaid and text-submission instructions.
-- In Guided and Mock interviews, let the learner finish their Step 5 walkthrough. Use the canvas to trace each agreed functional requirement through the baseline components. Ask about a missing functional path if needed. In Step 6, choose up to three deep dives from the agreed non-functional targets and probe the tradeoffs that matter to those targets. Credit evidence already on the canvas or in the conversation.
+- In Guided and Mock interviews, let the learner finish their Step 5 walkthrough. Use the canvas to trace each agreed functional requirement through the baseline components. Ask about a missing functional path if needed. Use the private assessment objectives from sysd-solve: assess essential concepts and technology choices in Step 5 and up to three selected Design Patterns in Step 6. Credit evidence already on the canvas or in the conversation.
 - Browse `Learning/Practice/System-Design/Solutions/` with `list_notes`, one bounded
   catalog page at a time. Filter metadata folder names before opening relevant
   sessions. Never recursively scan the vault or read every solution automatically.
@@ -83,7 +83,7 @@ shell/file/script steps and automatic writes in the upstream skill.
 - Open the selected new or resumed practice canvas before the first interview
   question. The template and saved-canvas tools display the editable Excalidraw
   scene in MCP Apps hosts. Keep the active editor open during practice.
-- Before asking another question or requesting a canvas review, apply the stopping rule in sysd-solve. In Guided and Mock modes, give the final review immediately when the core flows and selected tradeoffs have been assessed, or the learner asks to finish. Use the evidence already available and identify any gaps. An idle or paused timer alone does not end the interview. An explicit pause keeps the round resumable.
+- Before asking another question or requesting a canvas review, apply the stopping rule in sysd-solve. In Guided and Mock modes, give the final review immediately when the core flows and selected tradeoffs have been assessed, the learner asks to finish, or verified active time reaches the shortest of the returned `time_limits["system-design"]`, 45 minutes, and any shorter agreed budget. Use the evidence already available and identify any gaps. An idle or paused timer alone does not end the interview. An explicit pause keeps the round resumable.
 - Before every coaching turn that depends on new work, ask the learner to click
   **Review canvas** inside the editor. Review the submitted text, positions and
   connections, including changes to existing elements and deletions since the
