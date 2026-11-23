@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { writeScope } from './auth.js';
 import { readToolSecurity, writeToolSecurity, type McpSkill, type SkillContext } from './skill.js';
 import type { Settings } from './config.js';
-import { addReviewSchema, domainSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
+import { addReviewSchema, domainSchema, finishRoundSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
 import { canvasToolMetadata, registerCanvasWidget } from './practice-canvas-widget.js';
 import { designSessionSchema } from './design-session.js';
 import type { ReviewIndex, SessionIndex } from './review-index.js';
@@ -15,7 +15,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   const readSecurity = readToolSecurity(settings);
   const outputSchema = z.looseObject({});
   server.registerTool('practice', { ...readSecurity, outputSchema,
-    description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm and System Design modules, and saved unfinished sessions. Offer to resume one match, or ask which session to resume when several match; wait for the learner. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability, workflow and instruction catalog; never an assessment or saved attempt.',
+    description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm and System Design modules, and saved unfinished sessions. Offer Finish registration for pending_finalizations, preserving the saved round date and ID. Offer to resume one match, or ask which session to resume when several match; wait for the learner. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability, workflow and instruction catalog; never an assessment or saved attempt.',
     inputSchema: z.strictObject({ domain: domainSchema.optional() }) }, input => result(() => practice.workflow(input.domain)));
   server.registerTool('practice_instruction', { ...readSecurity, outputSchema,
     description: 'Read one chunk of a versioned practice instruction document listed by practice. Use for skill definitions and their shared guides; private learner records remain in S3.',
@@ -50,6 +50,9 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     description: 'Save an authorized checkpoint and verify the drawing by read-back. Supply either the server snapshot receipt or the exact complete reviewed scene if staging was unavailable. Use null revision for a new file or the reviewed source revision for an update. For an explicitly requested overwrite read the current destination revision first.',
     inputSchema: z.strictObject({ path: canvasPath, snapshot: revisionSchema.optional(), scene: z.record(z.string(), z.unknown()).optional(), revision: revisionSchema.nullable() }) },
   input => write(() => practice.saveCanvas(input.path, input, input.revision)));
+  server.registerTool('practice_finish_round', { ...writeSecurity, outputSchema,
+    description: 'Shared closeout for every enrolled module. After reflection and save confirmation, submit the neutral topic and observed attempt together. System Design requires the matching session progress_path. For its first binding the saved session topic must match the review title. Retry using identical topic and round IDs. Returns verified schedule or archive status.',
+    inputSchema: finishRoundSchema }, input => write(() => practice.finishRound(input)));
   server.registerTool('practice_add_review', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit user confirmation, register a neutral review object without overwriting an existing one. Never invent an attempt or reflection. New entries have no scheduled date until a round is recorded.',
     inputSchema: addReviewSchema }, input => write(() => practice.add(input)));

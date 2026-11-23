@@ -37,6 +37,19 @@ describe('DynamoReviewIndex', () => {
       [{ input: { ExclusiveStartKey: cursor } }, {}],
     ]);
   });
+  it('discovers legacy ended WIP after an empty filtered page', async () => {
+    const cursor = { item_id: { S: 'older' } };
+    const { index, send } = fixture([{ Items: [], LastEvaluatedKey: cursor }, { Items: [
+      { item_id: { S: 'Dropbox-2026-11-23' }, topic: { S: 'Dropbox' }, round_completed_on: { S: '2026-11-23' } },
+    ] }]);
+    expect(await index.pendingFinalizations(AbortSignal.timeout(1000))).toEqual([{
+      topic: 'Dropbox', folder: 'Learning/Practice/System-Design/Solutions/Dropbox-2026-11-23/', round_completed_on: '2026-11-23',
+    }]);
+    expect(send.mock.calls).toMatchObject([
+      [{ input: { FilterExpression: '#status = :wip', ExpressionAttributeValues: { ':done': { S: 'done' }, ':wip': { S: 'wip' } } } }, {}],
+      [{ input: { ExclusiveStartKey: cursor } }, {}],
+    ]);
+  });
   it.each([['without a source revision', { source_etag: { NULL: true } }], ['with an invalid summary', { status: { S: 'paused' } }]])('rejects a row %s', async (_name, extra) => {
     const { index } = fixture([{ Items: [row('a', extra)] }]);
     await expect(index.activeReviews('algorithm', AbortSignal.timeout(1000))).rejects.toThrow();

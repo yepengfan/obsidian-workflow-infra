@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { stringify } from 'yaml';
 import { z } from 'zod';
+import { parseFrontmatter } from './frontmatter.js';
 import { PracticeWorkflow } from './practice-workflow.js';
 import { calendarDay, designHistory, designRound, nextSchedule } from './review-schedule.js';
 import type { Settings } from './config.js';
@@ -28,6 +29,10 @@ export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: rev
   attempt_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u).max(128),
   outcome: z.enum(['independent', 'assisted', 'incomplete']), reflection: requiredText,
   completed_on: dateSchema, submission: text.optional(), observations: text.optional() });
+export const finishRoundSchema = z.strictObject({
+  topic: addReviewSchema, attempt: recordReviewSchema.omit({ id: true, revision: true }),
+  progress_path: z.string().max(1024).optional(),
+});
 export const listReviewsSchema = z.strictObject({ domain: domainSchema });
 const itemSchema = summarySchema.extend({ prompt: requiredText, source: text.optional(), attempt_ids: z.array(z.string()).max(5000).default([]) });
 function serialize(metadata: Record<string, unknown>, body: string) { return `---\n${stringify(metadata)}---\n${body}`; }
@@ -62,12 +67,13 @@ export class Practice {
 
   async workflow(domain?: PracticeDomain) {
     const workflow = await this.workflows.workflow(domain);
-    if (domain || !workflow.available_domains.some(item => item.domain === 'system-design')) return workflow;
+    if (!workflow.available_domains.some(item => item.domain === 'system-design')) return workflow;
     try {
-      return { ...workflow, unfinished_sessions: await this.index.unfinishedSessions(this.signal) };
+      const [unfinished_sessions, pending_finalizations] = await Promise.all([this.index.unfinishedSessions(this.signal), this.index.pendingFinalizations(this.signal)]);
+      return { ...workflow, unfinished_sessions, pending_finalizations };
     } catch {
       this.signal.throwIfAborted();
-      return { ...workflow, unfinished_sessions: null };
+      return { ...workflow, unfinished_sessions: null, pending_finalizations: null };
     }
   }
 
@@ -154,6 +160,53 @@ export class Practice {
     await this.notes.put(note.path, serialize(metadata, note.body + entry), note.revision);
     return { ...summarySchema.parse(metadata), recorded: true };
   }
+  async finishRound({ topic, attempt, progress_path }: z.infer<typeof finishRoundSchema>) {
+    if (attempt.completed_on > this.today()) throw new PracticeError('review_date_is_in_future');
+    if (topic.domain === 'system-design' && !progress_path) throw new PracticeError('session_progress_required');
+    if (progress_path) {
+      if (topic.domain !== 'system-design' || validatePracticeWritePath(progress_path) !== topic.domain ||
+        !progress_path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !progress_path.endsWith('/progress.md')) throw new NoteError('invalid_path');
+      const note = await this.read(progress_path);
+      const { metadata, body } = parsePracticeNote(note.text);
+      const tags = Array.isArray(metadata.tags) ? metadata.tags : [metadata.tags];
+      if (metadata.review_item_id == null &&
+        (typeof metadata.topic !== 'string' || metadata.topic.trim().toLowerCase() !== topic.title.trim().toLowerCase())) {
+        throw new PracticeError('session_topic_mismatch');
+      }
+      const bound = metadata.round_id === attempt.attempt_id && metadata.review_item_id === topic.id;
+      if ((!tags.includes('system-design/wip') && !(bound && tags.includes('system-design/done'))) ||
+        (metadata.round_id && metadata.round_id !== attempt.attempt_id) ||
+        (metadata.review_item_id != null && metadata.review_item_id !== topic.id) ||
+        (metadata.round_completed_on && metadata.round_completed_on !== attempt.completed_on)) throw new PracticeError('session_round_mismatch');
+      if (metadata.confirmed_registration && !isDeepStrictEqual(metadata.confirmed_registration, { topic, attempt })) throw new PracticeError('confirmed_registration_mismatch');
+      if (tags.includes('system-design/wip') && !metadata.confirmed_registration) {
+        await this.notes.put(progress_path, serialize({ ...metadata, round_id: attempt.attempt_id, review_item_id: topic.id,
+          round_completed_on: attempt.completed_on, confirmed_registration: { topic, attempt } }, body), note.revision);
+      }
+    }
+    await this.add(topic);
+    const current = await this.item(topic.id);
+    if (!current.item.attempt_ids.includes(attempt.attempt_id)) {
+      await this.record({ ...attempt, id: topic.id, revision: current.revision });
+    }
+    const verified = await this.item(topic.id);
+    if (!verified.item.attempt_ids.includes(attempt.attempt_id) ||
+      (verified.item.status === 'active' && !verified.item.next_review)) throw new PracticeError('registration_verification_failed');
+    if (progress_path) {
+      const note = await this.read(progress_path);
+      const { metadata, body } = parsePracticeNote(note.text);
+      if (metadata.round_id !== attempt.attempt_id || metadata.review_item_id !== topic.id ||
+        metadata.round_completed_on !== attempt.completed_on) throw new PracticeError('session_round_mismatch');
+      const tags = Array.isArray(metadata.tags) ? metadata.tags : [metadata.tags];
+      if (tags.includes('system-design/wip')) {
+        delete metadata.confirmed_registration;
+        await this.notes.put(progress_path, serialize({ ...metadata,
+          tags: tags.map(tag => tag === 'system-design/wip' ? 'system-design/done' : tag) }, body), note.revision);
+      } else if (!tags.includes('system-design/done')) throw new PracticeError('session_round_mismatch');
+    }
+    return { ...summarySchema.parse(verified.item), attempt_id: attempt.attempt_id, verified: true };
+  }
+
   async readNote(path: string) {
     await this.workflows.config(practiceNoteDomain(path));
     return { path, ...await this.read(path) };
@@ -228,8 +281,22 @@ export class Practice {
     return { path, snapshot, revision: saved.revision, elements: scene.elements.length, verified: true };
   }
 
+  private checkSessionCompletion(path: string, before: string | undefined, after: string) {
+    if (!path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !path.endsWith('/progress.md')) return;
+    const fields = (content: string) => {
+      const metadata = parseFrontmatter(content)?.metadata ?? {};
+      const tags = Array.isArray(metadata.tags) ? metadata.tags : [metadata.tags];
+      return { done: tags.includes('system-design/done'), round: metadata.round_id, topic: metadata.review_item_id };
+    };
+    const next = fields(after);
+    const prior = before ? fields(before) : undefined;
+    if (next.done && !prior?.done) throw new PracticeError('use_practice_finish_round');
+    if (prior?.done && (!next.done || prior.round !== next.round || prior.topic !== next.topic)) throw new PracticeError('session_already_closed');
+  }
+
   async createNote(path: string, content: string) {
     await this.workflows.config(validatePracticeWritePath(path));
+    this.checkSessionCompletion(path, undefined, content);
     await this.notes.put(path, content);
     return { path, created: true };
   }
@@ -243,6 +310,7 @@ export class Practice {
       if (start < 0 || result.indexOf(edit.old, start + 1) >= 0) throw new PracticeError('edit_anchor_not_unique');
       result = result.slice(0, start) + edit.replacement + result.slice(start + edit.old.length);
     }
+    this.checkSessionCompletion(path, note.text, result);
     await this.notes.put(path, result, revision);
     return { path, updated: true };
   }

@@ -51,6 +51,7 @@ class FileIndex implements ReviewIndex {
   frozen?: IndexedReview[]; queries: string[] = []; failure?: Error;
   constructor(private readonly store: PracticeStore) {}
   sessions: Awaited<ReturnType<SessionIndex['unfinishedSessions']>> = [];
+  async pendingFinalizations() { return []; }
   async unfinishedSessions() { return this.sessions; }
   current() {
     return [...this.store.files].filter(([key]) => key.startsWith(items) && !key.slice(items.length).includes('/')).flatMap(([key, text]) => {
@@ -440,6 +441,11 @@ it('offers saved checkpoints on fresh practice entry even with empty queues', as
       fetch: (input, init) => handler(new Request(input, init)),
     }));
     const enter = async (args = {}) => (await client.callTool({ name: 'practice', arguments: args })).structuredContent;
+    const ended = { folder: 'Learning/Practice/System-Design/Solutions/Dropbox-2026-11-23/', topic: 'Dropbox', round_completed_on: '2026-11-23' };
+    Object.assign(index, { pendingFinalizations: async () => [ended] });
+    expect(await enter()).toMatchObject({ pending_finalizations: [ended], unfinished_sessions: [] });
+    expect(await enter({ domain: 'system-design' })).toMatchObject({ pending_finalizations: [ended] });
+    expect(await enter({ domain: 'algorithm' })).not.toHaveProperty('pending_finalizations');
     for (const topic of ['Bitly', 'Dropbox']) {
       index.sessions.push({ topic, folder: `Learning/Practice/System-Design/Solutions/${topic}-2026-11-21/`, current_step: 'Data Flow' });
       expect(await enter()).toMatchObject({ unfinished_sessions: [...index.sessions] });
@@ -596,6 +602,36 @@ it('supports a System Design session and review through the real MCP client with
     expect((await call('practice_update_note', { path: progress.path, revision, edits })).structuredContent).toMatchObject({ updated: true });
     expect((await call('practice_update_note', { path: progress.path, revision, edits })).isError).toBe(true);
     expect((await call('practice_add_review', designRequest)).structuredContent).toMatchObject({ domain: 'system-design', created: true });
+    const roundTopic = { ...designRequest, id: 'sysd-dropbox-closeout', title: 'Dropbox' };
+    const finish = { topic: roundTopic, progress_path: progress.path, attempt: {
+      attempt_id: 'closeout-round', outcome: 'assisted', reflection: 'Chunk uploads can resume.', completed_on: '2026-11-14' } };
+    const writesBeforeFinish = store.writes.length;
+    expect((await call('practice_finish_round', { topic: roundTopic, attempt: finish.attempt })).isError).toBe(true);
+    expect((await call('practice_finish_round', finish)).isError).toBe(true);
+    expect(store.writes).toHaveLength(writesBeforeFinish);
+    const dropboxDraft = await call('practice_design_template', { topic: 'Dropbox', short_topic: 'Dropbox' });
+    const dropboxProgress = z.object({ files: z.array(z.object({ path: z.string(), content: z.string() })) }).parse(dropboxDraft.structuredContent).files[0]!;
+    expect((await call('practice_create_note', dropboxProgress)).isError).not.toBe(true);
+    finish.progress_path = dropboxProgress.path;
+    const unfinished = await call('practice_read_note', { path: progress.path });
+    expect((await call('practice_update_note', { path: progress.path, revision: z.object({ revision: z.string() }).parse(unfinished.structuredContent).revision,
+      edits: [{ old: 'system-design/wip', replacement: 'system-design/done' }] })).isError).toBe(true);
+    store.beforePut = key => {
+      if (key === root + finish.progress_path && store.files.get(items + roundTopic.id + '.md')?.includes('closeout-round')) {
+        throw new NoteError('note_unavailable');
+      }
+    };
+    expect((await call('practice_finish_round', finish)).isError).toBe(true);
+    expect(store.files.get(root + finish.progress_path)).toContain('system-design/wip');
+    delete store.beforePut;
+    for (let retry = 0; retry < 2; retry++) {
+      expect((await call('practice_finish_round', finish)).structuredContent).toMatchObject({ verified: true, review_count: 1, next_review: '2026-11-15' });
+    }
+    expect((await call('practice_read_note', { path: finish.progress_path })).structuredContent).toMatchObject({ text: expect.stringContaining('system-design/done') });
+    const algorithmFinish = { topic: { ...request, id: 'lc-closeout' }, attempt: { ...finish.attempt, attempt_id: 'algorithm-closeout' } };
+    for (let retry = 0; retry < 2; retry++) {
+      expect((await call('practice_finish_round', algorithmFinish)).structuredContent).toMatchObject({ verified: true, review_count: 1 });
+    }
     const prompt = await call('practice_review', { id: designRequest.id });
     expect(JSON.stringify(prompt.structuredContent)).not.toContain('collision handling');
     const reviewRevision = z.object({ revision: z.string() }).parse(prompt.structuredContent).revision;

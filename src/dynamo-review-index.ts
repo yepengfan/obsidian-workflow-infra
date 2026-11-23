@@ -29,6 +29,24 @@ export class DynamoReviewIndex implements ReviewIndex, SessionIndex {
     } while (start);
     return sessions;
   }
+  async pendingFinalizations(signal: AbortSignal) {
+    const sessions = [];
+    let start: Record<string, AttributeValue> | undefined;
+    do {
+      // Ended WIP rows already reside in the done partition, including legacy rounds.
+      const page = await this.client.send(new QueryCommand({ TableName: indexTableName(practiceSessionIndex.id), IndexName: 'status',
+        KeyConditionExpression: 'status_pk = :done', FilterExpression: '#status = :wip',
+        ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':done': { S: 'done' }, ':wip': { S: 'wip' } },
+        ExclusiveStartKey: start }), { abortSignal: signal });
+      for (const row of page.Items ?? []) {
+        const id = row.item_id?.S;
+        if (!id || practiceSessionIndex.matches(id + '/progress.md') !== id || !row.topic?.S || !row.round_completed_on?.S) throw Error('Invalid ended session');
+        sessions.push({ folder: solutions + id + '/', topic: row.topic.S, round_completed_on: row.round_completed_on.S });
+      }
+      start = page.LastEvaluatedKey;
+    } while (start);
+    return sessions;
+  }
   async activeReviews(domain: PracticeDomain, signal: AbortSignal): Promise<IndexedReview[]> {
     const rows: IndexedReview[] = [];
     let start: Record<string, AttributeValue> | undefined;
