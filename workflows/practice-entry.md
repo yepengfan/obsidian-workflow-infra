@@ -83,7 +83,7 @@ shell/file/script steps and automatic writes in the upstream skill.
 - Open the selected new or resumed practice canvas before the first interview
   question. The template and saved-canvas tools display the editable Excalidraw
   scene in MCP Apps hosts. Keep the active editor open during practice.
-- Before asking another question or requesting a canvas review, apply the stopping rule in sysd-solve. In Guided and Mock modes, give the final review immediately when the core flows and selected tradeoffs have been assessed, the learner asks to finish, or the latest timer submission reports `finished`. Use the evidence already available and identify any gaps. An idle or paused timer alone does not end the interview. An explicit pause keeps the round resumable.
+- Before asking another question or requesting a canvas review, apply the stopping rule in sysd-solve. In Guided and Mock modes, give the final review immediately when the core flows and selected tradeoffs have been assessed, or the learner asks to finish. Use the evidence already available and identify any gaps. An idle or paused timer alone does not end the interview. An explicit pause keeps the round resumable.
 - Before every coaching turn that depends on new work, ask the learner to click
   **Review canvas** inside the editor. Review the submitted text, positions and
   connections, including changes to existing elements and deletions since the
@@ -91,9 +91,9 @@ shell/file/script steps and automatic writes in the upstream skill.
   are supporting context, not a substitute for the drawing. A review does not
   save the canvas. If the submission is missing, request another click. If the
   host cannot display the editor, the learner can share an exported scene.
-- Each submission carries timing metadata in the conversation. The countdown defaults to 120 minutes.
-  Choose a duration and press Start. Pause or resume as needed.
-  Reset or reopen the editor to configure a new timer. Use the sysd-solve checkpoint rules
+- Each submission carries timing metadata in the conversation. Press Start to count elapsed practice time from 00:00.
+  Each review captures total elapsed seconds at the click and the interval since the previous successful review. Paused time is excluded.
+  Reset or reopen the editor to start a fresh stopwatch. Use the sysd-solve checkpoint rules
   to include the submitted timing records when the learner confirms a save.
 - The active chat canvas is authoritative during an attempt; the saved Obsidian
   canvas is its durable checkpoint. Do not reload S3 over unsaved widget edits.
