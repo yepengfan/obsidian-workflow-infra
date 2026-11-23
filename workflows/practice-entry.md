@@ -99,23 +99,22 @@ shell/file/script steps and automatic writes in the upstream skill.
   canvas is its durable checkpoint. Do not reload S3 over unsaved widget edits.
   Review canvas exports the active Excalidraw scene (elements, appState and
   referenced files) with sessionPath, snapshotId and sourceRevision. Use the
-  snapshot receipt (`snapshot`) returned by the widget to call `practice_save_canvas` when the learner asks to save that scene.
-  Pass the sessionPath and sourceRevision (null to create). For an explicitly requested overwrite, read the current target revision and pass it.
+  snapshot receipt (`snapshot`) returned by the widget to call `practice_save_canvas` at a step transition or when the learner asks to save that scene.
+  Pass the sessionPath and revision from the last verified save of this editor, or its sourceRevision on the first save (null to create). If this editor started as a draft and its template has since been created, use the known revision of that same created template. For an explicitly requested overwrite, read the current target revision and pass it.
   A successful result verifies the saved scene and returns its revision. Use that revision for subsequent saves to this file.
-  For older open widgets without a receipt, call `practice_stage_canvas` with the exact full scene from the matching submission if available, then save with its receipt.
+  If staging failed or the receipt returns note_unavailable, pass the exact complete scene from that review directly to practice_save_canvas with the same path and revision. If the scene is missing, request Review canvas again in the still-open editor. A superseded receipt requires a fresh review.
   A snapshotId alone cannot recover a legacy submission. Report the actual tool error on failure.
   Confirm the exact destination, preserve its Markdown and drawing encoding,
   and check the current revision against the version the edits are based on.
-  Preview and confirm writes. Reopen the saved drawing to verify the checkpoint.
+  Use the verified read-back from practice_save_canvas as the checkpoint confirmation. Keep the active editor open.
   If the snapshot is incomplete, stale or exceeds the write limit, keep the
   drawing pending and report its status separately from progress.md.
   For an independent review,
   use a fresh neutral canvas and keep prior solution canvases closed until the
   attempt ends.
 - Use `practice_read_note` and `practice_update_note` for checkpoints and
-  planned/wip/done transitions, always previewing and confirming the proposed
-  edits. The upstream automatic-checkpoint rule does not authorize silent saves.
-  If the learner declines, retain the draft in chat and continue coaching.
+  planned/wip/done transitions. Each step advance checkpoints the current reviewed canvas first, then progress.md. Include entry into Final Design or the debrief. If edits have occurred since the review, obtain a fresh Review canvas. Verify both files before reporting a saved transition. If only the progress write failed, keep the verified canvas revision and retry progress after reconciling the note. On conflict keep the active drawing and reconcile before overwriting. Announce transition autosave at start/resume and save these two active-session files automatically unless the learner opts out. Other writes retain their preview and confirmation rules.
+  If the learner opts out of transition autosave, skip both writes, mark the checkpoint Unsaved in chat and advance with the active drawing and draft progress.
 - A System Design session can span multiple days. Saving progress or a canvas is
   a checkpoint, not an ended review round. Preserve the original started date
   and WIP state; do not call `practice_record_review`, create a due date or advance

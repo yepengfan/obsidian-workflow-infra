@@ -528,7 +528,7 @@ it('loads and refreshes a saved canvas through the real MCP client without write
     expect(entry).toContain('before the first interview');
     expect(entry).toContain('Before every coaching turn');
     expect(entry).toContain('Review canvas');
-    const uri = 'ui://practice/design-canvas-v11.html';
+    const uri = 'ui://practice/design-canvas-v12.html';
     expect(tool?._meta?.ui).toEqual({ resourceUri: uri });
     const resource = await client.readResource({ uri });
     expect(resource.contents[0]).toMatchObject({ mimeType: 'text/html;profile=mcp-app', text: expect.stringContaining('Review canvas') });
@@ -819,6 +819,20 @@ it('saves an exact reviewed scene from ChatGPT by receipt and conditionally over
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
     const stage = async () => ((await call('practice_stage_canvas', { scene })).structuredContent as { snapshot: string }).snapshot;
+    // A legacy review can deliver its full scene to chat even when staging failed.
+    const missing = await call('practice_save_canvas', { snapshot: 'widget-review-uuid', revision: null });
+    expect(missing.isError).toBe(true);
+    const recoveryPath = path.replaceAll('Bitly', 'Dropbox');
+    const recovered = await call('practice_save_canvas', { path: recoveryPath, scene, revision: null });
+    expect(recovered.structuredContent).toMatchObject({ verified: true, elements: 1 });
+    expect((await call('practice_design_canvas', { path: recoveryPath })).structuredContent).toMatchObject({ drawing: scene });
+    expect((await call('practice_save_canvas', { path: recoveryPath, scene, revision: 'stale' })).isError).toBe(true);
+    expect((await call('practice_save_canvas', { path: recoveryPath, scene, snapshot: 'ambiguous', revision: null })).isError).toBe(true);
+    const updated = { ...scene, elements: [{ ...scene.elements[0], text: 'Dropbox final edit' }] };
+    const recoveryRevision = (recovered.structuredContent as { revision: string }).revision;
+    const checkpoint = await call('practice_save_canvas', { path: recoveryPath, scene: updated, revision: recoveryRevision });
+    expect(checkpoint.structuredContent).toMatchObject({ verified: true });
+    expect((await call('practice_design_canvas', { path: recoveryPath })).structuredContent).toMatchObject({ drawing: updated });
     const first = await stage();
     expect(store.files.has(root + path)).toBe(false);
     const created = (await call('practice_save_canvas', { snapshot: first, revision: null })).structuredContent as { revision: string };

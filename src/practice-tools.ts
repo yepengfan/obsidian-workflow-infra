@@ -47,9 +47,9 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     inputSchema: z.strictObject({ path: canvasPath, scene: z.record(z.string(), z.unknown()) }) },
   input => write(() => practice.stageCanvas(input.path, input.scene)));
   server.registerTool('practice_save_canvas', { ...writeSecurity, outputSchema,
-    description: 'On user confirmation save a staged canvas by path and snapshot receipt and verify the drawing by reading it back. Use null revision for a new file or the reviewed source revision for an update. For an explicitly requested overwrite read the current destination revision first.',
-    inputSchema: z.strictObject({ path: canvasPath, snapshot: revisionSchema, revision: revisionSchema.nullable() }) },
-  input => write(() => practice.saveCanvas(input.path, input.snapshot, input.revision)));
+    description: 'Save an authorized checkpoint and verify the drawing by read-back. Supply either the server snapshot receipt or the exact complete reviewed scene if staging was unavailable. Use null revision for a new file or the reviewed source revision for an update. For an explicitly requested overwrite read the current destination revision first.',
+    inputSchema: z.strictObject({ path: canvasPath, snapshot: revisionSchema.optional(), scene: z.record(z.string(), z.unknown()).optional(), revision: revisionSchema.nullable() }) },
+  input => write(() => practice.saveCanvas(input.path, input, input.revision)));
   server.registerTool('practice_add_review', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit user confirmation, register a neutral review object without overwriting an existing one. Never invent an attempt or reflection. New entries have no scheduled date until a round is recorded.',
     inputSchema: addReviewSchema }, input => write(() => practice.add(input)));
@@ -60,7 +60,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     description: 'After preview and explicit save confirmation, create an approved Algorithm Pattern/Atom/Log or System Design Pattern/Insight/Log/session progress/canvas file. Create-if-absent only; files save independently. No configuration, guide, template or arbitrary vault writes.',
     inputSchema: z.strictObject({ path: z.string().max(1024), content: z.string().min(1).max(settings.limits.practiceEditCharacters) }) }, input => write(() => practice.createNote(input.path, input.content)));
   server.registerTool('practice_update_note', { ...writeSecurity, outputSchema,
-    description: 'After preview and explicit confirmation, update selected exact unique text anchors in an approved practice note. Supply its current revision from practice_read_note. Preserve human text and metadata outside approved edits. Conflicts require rereading and renewed review.',
+    description: 'Update selected exact unique text anchors in an approved practice note. At a System Design step transition, automatically checkpoint the active round’s progress.md after verifying its canvas unless the learner opted out. All other updates require preview and explicit confirmation. Supply its current revision from practice_read_note. Preserve human text and metadata outside approved edits. Conflicts require rereading and renewed review.',
     inputSchema: z.strictObject({ path: z.string().max(1024), revision: revisionSchema,
       edits: z.array(z.strictObject({ old: z.string().min(1).max(settings.limits.practiceEditCharacters), replacement: z.string().max(settings.limits.practiceEditCharacters) })).min(1).max(10) }) }, input => write(() => practice.updateNote(input.path, input.revision, input.edits)));
 }

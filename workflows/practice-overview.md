@@ -60,7 +60,7 @@ Each item uses its own domain's coaching and time limit. Never mix Algorithm
 assessment with System Design assessment.
 
 Keep independent attempts neutral, preserve learner reflections verbatim, and
-preview and confirm every proposed save. After saving, refresh the selected
+preview and confirm every proposed save. System Design step-transition autosave is enabled for the active round's canvas and progress note unless the learner opts out. This narrow exception covers both checkpoint writes. After saving, refresh the selected
 queue. An unsaved or paused attempt must not be presented as recorded or
 completed. A session may span multiple days: a saved progress/canvas checkpoint
 is not completion or an `incomplete` outcome. Resume the selected WIP session;

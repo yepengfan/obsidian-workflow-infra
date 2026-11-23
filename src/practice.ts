@@ -177,9 +177,7 @@ export class Practice {
     return CANVAS_REVIEW_PREFIX + createHash('sha256').update(path).digest('hex') + '.md';
   }
 
-  async stageCanvas(path: string, scene: Record<string, unknown>) {
-    await this.checkCanvasPath(path);
-    const json = JSON.stringify(scene);
+  private reviewedScene(json: string) {
     const drawing = parseScene(json, this.settings.limits);
     for (const element of drawing.elements) {
       if (element.type !== 'image' || element.isDeleted) continue;
@@ -188,6 +186,13 @@ export class Practice {
         throw new PracticeError('canvas_image_missing');
       }
     }
+    return drawing;
+  }
+
+  async stageCanvas(path: string, scene: Record<string, unknown>) {
+    await this.checkCanvasPath(path);
+    const json = JSON.stringify(scene);
+    this.reviewedScene(json);
     const key = this.reviewPath(path);
     let snapshot;
     try { snapshot = await this.notes.put(key, json); }
@@ -199,11 +204,20 @@ export class Practice {
     return { path, snapshot };
   }
 
-  async saveCanvas(path: string, snapshot: string, revision: string | null) {
+  async saveCanvas(path: string, input: { snapshot?: string; scene?: Record<string, unknown> }, revision: string | null) {
     await this.checkCanvasPath(path);
-    const staged = await this.read(this.reviewPath(path));
-    if (staged.revision !== snapshot) throw new PracticeError('canvas_review_superseded');
-    const scene = parseScene(staged.text, this.settings.limits);
+    const { snapshot, scene: supplied } = input;
+    if ((snapshot === undefined) === (supplied === undefined)) throw new PracticeError('provide_snapshot_or_scene');
+    let json: string;
+    if (snapshot !== undefined) {
+      const staged = await this.read(this.reviewPath(path));
+      if (staged.revision !== snapshot) throw new PracticeError('canvas_review_superseded');
+      json = staged.text;
+    } else {
+      if (!supplied?.appState || !supplied.files) throw new PracticeError('incomplete_canvas_scene');
+      json = JSON.stringify(supplied);
+    }
+    const scene = this.reviewedScene(json);
     const prior = revision === null ? undefined : await this.read(path);
     if (prior && prior.revision !== revision) throw new PracticeError('revision_conflict');
     const content = writeDesignCanvas(prior?.text, scene);
