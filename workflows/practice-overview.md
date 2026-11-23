@@ -71,8 +71,7 @@ unsaved draft and distinguishing it from the persisted queue. Re-fetch the
 chosen queue before claiming its due work is complete. A failed queue read
 does not authorize an automatic new-problem handoff.
 
-Honor a supplied time budget; do not invent a default session length or claim a
-timer ran without a host tool. At a pause or exhausted budget, summarize remaining
+For System Design apply the sysd-solve maximum of 45 active minutes across sittings, or a shorter agreed budget. Other domains follow their own time budgets. Use verified timing evidence. At a pause or exhausted budget, summarize remaining
 work and wait rather than automatically beginning a new problem.
 
 ## Choose a domain for new practice
