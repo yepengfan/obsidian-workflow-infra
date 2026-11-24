@@ -85,7 +85,7 @@ shell/file/script steps and automatic writes in the upstream skill.
 - Open the selected new or resumed practice canvas before the first interview
   question. The template and saved-canvas tools display the editable Excalidraw
   scene in MCP Apps hosts. Keep the active editor open during practice.
-- Before asking another question or requesting a canvas review, apply the stopping rule in sysd-solve. In Guided and Mock modes, give the final review immediately when the core flows and selected tradeoffs have been assessed, the learner asks to finish, or verified active time reaches the shortest of the returned `time_limits["system-design"]`, 45 minutes, and any shorter agreed budget. Use the evidence already available and identify any gaps. An idle or paused timer alone does not end the interview. An explicit pause keeps the round resumable.
+- Apply the stopping rules in sysd-solve before each follow-up or canvas review. Guided learning is self-paced. In Mock mode use the returned `time_limits["system-design"]` as a one-time continuation check-in for verified active mock time. If objectives remain at the threshold, wait for the learner to choose whether to continue or debrief. Restore their decision on resume. In either mode, debrief when the objectives are sufficiently assessed or the learner asks to finish. An explicit pause keeps the round resumable.
 - Before every coaching turn that depends on new work, ask the learner to click
   **Review canvas** inside the editor. Review the submitted text, positions and
   connections, including changes to existing elements and deletions since the
