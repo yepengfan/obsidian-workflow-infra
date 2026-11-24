@@ -73,8 +73,7 @@ unsaved draft and distinguishing it from the persisted queue. Re-fetch the
 chosen queue before claiming its due work is complete. A failed queue read
 does not authorize an automatic new-problem handoff.
 
-For System Design, use the shortest of the returned `time_limits["system-design"]`,
-45 active minutes across sittings, and any shorter agreed budget. At verified expiry, go directly to the final review.
+System Design Guided learning is self-paced. Mock interviews use the configured `time_limits["system-design"]` as a continuation check-in. Follow the selected round’s timing and completion rules in sysd-solve.
 An explicit pause preserves progress for resumption. Other domains follow their
 own time budgets. At the end of the sitting, wait before starting another problem.
 
