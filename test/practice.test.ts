@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import LZString from 'lz-string';
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 import bundle from '../workflows/practice.json' with { type: 'json' };
@@ -17,6 +17,16 @@ const root = 'Vault/';
 const items = root + 'Learning/Practice/Review/Items/';
 const configPath = root + 'system/modules/practice-review/module.md';
 const moduleText = bundle.documents['system/modules/practice-review/module.md'].text;
+const moduleNote = parseFrontmatter(moduleText)!;
+const configuredLimits = z.record(z.string(), z.number()).parse(moduleNote.metadata.review_time_limits);
+const mockMinutes = configuredLimits['system-design']!;
+function withMockMinutes(minutes?: number | string) {
+  const limits: Record<string, number | string> = { ...configuredLimits };
+  if (minutes === undefined) delete limits['system-design'];
+  else limits['system-design'] = minutes;
+  return `---\n${stringify({ ...moduleNote.metadata, review_time_limits: limits })}---\n${moduleNote.body}`;
+}
+
 const now = () => new Date('2026-11-14T02:00:00Z');
 const settings = (writesEnabled = true) => runtimeSettings({ practice: { enabled: true, writesEnabled, timeZone: 'Australia/Brisbane' } });
 const item = { id: 'lc-1071', domain: 'algorithm' as const, title: 'GCD of strings', status: 'active' as const,
@@ -120,14 +130,15 @@ describe('practice storage behavior', () => {
   it('routes each domain to its own live mapping, time limit and guard', async () => {
     const { store, practice } = setup();
     const workflow = await practice.workflow('system-design');
-    expect(workflow).toMatchObject({ selected_domain: 'system-design', time_limits: { 'system-design': 60 } });
+    expect(workflow).toMatchObject({ selected_domain: 'system-design', time_limits: { 'system-design': mockMinutes } });
     expect(workflow.time_limits).not.toHaveProperty('algorithm');
     expect(workflow.entry).toContain('# System Design practice'); expect(workflow.entry).not.toContain('{{');
     expect(workflow.documents).toContain('.agents/skills/sysd-solve/SKILL.md');
     expect(workflow.documents).not.toContain('.agents/skills/algo-solve/SKILL.md');
     expect(store.reads).toEqual([configPath, root + 'system/modules/system-design/module.md']);
-    store.files.set(configPath, moduleText.replace('  system-design: 60', '  system-design: 75'));
-    await expect(practice.workflow('system-design')).resolves.toMatchObject({ time_limits: { 'system-design': 75 } });
+    const overrideMinutes = mockMinutes > 1 ? mockMinutes - 1 : mockMinutes + 1;
+    store.files.set(configPath, withMockMinutes(overrideMinutes));
+    await expect(practice.workflow('system-design')).resolves.toMatchObject({ time_limits: { 'system-design': overrideMinutes } });
     const path = 'Learning/Practice/System-Design/Log/2026-11-14.md';
     store.files.set(root + 'system/modules/algorithm/module.md', '---\nenabled: false\n---\n');
     await practice.createNote(path, '# Design log\n');
@@ -144,10 +155,10 @@ describe('practice storage behavior', () => {
     store.files.set(configPath, moduleText.replace('.agents/skills/sysd-solve/SKILL.md', 'unexpected.md'));
     await expect(practice.workflow('system-design')).rejects.toThrow('mapping_changed');
     await expect(practice.workflow('algorithm')).resolves.toMatchObject({ status: 'ready', selected_domain: 'algorithm' });
-    store.files.set(configPath, moduleText.replace('  system-design: 60\n', ''));
+    store.files.set(configPath, withMockMinutes());
     await expect(practice.workflow('system-design')).rejects.toThrow('invalid_review_time_limit');
     await expect(practice.workflow('algorithm')).resolves.toMatchObject({ status: 'ready', selected_domain: 'algorithm' });
-    store.files.set(configPath, moduleText.replace('  system-design: 60\n', '  system-design: invalid\n'));
+    store.files.set(configPath, withMockMinutes('invalid'));
     await expect(practice.workflow('system-design')).rejects.toThrow('invalid_review_time_limit');
     await expect(practice.workflow('algorithm')).resolves.toMatchObject({ status: 'ready', selected_domain: 'algorithm' });
     expect(store.writes).toHaveLength(0);
@@ -327,7 +338,7 @@ describe('practice storage behavior', () => {
     const workflow = await practice.workflow();
     expect(workflow).toMatchObject({ status: 'overview', availability: 'complete', selected_domain: null,
       available_domains: [{ domain: 'algorithm', label: 'Algorithm' }, { domain: 'system-design', label: 'System Design' }],
-      unavailable_domains: [], time_limits: { algorithm: 30, 'system-design': 60 }, writes_enabled: true });
+      unavailable_domains: [], time_limits: { algorithm: configuredLimits.algorithm, 'system-design': mockMinutes }, writes_enabled: true });
     expect(store.reads).toEqual([configPath, root + 'system/modules/algorithm/module.md', root + 'system/modules/system-design/module.md']);
     expect(store.lists).toEqual([]); expect(store.writes).toEqual([]);
     expect(workflow.documents).toContain('.agents/skills/practice/SKILL.md');
@@ -359,10 +370,10 @@ describe('practice storage behavior', () => {
     expect(store.lists).toEqual([]); expect(store.writes).toEqual([]);
   });
   it.each([
-    { from: '.agents/skills/sysd-solve/SKILL.md', to: 'unexpected.md', reason: 'workflow_mapping_changed_refresh_required' },
-    { from: '  system-design: 60\n', to: '', reason: 'invalid_review_time_limit' },
-  ])('reports invalid mappings and limits as partial: $reason', async ({ from, to, reason }) => {
-    const { store, practice } = setup(); store.files.set(configPath, moduleText.replace(from, to));
+    { config: moduleText.replace('.agents/skills/sysd-solve/SKILL.md', 'unexpected.md'), reason: 'workflow_mapping_changed_refresh_required' },
+    { config: withMockMinutes(), reason: 'invalid_review_time_limit' },
+  ])('reports invalid mappings and limits as partial: $reason', async ({ config, reason }) => {
+    const { store, practice } = setup(); store.files.set(configPath, config);
     expect(await practice.workflow()).toMatchObject({ status: 'overview', availability: 'partial', selected_domain: null,
       unavailable_domains: [{ domain: 'system-design', status: 'unavailable', reason }] });
     await expect(practice.workflow('system-design')).rejects.toThrow(reason);
@@ -581,7 +592,7 @@ it('supports a System Design session and review through the real MCP client with
     const firstRound = 'e8c1dc3a-7cdd-4c93-a420-16278c975ba1';
     const secondRound = 'e8c1dc3a-7cdd-4c93-a420-16278c975ba2';
     const workflow = await call('practice', { domain: 'system-design' });
-    expect(workflow.structuredContent).toMatchObject({ selected_domain: 'system-design', time_limits: { 'system-design': 60 } });
+    expect(workflow.structuredContent).toMatchObject({ selected_domain: 'system-design', time_limits: { 'system-design': mockMinutes } });
     const instructions = await call('practice_instruction', { path: '.agents/skills/sysd-solve/SKILL.md' });
     expect(instructions.isError).not.toBe(true);
     expect(instructions.structuredContent).toMatchObject({ source_commit: bundle.sourceCommit });
@@ -823,7 +834,7 @@ it('starts generic practice with an overview through the real MCP client, then r
     }
     expect(store.lists).toEqual([]);
     const selected = await client.callTool({ name: 'practice', arguments: { domain: 'system-design' } });
-    expect(selected.structuredContent).toMatchObject({ status: 'ready', selected_domain: 'system-design', time_limits: { 'system-design': 60 } });
+    expect(selected.structuredContent).toMatchObject({ status: 'ready', selected_domain: 'system-design', time_limits: { 'system-design': mockMinutes } });
     expect(store.files).toEqual(before); expect(store.writes).toEqual([]);
   } finally { await client.close(); }
 });
