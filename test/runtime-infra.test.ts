@@ -174,20 +174,30 @@ it.each([false, true])('adds an isolated Gemini client without changing ChatGPT 
 it.each(['https://oauth-redirect.googleusercontent.com/r/*', 'https://gemini.google.com/oauth/callback', 'https://vertexaisearch.cloud.google.com/oauth-redirect'])('rejects a guessed or broad Gemini callback %s', callback => {
   expect(mcpAppSchema.safeParse({ notePrefix: '', geminiCallbackUrls: [callback] }).success).toBe(false);
 });
-it('keeps the committed runtime free of a Gemini client', () => {
+it('enables the committed Gemini client for the owner redirect', () => {
+  const ownerRedirect = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-bcea5441da023dbec8dbe33c';
   const options = mcpAppSchema.parse(JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8')));
-  expect(options.geminiCallbackUrls).toEqual([]);
+  expect(options.geminiCallbackUrls).toEqual([ownerRedirect]);
+  expect(options.callbackUrls).toEqual(['https://chatgpt.com/connector/oauth/JqeUjWLzAhtd']);
+  expect(options.claudeCallbackUrls).toEqual(['https://claude.ai/api/mcp/auth_callback']);
+  expect(options.allowedOrigins).toEqual(['https://chatgpt.com', 'https://claude.ai']);
   const stack = new CognitoStack(new App(), 'Committed', aws, cognito,
     mcpResources(aws, github.runtimeRoleName, options.notePrefix, options.practice.writesEnabled, options.metadataSearch, options.journal.writesEnabled),
     { options, code, noteBucket: aws.buckets.vault.name });
   const template = Template.fromStack(stack).toJSON();
-  expect(template.Resources).not.toHaveProperty('GeminiClient');
-  expect(template.Outputs).not.toHaveProperty('GeminiClientId');
+  expect(template.Resources.GeminiClient.Properties.ClientName).toBe('obsidian-gemini');
+  expect(template.Resources.GeminiClient.Properties.CallbackURLs).toEqual([ownerRedirect]);
+  expect(template.Resources.GeminiClient.Properties.GenerateSecret).toBe(true);
+  expect(template.Outputs.GeminiClientId.Value).toEqual({ Ref: 'GeminiClient' });
   expect(template.Resources.ClaudeClient.Properties.ClientName).toBe('obsidian-claude');
+  expect(template.Resources.ClaudeClient.Properties.CallbackURLs).toEqual(options.claudeCallbackUrls);
   expect(template.Resources.ChatGptClient.Properties.ClientName).toBe('obsidian-chatgpt');
+  expect(template.Resources.ChatGptClient.Properties.CallbackURLs).toEqual(options.callbackUrls);
   const environment = template.Resources.McpFunction.Properties.Environment.Variables;
   expect(JSON.parse(environment.MCP_OPTIONS)).not.toHaveProperty('geminiCallbackUrls');
-  expect(environment.OAUTH_CLIENT_IDS).toEqual({ 'Fn::Join': ['', ['["', { Ref: 'ChatGptClient' }, '","', { Ref: 'ClaudeClient' }, '"]']] });
+  expect(environment.OAUTH_CLIENT_ID).toEqual({ Ref: 'ChatGptClient' });
+  expect(environment.OAUTH_CLIENT_IDS).toEqual({ 'Fn::Join': ['', ['["', { Ref: 'ChatGptClient' }, '","', { Ref: 'ClaudeClient' }, '","', { Ref: 'GeminiClient' }, '"]']] });
+  expect(Object.keys(environment).some(key => /secret/iu.test(key))).toBe(false);
   expect(Object.keys(template.Outputs).some(key => /secret/iu.test(key))).toBe(false);
 });
 

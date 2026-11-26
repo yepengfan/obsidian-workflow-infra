@@ -53,11 +53,12 @@ it.each([
   expect(runtimeOptionsSchema.safeParse({ claudeCallbackUrls: [callback] }).success).toBe(false);
 });
 const geminiCallback = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture';
-it('keeps Gemini opt-in until an exact redirect URI is configured', () => {
+it('keeps Gemini empty until configured and accepts the committed owner redirect', () => {
+  const ownerRedirect = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-bcea5441da023dbec8dbe33c';
   const committed = JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8'));
-  expect(committed).not.toHaveProperty('geminiCallbackUrls');
+  expect(committed.geminiCallbackUrls).toEqual([ownerRedirect]);
   delete committed.notePrefix;
-  expect(runtimeOptionsSchema.parse(committed).geminiCallbackUrls).toEqual([]);
+  expect(runtimeOptionsSchema.parse(committed).geminiCallbackUrls).toEqual([ownerRedirect]);
   expect(runtimeOptionsSchema.parse({}).geminiCallbackUrls).toEqual([]);
   expect(runtimeOptionsSchema.shape.geminiCallbackUrls.parse(undefined)).toEqual([]);
   const callback = geminiCallback;

@@ -8,6 +8,9 @@
   "claudeCallbackUrls": [
     "https://claude.ai/api/mcp/auth_callback"
   ],
+  "geminiCallbackUrls": [
+    "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-bcea5441da023dbec8dbe33c"
+  ],
   "allowedOrigins": [
     "https://chatgpt.com",
     "https://claude.ai"
