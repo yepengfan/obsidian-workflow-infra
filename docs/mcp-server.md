@@ -40,8 +40,8 @@ its read continuation; restart that selected note.
 name, separate exact ChatGPT (`callbackUrls`), Claude (`claudeCallbackUrls`) and
 Gemini (`geminiCallbackUrls`) callback allowlists, allowed browser origins and limits.
 An empty Claude or Gemini callback list omits that app client and branding; the
-existing ChatGPT client remains stable. Gemini stays empty until the owner copies
-an exact redirect URI, so this field alone does not change the deployed clients.
+existing ChatGPT client remains stable. The committed Gemini callback is the
+owner's copied production redirect.
 CDK manages the group structure; user accounts and membership are application
 access data managed in Cognito, without Git changes or infrastructure deployment.
 Resource identities and IAM are defined by the CDK modules; GitHub role settings
