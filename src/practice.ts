@@ -11,7 +11,7 @@ import type { NoteStore, NoteWriter } from './note-store.js';
 import { PracticeError } from './errors.js';
 import { CANVAS_REVIEW_PREFIX, DESIGN_PROFILE, type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
-import { conceptIdSchema, conceptObservationSchema, designOutline, parseObservations, renderProfile, upsertObservations, type StoredObservation } from './design-profile.js';
+import { conceptIdSchema, conceptObservationSchema, designOutline, parseObservations, renderProfile, summaryCitesExistingObservations, upsertObservations, type StoredObservation } from './design-profile.js';
 import { readDesignCanvas, parseScene, writeDesignCanvas } from './design-canvas.js';
 import { dateSchema, REVIEW_ITEMS_PREFIX, reviewSummarySchema as summarySchema, slugSchema, type ReviewSummary } from './practice-schema.js';
 import { parsePracticeNote, PracticeNotes } from './practice-note.js';
@@ -169,6 +169,7 @@ export class Practice {
     if (input.revision !== note.revision) throw new PracticeError('revision_conflict');
     const outcome = input.outcome ?? (note.item.domain === 'system-design' ? 'completed' : undefined);
     if (!outcome) throw new PracticeError('invalid_review_outcome');
+    await this.assertFinalSummary(input.id, input);
     const schedule = nextSchedule(note.item, outcome, input.completed_on, config.interval_days, config.retry_days, config.archive_after_final);
     const metadata = { ...note.metadata, ...schedule, last_outcome: outcome, attempt_ids: [...note.item.attempt_ids, input.attempt_id] };
     let entry = `\n\n### ${input.completed_on} · Round ${schedule.review_count}\n\n**${outcome}** · ${schedule.status === 'archived' ? 'Archived' : `Next review ${schedule.next_review}`}\n\n#### My reflection\n\n${input.reflection}\n`;
@@ -198,6 +199,7 @@ export class Practice {
         (metadata.round_completed_on && metadata.round_completed_on !== attempt.completed_on)) throw new PracticeError('session_round_mismatch');
       if (metadata.confirmed_registration && !isDeepStrictEqual(metadata.confirmed_registration, { topic, attempt })) throw new PracticeError('confirmed_registration_mismatch');
       await this.assessmentObservations({ progressPath: progress_path, completedOn: attempt.completed_on });
+      await this.assertFinalSummary(topic.id, attempt, { progressPath: progress_path, completedOn: attempt.completed_on });
       if (tags.includes('system-design/wip') && !metadata.confirmed_registration) {
         await this.notes.put(progress_path, serialize({ ...metadata, round_id: attempt.attempt_id, review_item_id: topic.id,
           round_completed_on: attempt.completed_on, confirmed_registration: { topic, attempt } }, body), note.revision);
@@ -233,6 +235,18 @@ export class Practice {
       } else if (!tags.includes('system-design/done')) throw new PracticeError('session_round_mismatch');
     }
     return { ...summarySchema.parse(verified.item), attempt_id: attempt.attempt_id, verified: true };
+  }
+
+  private async assertFinalSummary(id: string, attempt: { attempt_id: string; outcome?: string; submission?: string; concept_observations?: readonly unknown[] }, progress?: { progressPath: string; completedOn: string }) {
+    let current;
+    try { current = await this.item(id); }
+    catch (error) { if (error instanceof NoteError && error.code === 'note_unavailable') return; throw error; }
+    const outcome = attempt.outcome ?? (current.item.domain === 'system-design' ? 'completed' : undefined);
+    if (current.item.domain !== 'system-design' || current.item.status !== 'active' || outcome === 'incomplete' ||
+      (current.item.completed_design_rounds ?? 0) !== 5 || current.item.attempt_ids.includes(attempt.attempt_id)) return;
+    if (attempt.concept_observations?.length) throw new PracticeError('final_round_rejects_new_observations');
+    const existing = await this.assessmentObservations(progress);
+    if (!summaryCitesExistingObservations(attempt.submission, existing)) throw new PracticeError('final_summary_required');
   }
 
   private async persistDesignProfile(progressPath: string, attemptId: string, date: string, observations: z.infer<typeof conceptObservationSchema>[]) {

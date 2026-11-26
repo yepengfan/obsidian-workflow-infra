@@ -1011,6 +1011,12 @@ it.each(['practice_record_review', 'practice_finish_round'])('executes the share
       }
       if (name === 'practice_finish_round' && !checkpoint) await practice.createNote(progress_path,
         '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+      if (name === 'practice_record_review' && step.attempt_id === 'r6') await practice.createNote(
+        'Learning/Practice/System-Design/Solutions/earlier-evidence/progress.md',
+        '---\n' + stringify({ topic: 'Earlier evidence', tags: ['system-design/wip'], round_completed_on: '2026-10-01' }) +
+        '---\n```practice-observations\n' + stringify([{ observation_id: 'sample-cache', attempt_id: 'earlier',
+          concept_id: 'cache.expiry', performance: 'weak', summary: 'Left the cache unbounded.', anchor: 'Assessment',
+          date: '2026-10-01', learner: true }]) + '```\n');
       const args = name === 'practice_finish_round' ? { topic: designRequest, attempt, progress_path } :
         { ...attempt, id: designRequest.id, revision: review.revision };
       const results = await Promise.all([client.callTool({ name, arguments: args }), client.callTool({ name, arguments: args })]);
@@ -1033,6 +1039,63 @@ it.each(['practice_record_review', 'practice_finish_round'])('executes the share
     }
     expect(await practice.reviews({ domain: 'system-design' })).toMatchObject({ overdue: [], today: [], upcoming: [], unstarted: [] });
     await expect(practice.review(designRequest.id)).rejects.toThrow('review_archived');
+  } finally { await client.close(); }
+});
+
+it.each(['practice_record_review', 'practice_finish_round'])('keeps round six unwritten until the summary cites stored evidence through %s', async name => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { store, practice, index } = setup(), options = settings();
+  await practice.add(designRequest);
+  await practice.createNote('Learning/Practice/System-Design/Solutions/earlier-evidence/progress.md',
+    '---\n' + stringify({ topic: 'Earlier evidence', tags: ['system-design/wip'], round_completed_on: '2026-10-01' }) +
+    '---\n```practice-observations\n' + stringify([{ observation_id: 'sample-cache', attempt_id: 'earlier',
+      concept_id: 'cache.expiry', performance: 'weak', summary: 'Left the cache unbounded.', anchor: 'Assessment',
+      date: '2026-10-01', learner: true }]) + '```\n');
+  const progress = 'Learning/Practice/System-Design/Solutions/final-round/progress.md';
+  const retryProgress = 'Learning/Practice/System-Design/Solutions/retry-round/progress.md';
+  const session = '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n';
+  await practice.createNote(progress, session);
+  await practice.createNote(retryProgress, session);
+  for (let number = 1; number <= 5; number += 1) {
+    const review = await practice.review(designRequest.id);
+    await practice.record({ id: designRequest.id, revision: review.revision, attempt_id: `r${number}`, outcome: 'assisted',
+      reflection: 'Completed the round.', completed_on: `2026-11-0${number}` });
+  }
+  const cited = '## Summary\nCache expiry needs work, citing sample-cache from the earlier round.';
+  const fresh = { observation_id: 'new-cache', concept_id: 'cache.expiry', performance: 'weak' as const, learner: true,
+    summary: 'A new final-round claim.', anchor: 'Assessment' };
+  const handler = createFetchHandler(options, { store, writer: store, verify: async () => owner,
+    verifyScope: async () => owner, skills: [practiceSkill(options, index)] });
+  const client = new Client({ name: 'final-summary', version: '1' });
+  client.onerror = () => {};
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
+    const call = async (attempt: Record<string, unknown>, revision?: string, progressPath = progress) => {
+      const arguments_ = name === 'practice_finish_round' ? { topic: designRequest, attempt, progress_path: progressPath } :
+        { ...attempt, id: designRequest.id, revision: revision ?? (await practice.review(designRequest.id)).revision };
+      return client.callTool({ name, arguments: arguments_ });
+    };
+    const unchanged = async (attempt: Record<string, unknown>) => {
+      const before = new Map(store.files), writes = [...store.writes];
+      expect((await call(attempt)).isError).toBe(true);
+      expect(store.files).toEqual(before);
+      expect(store.writes).toEqual(writes);
+    };
+    await unchanged({ attempt_id: 'r6-missing', reflection: 'Final mock.', completed_on: '2026-11-06' });
+    await unchanged({ attempt_id: 'r6-uncited', reflection: 'Final mock.', completed_on: '2026-11-06', submission: '## Summary\nNo stored evidence.' });
+    await unchanged({ attempt_id: 'r6-new', reflection: 'Final mock.', completed_on: '2026-11-06', submission: cited, concept_observations: [fresh] });
+    const retry = await call({ attempt_id: 'r6-retry', outcome: 'incomplete', reflection: 'Not ready.', completed_on: '2026-11-06' }, undefined, retryProgress);
+    expect(retry.isError).not.toBe(true);
+    expect(retry.structuredContent).toMatchObject({ status: 'active', completed_design_rounds: 5, review_count: 6 });
+    const closed = await call({ attempt_id: 'r6', reflection: 'Final mock.', completed_on: '2026-11-07', submission: cited });
+    expect(closed.isError).not.toBe(true);
+    expect(closed.structuredContent).toMatchObject({ status: 'archived', completed_design_rounds: 6, next_review: null });
+    expect(store.files.get(root + progress)).not.toContain('new-cache');
+    const again = await call({ attempt_id: 'r6', reflection: 'Final mock.', completed_on: '2026-11-07', submission: cited }, 'stale');
+    expect(again.isError).not.toBe(true);
+    expect(again.structuredContent).toMatchObject({ status: 'archived', completed_design_rounds: 6, review_count: 7 });
   } finally { await client.close(); }
 });
 
