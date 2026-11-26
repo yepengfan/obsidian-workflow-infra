@@ -1435,12 +1435,12 @@ it('repeats error IDs across concepts and distinct attempts without mixing concl
     } }));
   };
   await finish('routing-errors', [
-    { ...base, observation_id: 'routing-error', concept_id: 'shard.routing', summary: 'Lost routing after a shard failure.' },
-    { ...base, observation_id: 'queue-first', concept_id: 'queue.delivery', summary: 'No recovery after delivery failure.' },
+    { ...base, observation_id: 'routing-error', evidence_order: 1, concept_id: 'shard.routing', summary: 'Lost routing after a shard failure.' },
+    { ...base, observation_id: 'queue-first', evidence_order: 2, concept_id: 'queue.delivery', summary: 'No recovery after delivery failure.' },
   ]);
   expect(store.files.get(profile)).not.toContain('Repeated error:');
   await finish('queue-errors', [
-    { ...base, observation_id: 'queue-error', concept_id: 'queue.delivery', summary: 'Dropped messages on consumer failure.' },
+    { ...base, observation_id: 'queue-error', evidence_order: 3, concept_id: 'queue.delivery', summary: 'Dropped messages on consumer failure.' },
   ]);
   const text = store.files.get(profile)!;
   expect(text).toContain('Repeated error: missing-failure-recovery.');
