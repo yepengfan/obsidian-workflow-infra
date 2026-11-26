@@ -77,8 +77,9 @@ challenge requests.
 For every configured callback of each enabled client, it also sends one cookie-free
 authorization-code request with S256, `prompt=none`, the canonical resource and
 advertised scopes, that client's stack-output ID and random state. ChatGPT callbacks use
-`ChatGptClientId`; Claude callbacks use `ClaudeClientId`. A missing ID or rejected
-callback fails the check, including when the other client passes.
+`ChatGptClientId`; Claude callbacks use `ClaudeClientId`; Gemini callbacks use
+`GeminiClientId`. A missing ID or rejected callback fails the check, including when
+another client passes.
 It requires a redirect to that callback containing exactly one `error` set to
 `login_required`, exactly one matching `state`, and at most one optional
 `error_description`. It rejects all other query parameters, duplicate parameters,
@@ -118,9 +119,11 @@ registry's optional KMS and CloudFront handler permissions are not granted.
 
 ## Authentication checks after the probe
 
-The [runtime connection guide](mcp-server.md#owner-setup-and-chatgpt-connection)
-owns predefined-client setup and the required live authentication checks for
-ChatGPT and [Claude](mcp-server.md#claude-connection).
+The runtime connection guide owns predefined-client setup for
+[ChatGPT](mcp-server.md#owner-setup-and-chatgpt-connection),
+[Claude](mcp-server.md#claude-connection) and
+[Gemini](mcp-server.md#gemini-connection), and the required
+[live authentication checks](mcp-server.md#connection-verification).
 Discovery alone does not prove authorization-code/PKCE, token audience, refresh
 or owner-only access.
 

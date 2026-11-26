@@ -1,8 +1,8 @@
 # Obsidian workflow infrastructure
 
 AWS CDK infrastructure for a private Obsidian knowledge base and its staged
-ChatGPT and Claude MCP integrations. GitHub holds code and IaC, never notes or
-credentials.
+ChatGPT, Claude and optional Gemini MCP integrations. GitHub holds code and IaC,
+never notes or credentials.
 
 ## Architecture
 
@@ -17,20 +17,25 @@ discover notes by path, date and size, ask questions about selected notes, write
 to the Journal folder, and complete Algorithm and System Design practice with
 confirmed saving. System Design
 solutions in ChatGPT are drawn in an Excalidraw canvas and reviewed through chat.
+The optional Gemini web connection exposes the same MCP tools; see the
+[Gemini setup guide](docs/mcp-server.md#gemini-connection) for activation and verification.
 
 ```mermaid
 flowchart LR
     Owner["Knowledge owner<br/>[Person]"]
     ChatGPT["ChatGPT<br/>[External software system]<br/>Conversational client"]
     Claude["Claude<br/>[External software system]<br/>Conversational client"]
+    Gemini["Gemini web<br/>[External software system]<br/>Optional conversational client"]
     Platform["Obsidian knowledge platform<br/>[Software system]<br/>Private notes and ebooks"]
     Excalidraw["Excalidraw<br/>[External software system]<br/>Interactive solution canvas"]
 
     Owner -->|"Asks questions; journals; practices algorithms and system design"| ChatGPT
     Owner -->|"Asks questions, journals and practices"| Claude
+    Owner -->|"Connects an optional custom app"| Gemini
     Owner -->|"Maintains knowledge; authorizes access"| Platform
     ChatGPT -->|"Discovers notes by metadata; reads selected notes; writes Journal notes; saves confirmed practice"| Platform
     Claude -->|"Uses the same tools with a separate OAuth client"| Platform
+    Gemini -->|"Uses the same tools when configured"| Platform
     Owner -->|"Draws and revises the solution"| Excalidraw
     ChatGPT -->|"Opens canvas; checks latest shared drawing"| Excalidraw
 
@@ -38,7 +43,7 @@ flowchart LR
     classDef external fill:#666,color:#fff,stroke:#444
     classDef system fill:#1168bd,color:#fff,stroke:#0b4884
     class Owner person
-    class ChatGPT,Claude,Excalidraw external
+    class ChatGPT,Claude,Gemini,Excalidraw external
     class Platform system
 ```
 
@@ -53,6 +58,7 @@ flowchart TB
     Owner["Knowledge owner<br/>[Person]"]
     ChatGPT["ChatGPT<br/>[External software system]<br/>MCP client"]
     Claude["Claude<br/>[External software system]<br/>MCP client"]
+    Gemini["Gemini web<br/>[External software system]<br/>Optional MCP client"]
     Excalidraw["Excalidraw<br/>[External software system]<br/>Editable System Design canvas"]
 
     subgraph Platform["Obsidian knowledge platform [Software system]"]
@@ -73,6 +79,7 @@ flowchart TB
 
     Owner -->|"Asks questions, journals and practices"| ChatGPT
     Owner -->|"Asks questions, journals and practices"| Claude
+    Owner -->|"Connects an optional custom app"| Gemini
     Owner -->|"Draws the solution"| Excalidraw
     ChatGPT -->|"Renders and reviews current scene<br/>[Host app / widget context]"| Excalidraw
     Owner -->|"Signs in with MFA<br/>[HTTPS]"| Auth
@@ -82,6 +89,8 @@ flowchart TB
     ChatGPT -->|"Discovers notes; reads and saves<br/>[MCP Streamable HTTP / HTTPS]"| API
     Claude -->|"Obtains and refreshes tokens<br/>[OAuth 2.0 / PKCE; Claude client]"| Auth
     Claude -->|"Uses the same MCP tools<br/>[MCP Streamable HTTP / HTTPS]"| API
+    Gemini -->|"Obtains and refreshes tokens when configured<br/>[OAuth 2.0 / PKCE; Gemini client]"| Auth
+    Gemini -->|"Uses the same MCP tools when configured<br/>[MCP Streamable HTTP / HTTPS]"| API
     API -->|"Invokes handler<br/>[Lambda integration]"| Server
     Server -->|"Fetches signing keys<br/>[HTTPS / JWKS]"| Auth
     Server -->|"Reads notes; writes Journal notes; saves confirmed practice<br/>[S3 API / IAM]"| Vault
@@ -105,7 +114,7 @@ flowchart TB
     classDef external fill:#666,color:#fff,stroke:#444
     classDef container fill:#438dd5,color:#fff,stroke:#2e6295
     class Owner person
-    class ChatGPT,Claude,Excalidraw external
+    class ChatGPT,Claude,Gemini,Excalidraw external
     class Auth,API,Server,Vault,Library,Logs,Athena,Catalog,Inventory,Events,Queue,Indexer,ReviewIndex container
     style Platform fill:none,stroke:#777,stroke-dasharray:6 4
 ```
@@ -121,7 +130,7 @@ flowchart TB
 - **Practice:** Algorithm and System Design coaching with due reviews, and
   confirmed saves limited to approved practice paths. ChatGPT reviews System
   Design solutions in an Excalidraw canvas. See [practice](docs/practice.md).
-- **Access:** ChatGPT and Claude each have their own Cognito OAuth client for the
+- **Access:** Each configured MCP host has its own Cognito OAuth client for the
   same MFA-protected owner. See the [connection guide](docs/mcp-server.md).
 
 Keep these C1 and C2 views aligned with changes to the system's users,
@@ -151,7 +160,7 @@ never edit by hand.
 - [Practice workflow, review queues and staged note saving](docs/practice.md)
 - [Practice review index: indexer, deployment order and operation](docs/practice-index.md)
 - [Journal writes](docs/journal.md)
-- [MCP tools, configuration and ChatGPT / Claude connections](docs/mcp-server.md)
+- [MCP tools, configuration and host connections](docs/mcp-server.md)
 - [Athena and S3 Metadata file discovery](docs/metadata-search.md)
 - [Artifact retention and cleanup](docs/artifact-retention.md)
 - [Storage retention and recovery verification](docs/retention.md)

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { expect, it } from 'vitest';
 import { environmentSettings, runtimeOptionsSchema } from '../src/config.js';
 
@@ -22,6 +23,10 @@ it('loads both explicitly approved OAuth clients', () => {
   expect(environmentSettings({ ...environment, OAUTH_CLIENT_IDS: '["chatgpt-client","claude-client"]' }).clientIds)
     .toEqual(['chatgpt-client', 'claude-client']);
 });
+it('loads the ChatGPT, Claude and Gemini clients when all three are deployed', () => {
+  expect(environmentSettings({ ...environment, OAUTH_CLIENT_IDS: '["chatgpt-client","claude-client","gemini-client"]' }).clientIds)
+    .toEqual(['chatgpt-client', 'claude-client', 'gemini-client']);
+});
 it('supports the previous single-client environment only when the new allowlist is absent', () => {
   expect(environmentSettings({ ...environment, OAUTH_CLIENT_IDS: undefined, OAUTH_CLIENT_ID: 'previous-client' }).clientIds)
     .toEqual(['previous-client']);
@@ -30,7 +35,7 @@ it('supports the previous single-client environment only when the new allowlist 
   expect(() => environmentSettings({ ...environment, OAUTH_CLIENT_IDS: undefined, OAUTH_CLIENT_ID: undefined })).toThrow();
   expect(() => environmentSettings({ ...environment, OAUTH_CLIENT_IDS: '[]', OAUTH_CLIENT_ID: 'previous-client' })).toThrow();
 });
-it.each([undefined, '', 'not-json', '"client"', '[]', '[""]', '[null]', '["a","a"]', '["a","b","c"]', '["a b"]'])('fails closed for a malformed client allowlist: %s', clientIds => {
+it.each([undefined, '', 'not-json', '"client"', '[]', '[""]', '[null]', '["a","a"]', '["a","b","a"]', '["a","b","c","d"]', '["a b"]'])('fails closed for a malformed client allowlist: %s', clientIds => {
   expect(() => environmentSettings({ ...environment, OAUTH_CLIENT_IDS: clientIds })).toThrow();
 });
 it('keeps Claude opt-in and its callback separate from ChatGPT', () => {
@@ -46,6 +51,46 @@ it.each([
   'http://claude.ai/api/mcp/auth_callback', 'https://claude.ai/*',
 ])('rejects non-exact Claude callback %s', callback => {
   expect(runtimeOptionsSchema.safeParse({ claudeCallbackUrls: [callback] }).success).toBe(false);
+});
+const geminiCallback = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture';
+it('keeps Gemini opt-in until an exact redirect URI is configured', () => {
+  const committed = JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8'));
+  expect(committed).not.toHaveProperty('geminiCallbackUrls');
+  delete committed.notePrefix;
+  expect(runtimeOptionsSchema.parse(committed).geminiCallbackUrls).toEqual([]);
+  expect(runtimeOptionsSchema.parse({}).geminiCallbackUrls).toEqual([]);
+  expect(runtimeOptionsSchema.shape.geminiCallbackUrls.parse(undefined)).toEqual([]);
+  const callback = geminiCallback;
+  expect(runtimeOptionsSchema.parse({ geminiCallbackUrls: [callback] }).geminiCallbackUrls).toEqual([callback]);
+  expect(runtimeOptionsSchema.safeParse({ callbackUrls: [callback] }).success).toBe(false);
+  expect(runtimeOptionsSchema.safeParse({ claudeCallbackUrls: [callback] }).success).toBe(false);
+});
+it('rejects multiple Gemini account callbacks', () => {
+  expect(runtimeOptionsSchema.safeParse({ geminiCallbackUrls: [geminiCallback, `${geminiCallback}-other`] }).success).toBe(false);
+});
+it.each([
+  'https://oauth-redirect.googleusercontent.com/r/*',
+  'https://oauth-redirect-sandbox.googleusercontent.com/r/user_bound_custom-mcp-fixture',
+  'https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-fixture',
+  'https://oauth-redirect.googleusercontent.com/a/user_bound_custom-mcp-fixture',
+  'https://oauth-redirect.googleusercontent.com/r/app-fixture',
+  'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-',
+  'https://oauth-redirect.googleusercontent.com:8443/r/user_bound_custom-mcp-fixture',
+  'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture/extra',
+  'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture/',
+  'https://oauth-redirect.googleusercontent.com/r/',
+  'https://oauth-redirect.googleusercontent.com/oauth-redirect',
+  'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture?x=1',
+  'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture#fragment',
+  'https://user@oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture',
+  'http://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture',
+  'https://oauth-redirect.googleusercontent.com.evil.example/r/user_bound_custom-mcp-fixture',
+  'https://gemini.google.com/r/user_bound_custom-mcp-fixture',
+  'https://vertexaisearch.cloud.google.com/oauth-redirect',
+  'https://claude.ai/api/mcp/auth_callback',
+  'https://chatgpt.com/connector/oauth/example',
+])('rejects a guessed or broad Gemini callback %s', callback => {
+  expect(runtimeOptionsSchema.safeParse({ geminiCallbackUrls: [callback] }).success).toBe(false);
 });
 it.each(['obsidian.notes/read', 'https://other.example/mcp/read', `${resource}/write`, resource])('rejects a scope assigned to a different resource or operation: %s', scope => {
   expect(() => environmentSettings({ ...environment, OAUTH_SCOPE: scope })).toThrow();
