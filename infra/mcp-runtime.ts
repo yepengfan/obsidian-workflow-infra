@@ -23,7 +23,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   if (notePrefix !== deployment.notePrefix) throw Error('Runtime prefix must match the IAM boundary');
   const options = runtimeOptionsSchema.parse(rawOptions);
   // Previous runtimes use their bundled limits during a configuration-first rollout.
-  const { claudeCallbackUrls, limits, ...runtimeOptions } = options;
+  const { claudeCallbackUrls, geminiCallbackUrls, limits, ...runtimeOptions } = options;
   if (options.metadataSearch !== (deployment.metadataSearch ?? false)) throw Error('Metadata search configuration must match the IAM boundary');
   const metadata = options.metadataSearch ? addMetadataSearch(scope) : undefined;
   if (options.practice.writesEnabled !== (deployment.practiceWrites ?? false)) throw Error('Practice write configuration must match the IAM boundary');
@@ -49,7 +49,7 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   // Cognito binds custom scopes to the requested resource-server identifier.
   const scopeName = `${resourceServer.ref}/read`;
   const oauthResources: (CfnUserPoolClient | CfnManagedLoginBranding)[] = [];
-  const addClient = (id: 'ChatGpt' | 'Claude', clientName: string, callbacks: string[]) => {
+  const addClient = (id: 'ChatGpt' | 'Claude' | 'Gemini', clientName: string, callbacks: string[]) => {
     const oauthEnabled = callbacks.length > 0;
     const client = new CfnUserPoolClient(scope, `${id}Client`, {
       userPoolId: pool.ref, clientName, generateSecret: true,
@@ -72,7 +72,8 @@ export function addMcpRuntime(scope: Construct, deployment: McpDeploymentConfig,
   };
   const chatGptClient = addClient('ChatGpt', 'obsidian-chatgpt', options.callbackUrls);
   const claudeClient = claudeCallbackUrls.length ? addClient('Claude', 'obsidian-claude', claudeCallbackUrls) : undefined;
-  const clientIds = [chatGptClient.ref, ...(claudeClient ? [claudeClient.ref] : [])];
+  const geminiClient = geminiCallbackUrls.length ? addClient('Gemini', 'obsidian-gemini', geminiCallbackUrls) : undefined;
+  const clientIds = [chatGptClient.ref, ...(claudeClient ? [claudeClient.ref] : []), ...(geminiClient ? [geminiClient.ref] : [])];
   const logs = new CfnLogGroup(scope, 'RuntimeLogs', { logGroupName: `/aws/lambda/${deployment.functionName}`, retentionInDays: logDays });
   logs.overrideLogicalId('RuntimeLogs');
   const runtime = new CfnFunction(scope, 'McpFunction', { functionName: deployment.functionName,

@@ -45,6 +45,7 @@ if (outputs.McpEndpoint) {
   const clients = [
     { output: 'ChatGptClientId', callbacks: runtimeOptionsSchema.shape.callbackUrls.parse(configuration.callbackUrls) },
     { output: 'ClaudeClientId', callbacks: runtimeOptionsSchema.shape.claudeCallbackUrls.parse(configuration.claudeCallbackUrls) },
+    { output: 'GeminiClientId', callbacks: runtimeOptionsSchema.shape.geminiCallbackUrls.parse(configuration.geminiCallbackUrls) },
   ];
   for (const { output, callbacks } of clients) {
     for (const callback of callbacks) {

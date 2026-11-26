@@ -77,8 +77,9 @@ challenge requests.
 For every configured callback of each enabled client, it also sends one cookie-free
 authorization-code request with S256, `prompt=none`, the canonical resource and
 advertised scopes, that client's stack-output ID and random state. ChatGPT callbacks use
-`ChatGptClientId`; Claude callbacks use `ClaudeClientId`. A missing ID or rejected
-callback fails the check, including when the other client passes.
+`ChatGptClientId`; Claude callbacks use `ClaudeClientId`; Gemini callbacks use
+`GeminiClientId`. A missing ID or rejected callback fails the check, including when
+another client passes.
 It requires a redirect to that callback containing exactly one `error` set to
 `login_required`, exactly one matching `state`, and at most one optional
 `error_description`. It rejects all other query parameters, duplicate parameters,

@@ -129,6 +129,68 @@ it.each([false, true])('adds an isolated Claude client with practice writes enab
   expect(Object.keys(after.Outputs).some(key => /secret/iu.test(key))).toBe(false);
 });
 
+const geminiCallback = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture';
+it.each([false, true])('adds an isolated Gemini client without changing ChatGPT or Claude, writes enabled: %s', writesEnabled => {
+  const configuration = { notePrefix: '', callbackUrls: ['https://chatgpt.com/connector/oauth/exact-callback-id'],
+    claudeCallbackUrls: ['https://claude.ai/api/mcp/auth_callback'],
+    practice: { enabled: true, writesEnabled, timeZone: 'Australia/Brisbane' } };
+  const templateFor = (geminiCallbackUrls: string[]) => Template.fromStack(new CognitoStack(new App(), 'ObsidianMcp', aws, cognito,
+    { ...deployment, practiceWrites: writesEnabled }, { options: mcpAppSchema.parse({ ...configuration, geminiCallbackUrls }), code, noteBucket: aws.buckets.vault.name }));
+  const before = templateFor([]).toJSON();
+  const template = templateFor([geminiCallback]);
+  const after = template.toJSON();
+  template.resourceCountIs('AWS::Cognito::UserPoolClient', 3);
+  template.resourceCountIs('AWS::Cognito::ManagedLoginBranding', 3);
+  template.resourceCountIs('AWS::Cognito::UserPool', 1);
+  template.resourceCountIs('AWS::IAM::Role', 0);
+  expect(before.Resources).not.toHaveProperty('GeminiClient');
+  expect(before.Outputs).not.toHaveProperty('GeminiClientId');
+  for (const id of ['ChatGptClient', 'ChatGptLoginBranding', 'ClaudeClient', 'ClaudeLoginBranding', 'UserPool', 'UserPoolDomain', 'OwnersGroup', 'NotesResourceServer']) {
+    expect(after.Resources[id]).toEqual(before.Resources[id]);
+  }
+  expect(after.Resources.GeminiClient.Properties).toEqual({ ...before.Resources.ClaudeClient.Properties,
+    ClientName: 'obsidian-gemini', CallbackURLs: [geminiCallback] });
+  expect(after.Resources.GeminiClient.DependsOn).toContain('NotesResourceServer');
+  expect(after.Resources.GeminiLoginBranding.Properties).toEqual({
+    UserPoolId: { Ref: 'UserPool' }, ClientId: { Ref: 'GeminiClient' }, UseCognitoProvidedValues: true,
+  });
+  expect(after.Resources.GeminiLoginBranding.DependsOn).toContain('UserPoolDomain');
+  expect(after.Outputs.GeminiClientId.Value).toEqual({ Ref: 'GeminiClient' });
+  expect(after.Outputs.ChatGptClientId).toEqual(before.Outputs.ChatGptClientId);
+  expect(after.Outputs.ClaudeClientId).toEqual(before.Outputs.ClaudeClientId);
+  const environment = after.Resources.McpFunction.Properties.Environment.Variables;
+  const previous = before.Resources.McpFunction.Properties.Environment.Variables;
+  expect(environment.OAUTH_CLIENT_ID).toEqual({ Ref: 'ChatGptClient' });
+  expect(environment.OAUTH_SCOPE).toEqual(previous.OAUTH_SCOPE);
+  expect(environment.MCP_RESOURCE).toEqual(previous.MCP_RESOURCE);
+  expect(environment.MCP_OPTIONS).toEqual(previous.MCP_OPTIONS);
+  expect(JSON.parse(environment.MCP_OPTIONS)).not.toHaveProperty('geminiCallbackUrls');
+  expect(JSON.parse(environment.MCP_OPTIONS)).not.toHaveProperty('claudeCallbackUrls');
+  expect(environment.OAUTH_CLIENT_IDS).toEqual({ 'Fn::Join': ['', ['["', { Ref: 'ChatGptClient' }, '","', { Ref: 'ClaudeClient' }, '","', { Ref: 'GeminiClient' }, '"]']] });
+  expect(previous.OAUTH_CLIENT_IDS).toEqual({ 'Fn::Join': ['', ['["', { Ref: 'ChatGptClient' }, '","', { Ref: 'ClaudeClient' }, '"]']] });
+  expect(Object.keys(environment).some(key => /secret/iu.test(key))).toBe(false);
+  expect(Object.keys(after.Outputs).some(key => /secret/iu.test(key))).toBe(false);
+});
+it.each(['https://oauth-redirect.googleusercontent.com/r/*', 'https://gemini.google.com/oauth/callback', 'https://vertexaisearch.cloud.google.com/oauth-redirect'])('rejects a guessed or broad Gemini callback %s', callback => {
+  expect(mcpAppSchema.safeParse({ notePrefix: '', geminiCallbackUrls: [callback] }).success).toBe(false);
+});
+it('keeps the committed runtime free of a Gemini client', () => {
+  const options = mcpAppSchema.parse(JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8')));
+  expect(options.geminiCallbackUrls).toEqual([]);
+  const stack = new CognitoStack(new App(), 'Committed', aws, cognito,
+    mcpResources(aws, github.runtimeRoleName, options.notePrefix, options.practice.writesEnabled, options.metadataSearch, options.journal.writesEnabled),
+    { options, code, noteBucket: aws.buckets.vault.name });
+  const template = Template.fromStack(stack).toJSON();
+  expect(template.Resources).not.toHaveProperty('GeminiClient');
+  expect(template.Outputs).not.toHaveProperty('GeminiClientId');
+  expect(template.Resources.ClaudeClient.Properties.ClientName).toBe('obsidian-claude');
+  expect(template.Resources.ChatGptClient.Properties.ClientName).toBe('obsidian-chatgpt');
+  const environment = template.Resources.McpFunction.Properties.Environment.Variables;
+  expect(JSON.parse(environment.MCP_OPTIONS)).not.toHaveProperty('geminiCallbackUrls');
+  expect(environment.OAUTH_CLIENT_IDS).toEqual({ 'Fn::Join': ['', ['["', { Ref: 'ChatGptClient' }, '","', { Ref: 'ClaudeClient' }, '"]']] });
+  expect(Object.keys(template.Outputs).some(key => /secret/iu.test(key))).toBe(false);
+});
+
 it('adds a write scope only when the separate practice IAM boundary matches', () => {
   const options = mcpAppSchema.parse({ notePrefix: '', callbackUrls: ['https://chatgpt.com/connector/oauth/exact-callback-id'],
     practice: { enabled: true, writesEnabled: true, timeZone: 'Australia/Brisbane' } });

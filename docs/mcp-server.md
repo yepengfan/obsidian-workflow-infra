@@ -37,9 +37,11 @@ its read continuation; restart that selected note.
 
 `config/storage.json` supplies account, Region and Vault bucket.
 `config/mcp-runtime.json` supplies the literal note prefix, Cognito owners group
-name, separate exact ChatGPT (`callbackUrls`) and Claude (`claudeCallbackUrls`)
-callback allowlists, allowed browser origins and limits. An empty Claude callback
-list omits its app client and branding; the existing ChatGPT client remains stable.
+name, separate exact ChatGPT (`callbackUrls`), Claude (`claudeCallbackUrls`) and
+Gemini (`geminiCallbackUrls`) callback allowlists, allowed browser origins and limits.
+An empty Claude or Gemini callback list omits that app client and branding; the
+existing ChatGPT client remains stable. Gemini stays empty until the owner copies
+an exact redirect URI, so this field alone does not change the deployed clients.
 CDK manages the group structure; user accounts and membership are application
 access data managed in Cognito, without Git changes or infrastructure deployment.
 Resource identities and IAM are defined by the CDK modules; GitHub role settings
@@ -219,6 +221,71 @@ chat. A successful sign-in/code exchange does not establish owner authorization.
 See [Claude's custom connector setup](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
 for the current connector UI and redirect URI.
 
+## Gemini connection
+
+Gemini Apps uses the same HTTPS MCP endpoint, Cognito owner account, resource
+audience and read/write scope checks, with a separate `obsidian-gemini`
+confidential app client. Its client ID, secret, callbacks and refresh sessions
+are independent of ChatGPT and Claude. Creating the client grants no additional
+vault permissions and does not change who may sign in.
+
+Gemini does not have one shared callback. In the Gemini web app, open
+**Settings > Connected Apps**, add a custom app, enter the exact `McpEndpoint`,
+then open **Advanced features** or **Additional settings > Show more** and use
+**Copy redirect URI**. That URI belongs to the signed-in Google account. It is
+an exact `https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-…`
+URL. Connected Apps Platform registration can instead show up to six exact
+app-specific URIs on `oauth-redirect.googleusercontent.com`,
+`oauth-redirect-sandbox.googleusercontent.com` and
+`oauth-redirect-test.googleusercontent.com`, each under `/r/<id>` or `/a/<id>`.
+The `*` forms in Google's OAuth guide are patterns. Cognito cannot register
+them, and this configuration rejects wildcards, other hosts, query strings,
+fragments and the Gemini Enterprise callback
+`https://vertexaisearch.cloud.google.com/oauth-redirect`.
+
+1. Copy the redirect URI from Gemini. Do not invent the Google user id or the
+   host suffix. Put that exact URI, and only the other exact URIs Gemini shows
+   for this app, in `geminiCallbackUrls`. Leave the list empty until then.
+   Keep ChatGPT `callbackUrls` and Claude `claudeCallbackUrls` unchanged.
+   Deploy this support before relying on a three-client allowlist: Lambda
+   accepts at most the ChatGPT client plus the optional Claude and Gemini
+   clients, and `OAUTH_CLIENT_ID` remains ChatGPT's ID for the previous
+   single-client fallback.
+2. Review and deploy through the normal Plan / production Apply workflow. CDK
+   adds `GeminiClient` and `GeminiLoginBranding` only when the list is
+   non-empty, exports `GeminiClientId`, and appends that ID to
+   `OAUTH_CLIENT_IDS`. No secret is exported or stored in Lambda. The client
+   uses the same authorization-code flow, scopes, attribute reads and
+   seven-day refresh token as Claude. It is a confidential client
+   (`generateSecret`); public clients and anonymous authentication stay
+   disabled. The existing execution-role policy already covers this resource
+   type in the managed pool.
+3. In Gemini, enter `GeminiClientId` and the client secret revealed from
+   **App clients > obsidian-gemini** in Cognito Console. Dynamic client
+   registration is not enabled. Do not put the secret in Git, chat, logs or
+   stack outputs.
+4. Requests that include an `Origin` header must pass `allowedOrigins`. An
+   approved callback does not add an origin. When the browser sends
+   `https://gemini.google.com`, add that exact origin in the same reviewed
+   configuration change. Unknown origins remain rejected before note access.
+5. Gemini must send the canonical `McpEndpoint` as the OAuth `resource`
+   (RFC 8707) on authorize and token requests, with `response_type=code`,
+   S256 PKCE and the client secret. Cognito's discovery document must keep
+   advertising `code`, `S256` and `client_secret_basic` or
+   `client_secret_post`. A public `none` client would fail that check; do not
+   add it to make Gemini connect. The server still requires the access token's
+   `aud` to equal `McpEndpoint`, an allowlisted `client_id`, `openid` and the
+   resource-bound scopes. Missing audience or scopes fail closed.
+
+The deployment checker probes each configured Gemini callback with
+`GeminiClientId`, without login or token exchange. It does not prove Gemini's
+live code exchange. Complete the connection checks below after approved Apply.
+Existing ChatGPT and Claude connections keep their current client IDs, secrets
+and callbacks.
+
+See [Connect custom apps in Gemini Apps](https://support.google.com/gemini/answer/17209137)
+and [Connected Apps OAuth](https://developers.google.com/connected-apps/mcp/oauth).
+
 ## Connection verification
 
 The public `/.well-known/oauth-protected-resource/mcp` document identifies the
@@ -279,4 +346,6 @@ Sources: [OpenAI MCP authentication](https://developers.openai.com/plugins/build
 [MCP Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports),
 [Cognito resource binding](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-define-resource-servers.html),
 [Cognito group claims](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-user-groups.html),
-[Cognito token and refresh behavior](https://docs.aws.amazon.com/cognito/latest/developerguide/token-endpoint.html).
+[Cognito token and refresh behavior](https://docs.aws.amazon.com/cognito/latest/developerguide/token-endpoint.html),
+[Gemini Apps custom apps](https://support.google.com/gemini/answer/17209137),
+[Connected Apps OAuth](https://developers.google.com/connected-apps/mcp/oauth).
