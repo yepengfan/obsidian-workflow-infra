@@ -276,7 +276,8 @@ live code exchange. Complete the connection checks below after approved Apply.
 Existing ChatGPT and Claude connections keep their current client IDs, secrets
 and callbacks.
 
-See [Connect custom apps in Gemini Apps](https://support.google.com/gemini/answer/17209137).
+Check [Google's current availability requirements and setup instructions](https://support.google.com/gemini/answer/17209137)
+before configuring the connection.
 
 ## Connection verification
 

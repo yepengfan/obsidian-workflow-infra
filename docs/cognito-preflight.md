@@ -119,9 +119,11 @@ registry's optional KMS and CloudFront handler permissions are not granted.
 
 ## Authentication checks after the probe
 
-The [runtime connection guide](mcp-server.md#owner-setup-and-chatgpt-connection)
-owns predefined-client setup and the required live authentication checks for
-ChatGPT and [Claude](mcp-server.md#claude-connection).
+The runtime connection guide owns predefined-client setup for
+[ChatGPT](mcp-server.md#owner-setup-and-chatgpt-connection),
+[Claude](mcp-server.md#claude-connection) and
+[Gemini](mcp-server.md#gemini-connection), and the required
+[live authentication checks](mcp-server.md#connection-verification).
 Discovery alone does not prove authorization-code/PKCE, token audience, refresh
 or owner-only access.
 
