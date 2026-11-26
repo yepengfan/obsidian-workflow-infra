@@ -29,6 +29,7 @@ export const practiceDomains = {
 } satisfies Record<PracticeDomain, { label: string; flow: string; module: string; root: string; writes: string[]; documents: string[] }>;
 
 export const DESIGN_COACHING_LOG = practiceDomains['system-design'].root + 'Log/coaching-rounds.md';
+export const DESIGN_PROFILE = practiceDomains['system-design'].root + 'Profile.md';
 
 export function practiceDocuments(domain: PracticeDomain) {
   const definition = practiceDomains[domain];
@@ -38,7 +39,7 @@ export function practiceDocuments(domain: PracticeDomain) {
 export const CANVAS_REVIEW_PREFIX = 'Learning/Practice/.canvas-reviews/';
 export const practiceWriteResources = ['Learning/Practice/Review/Items/*.md',
   ...Object.values(practiceDomains).flatMap(domain => domain.writes.map(path => domain.root + path)),
-  CANVAS_REVIEW_PREFIX + '*.md'];
+  DESIGN_PROFILE, CANVAS_REVIEW_PREFIX + '*.md'];
 
 export function practiceNoteDomain(path: string): PracticeDomain {
   validPath(path);

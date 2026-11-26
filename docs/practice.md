@@ -119,14 +119,20 @@ practice write tools.
 | `practice_reviews` | Read one domain's complete review queue from the index. An explicit domain is required on every call. |
 | `practice_review` | Return a neutral prompt and revision; feedback phase may include history. |
 | `practice_read_note` | Read one complete bounded Algorithm or System Design note and its revision for a potential edit. |
+| `practice_design_outline` | Return in-scope follow-ups and canonical evidence; see [System Design evidence](#system-design-evidence). |
 | `practice_design_template` | Draft unsaved session progress, Excalidraw files and native `canvas.drawing` data for a new System Design topic. |
 | `practice_design_canvas` | Read the exact selected session canvas as native drawing data, with its source revision; supports plain JSON and legacy compressed-json without saving. |
 | `practice_add_review` | Create an unstarted review object without overwriting an existing one. |
 | `practice_record_review` | Append an ended attempt/reflection and calculate scheduling deterministically. |
+| `practice_finish_round` | Close out a confirmed round, including System Design assessment and profile saves. |
+| `practice_rebuild_design_profile` | Rebuild the generated index; see [System Design evidence](#system-design-evidence). |
+| `practice_recalculate_design_reviews` | Persist the cutover normalization described in [Queue and schedule](#queue-and-schedule). |
+| `practice_stage_canvas` | Stage a reviewed drawing and return its snapshot receipt. |
+| `practice_save_canvas` | Conditionally save a reviewed drawing and verify it by reading it back. |
 | `practice_create_note` | Create an approved practice data Markdown file if absent. |
 | `practice_update_note` | Apply selected unique text-anchor edits with an expected revision. |
 
-The five write tools are absent from the catalog while writes are disabled.
+Write tools are absent from the catalog while writes are disabled.
 Every write requires both the resource-bound read and write scopes and owners
 group membership. Tool annotations request careful host handling but are not
 proof of human approval. The workflow requires showing the intended change and
@@ -199,8 +205,10 @@ selected-review and record operations.
 The index trails note saves by seconds. Before returning, every due or unstarted
 row is confirmed against its note's current revision, at most four reads at a
 time. A changed note replaces its row, so a just-recorded round never reappears
-as due. Upcoming rows are returned without reading notes; the daily reconcile
-bounds their staleness. A newly added review can take a few seconds to appear.
+as due. Upcoming Algorithm rows are returned without reading notes; the daily
+reconcile bounds their staleness. System Design also confirms upcoming rows and
+normalizes their schedules as described below. A newly added review can take a
+few seconds to appear.
 An unreadable index returns `review_index_unavailable`, and a malformed due note
 returns an error, never a false empty queue. Refresh after recording a round.
 
@@ -210,7 +218,7 @@ reflection history and post-attempt focus. Feedback is requested after the
 independent attempt. The owner still has ordinary note-read access; the phase
 separation is a coaching rule, not an access control against the owner.
 
-The backend follows the canonical scheduling policy:
+Algorithm reviews follow the canonical outcome-based scheduling policy:
 
 - First independent completion: first interval from actual completion day.
 - On-time/late independent completion: advance one interval, capped at the last.
@@ -220,6 +228,28 @@ The backend follows the canonical scheduling policy:
   interval. Archived items leave the queue and refuse further review records.
 - Early independent extra practice: keep the existing due date and stage.
 - Assisted/incomplete ended round: retry interval, preserving the stage.
+
+System Design advances by completed round, including early and late completions.
+Rounds 1 and 2 are guided, rounds 3 through 6 are mock interviews, and round 6
+also requires a summary citing existing observations without creating a new
+observation. The first five completions
+schedule the configured intervals from the actual completion date; the sixth
+always archives, independently of `archive_after_final`. An ended incomplete
+attempt retries without advancing the completed round count. A paused session
+remains a checkpoint, without a review record.
+System Design may omit outcome; older assisted and independent outcomes still
+count as completions. Retrying a registered attempt ID does not advance again,
+including after archive.
+
+System Design queue and item reads replay complete saved history, including
+upcoming indexed rows, without writing. At cutover, the write-authorized
+`practice_recalculate_design_reviews` tool conditionally persists that same
+normalization for every indexed active System Design item. It preserves history
+and historical completion dates, including the final archive date. Repeating it
+does not rewrite already normalized notes. A concurrent edit rejects that write;
+refresh and retry. Run this migration against a temporary vault copy and review
+the resulting dates and archive statuses before authorizing it against the live
+vault. The asynchronous index updates from the persisted notes.
 
 Defaults are 1/3/7/14/60 days, a one-day retry and archiving after the final
 interval, read from the live manifest. `archive_after_final` defaults to false
@@ -239,9 +269,10 @@ existing item's due date, stage or review count. Preserve the session's original
 started date and resume its saved progress when the learner continues.
 
 Pausing or reaching the end of a day is not an `incomplete` outcome. That outcome
-is for an actually ended round assessed as incomplete. Only
-`practice_record_review`, after an ended round, learner reflection and confirmed
-saving, calculates the next due date. A paused existing review may remain due or
+is for an actually ended round assessed as incomplete. Use
+`practice_finish_round` after an ended round, learner reflection and confirmed
+saving; it delegates scheduling to the same registration flow as
+`practice_record_review`. A paused existing review may remain due or
 overdue until that recording succeeds.
 
 For example, start on November 12, save checkpoints on November 13 and 14, and
@@ -270,17 +301,18 @@ validation, workflow import and IAM synthesis:
 Review attempts use their dedicated tools. The shared review folder remains
 unchanged; the backend enforces each record's domain. Configuration, guides,
 indexes, templates, reference articles, shared attachments and other session
-files are not writable. Multiple note saves are independent operations. Report
-each result honestly, including partial success.
+files are not writable through generic note tools. The generated profile uses
+the dedicated [evidence flow](#system-design-evidence). Multiple note saves are
+independent operations. Report each result honestly, including partial success.
 
 ## System Design coaching modes
 
-The stable review item tracks completed full rounds for each topic. Its first two
-rounds use guided learning, followed by the first and second configured intervals
-(defaults 1 and 3 days). The third round begins independent mock interviews and
-uses the usual promotion/retry schedule. A paused session keeps its UUID and mode.
+The stable review item tracks completed full rounds for each topic. See
+[Queue and schedule](#queue-and-schedule) for round modes, intervals and archive
+rules. A paused session keeps its UUID and mode.
 `practice_record_review` saves the outcome, count and schedule in one conditional
-write. Review queues and prompts return the next round and default coaching mode.
+write. Review queues and prompts return the next round, default coaching mode,
+and `summary_required` for the final mock interview.
 For older items, the service derives completions from dated English or Chinese
 round entries. The next confirmed record persists the derived state.
 
@@ -417,3 +449,43 @@ single-call queues. An in-memory index models indexer lag. Instructions define t
 handoff behavior; tests do not execute an LLM. After deployment and metadata
 refresh, verify those decisions in a fresh ChatGPT conversation before claiming
 host acceptance.
+
+## System Design evidence
+
+System Design registration accepts and returns question-level `concept_ids`.
+Use `practice_design_outline` with the registered `id`, or with `concept_ids`
+before registration. It limits probes and variants to those concepts and returns
+canonical assessment evidence. Uncovered concepts have no prior evidence.
+
+Submit structured `concept_observations` through `practice_finish_round` with the
+session's `progress_path`; standalone `practice_record_review` rejects nonempty
+structured evidence. Closeout remains pending until assessment and profile writes
+succeed. `practice_rebuild_design_profile` regenerates the profile from progress
+assessment fences, including older corrections, without advancing any round.
+The generated index lives at `Learning/Practice/System-Design/Profile.md`.
+Profile replacement is conditional and preserves a concurrent writer's version.
+
+Same-day observations use optional `evidence_order` when the answer order is known.
+Unordered legacy evidence retains stable session-path order and saved order within
+each assessment. Unordered observations keep their encounter positions while
+explicitly ordered observations are sorted within that day’s ordered positions. Attempt IDs do
+not establish chronology. Earlier observations remain in the profile snapshot.
+A finalized finish retry preserves corrected assessments. An authorized finish
+can attach supplied concepts to a System Design question whose concept list is
+empty, without replacing an existing nonempty list.
+
+Observation `date` is the answer day, preserved independently of round completion.
+Completion day is used only when no answer date is recorded. Valid undated
+observations in another unfinished WIP session are deferred until its completion
+date exists, preserving that assessment. Finish preflight uses the selected
+session's supplied completion date. A recognized `practice-observations` fence
+with an invalid date or performance fails validation before finish writes or
+profile replacement; correct the assessment before retrying.
+
+Only learner answers contribute mastery conclusions; interviewer answers do not.
+Observations are deduplicated by `observation_id`; the latest evidenced answer
+sets each concept's current conclusion while contrary evidence is retained.
+`error_id` identifies a recurring error across weak or partial answers in distinct
+attempts, including across different concepts; summaries remain descriptions,
+not identities. Generic practice note writes reject the
+profile. Only finish-triggered and explicit rebuilds replace that generated index.

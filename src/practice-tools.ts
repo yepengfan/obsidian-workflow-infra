@@ -5,6 +5,7 @@ import { readToolSecurity, writeToolSecurity, type McpSkill, type SkillContext }
 import type { Settings } from './config.js';
 import { addReviewSchema, domainSchema, finishRoundSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
 import { canvasToolMetadata, registerCanvasWidget } from './practice-canvas-widget.js';
+import { conceptIdSchema } from './design-profile.js';
 import { designSessionSchema } from './design-session.js';
 import type { ReviewIndex, SessionIndex } from './review-index.js';
 
@@ -29,6 +30,9 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   server.registerTool('practice_read_note', { ...readSecurity, outputSchema,
     description: 'Read one bounded Algorithm or System Design practice note with its revision for a later conditional update. Larger notes must use read_note chunks; no partial overwrite is allowed.',
     inputSchema: z.strictObject({ path: z.string().max(1024) }) }, input => result(() => practice.readNote(input.path)));
+  server.registerTool('practice_design_outline', { ...readSecurity, outputSchema,
+    description: 'Build in-scope System Design follow-ups from the registered question concept IDs or explicit concepts for a new question. Returns problem concepts first, weak or uncovered probes, then mastered variants with canonical assessment evidence.',
+    inputSchema: z.strictObject({ id: slugSchema.optional(), concept_ids: z.array(conceptIdSchema).max(50).optional() }) }, input => result(() => practice.outline(input)));
   registerCanvasWidget(server, settings.practice.writesEnabled);
   const canvasSecurity = { ...readSecurity, _meta: { ...readSecurity._meta, ...canvasToolMetadata } };
   server.registerTool('practice_design_template', { ...canvasSecurity, outputSchema,
@@ -41,6 +45,12 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   const writeSecurity = writeToolSecurity(settings);
   const write = (work: () => Promise<object>) => result(async () => { await authorizeWrite(); return work(); });
   const canvasPath = z.string().max(1024);
+  server.registerTool('practice_rebuild_design_profile', { ...writeSecurity, outputSchema,
+    description: 'Rebuild the System Design profile atomically from canonical observation fences in all session assessments, including corrected older assessments.',
+    inputSchema: z.strictObject({}) }, () => write(() => practice.rebuildDesignProfile()));
+  server.registerTool('practice_recalculate_design_reviews', { ...writeSecurity, outputSchema,
+    description: 'Persist completed-round scheduling for all indexed active System Design reviews at cutover. Preserves historical entries and dates. Replays final-round archive status. Conditional writes reject concurrent edits; retry safely after refreshing the index. First prove the migration on a temporary vault copy before authorizing the live migration.',
+    inputSchema: z.strictObject({}) }, () => write(() => practice.recalculateDesignReviews()));
   server.registerTool('practice_stage_canvas', { ...writeSecurity, outputSchema,
     _meta: { ...writeSecurity._meta, ui: { visibility: ['app', 'model'] }, 'openai/widgetAccessible': true },
     description: 'Stage a complete reviewed Excalidraw scene for a later confirmed save. For an older canvas use this only if the exact full scene is available. Returns a snapshot receipt.',
