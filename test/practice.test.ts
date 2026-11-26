@@ -1448,3 +1448,34 @@ it('repeats error IDs across concepts and distinct attempts without mixing concl
   expect(text).toContain('## shard.routing\n\nCurrent: weak. Lost routing after a shard failure.');
   expect(text).toContain('## queue.delivery\n\nCurrent: weak. Dropped messages on consumer failure.');
 });
+
+it.each([
+  { label: 'undated valid evidence', overrides: {}, valid: true },
+  { label: 'invalid answer date', overrides: { date: '2026-02-30' }, valid: false },
+  { label: 'invalid performance', overrides: { performance: 'excellent' }, valid: false },
+])('handles $label on first finish before writing state', async ({ overrides, valid }) => {
+  const { practice, store } = setup();
+  const progress_path = 'Learning/Practice/System-Design/Solutions/first-evidence/progress.md';
+  const profile = root + 'Learning/Practice/System-Design/Profile.md';
+  const observation = { observation_id: 'first-evidence', attempt_id: 'first-evidence', concept_id: 'cache.expiry',
+    performance: 'weak', summary: 'No expiration.', anchor: 'Assessment', ...overrides };
+  await practice.createNote(progress_path, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) +
+    '---\n## Assessment\n```practice-observations\n' + stringify([observation]) + '```\n');
+  store.files.set(profile, 'Existing profile');
+  const payload = finishRoundSchema.parse({ topic: designRequest, progress_path, attempt: {
+    attempt_id: 'first-evidence', completed_on: '2026-11-14', reflection: 'Actual answer.',
+  } });
+  const before = new Map(store.files);
+  const writeCount = store.writes.length;
+  if (!valid) {
+    await expect(practice.finishRound(payload)).rejects.toThrow();
+    expect(store.files).toEqual(before);
+    expect(store.writes).toHaveLength(writeCount);
+    return;
+  }
+  await expect(practice.finishRound(payload)).resolves.toMatchObject({ verified: true, review_count: 1 });
+  const saved = parseFrontmatter(store.files.get(root + progress_path)!)!;
+  expect(saved.metadata).toMatchObject({ round_completed_on: '2026-11-14', tags: ['system-design/done'] });
+  expect(parseObservations(saved.body)).toMatchObject([{ observation_id: 'first-evidence', date: '2026-11-14' }]);
+  expect(parseObservations(store.files.get(profile)!)).toMatchObject([{ observation_id: 'first-evidence', date: '2026-11-14' }]);
+});

@@ -197,7 +197,7 @@ export class Practice {
         (metadata.review_item_id != null && metadata.review_item_id !== topic.id) ||
         (metadata.round_completed_on && metadata.round_completed_on !== attempt.completed_on)) throw new PracticeError('session_round_mismatch');
       if (metadata.confirmed_registration && !isDeepStrictEqual(metadata.confirmed_registration, { topic, attempt })) throw new PracticeError('confirmed_registration_mismatch');
-      await this.assessmentObservations();
+      await this.assessmentObservations({ progressPath: progress_path, completedOn: attempt.completed_on });
       if (tags.includes('system-design/wip') && !metadata.confirmed_registration) {
         await this.notes.put(progress_path, serialize({ ...metadata, round_id: attempt.attempt_id, review_item_id: topic.id,
           round_completed_on: attempt.completed_on, confirmed_registration: { topic, attempt } }, body), note.revision);
@@ -251,7 +251,7 @@ export class Practice {
     await this.rebuildDesignProfile();
   }
 
-  private async assessmentObservations() {
+  private async assessmentObservations(session?: { progressPath: string; completedOn: string }) {
     const root = this.settings.prefix + practiceDomains['system-design'].root + 'Solutions/';
     const observations: StoredObservation[] = [];
     let cursor: string | undefined;
@@ -263,9 +263,10 @@ export class Practice {
         do {
           const children = await this.store.list(folder, 100, next, this.signal);
           if (children.notes.some(note => note.key === folder + 'progress.md')) {
-            const note = await this.read((folder + 'progress.md').slice(this.settings.prefix.length));
+            const progressPath = (folder + 'progress.md').slice(this.settings.prefix.length);
+            const note = await this.read(progressPath);
             const parsed = parsePracticeNote(note.text);
-            const completed = dateSchema.safeParse(parsed.metadata.round_completed_on);
+            const completed = dateSchema.safeParse(progressPath === session?.progressPath ? session.completedOn : parsed.metadata.round_completed_on);
             observations.push(...parseObservations(parsed.body, completed.success ? completed.data : undefined));
           }
           next = children.next;
