@@ -10,6 +10,7 @@ export const conceptObservationSchema = z.strictObject({
   summary: z.string().trim().min(1).max(500),
   anchor: z.string().trim().min(1).max(200),
   learner: z.boolean().default(true),
+  evidence_order: z.number().int().nonnegative().optional(),
 });
 
 export type ConceptObservation = z.infer<typeof conceptObservationSchema>;
@@ -32,6 +33,7 @@ export function parseObservations(body: string): StoredObservation[] {
       anchor: conceptObservationSchema.shape.anchor,
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
       learner: z.boolean().default(true),
+      evidence_order: conceptObservationSchema.shape.evidence_order,
     }).safeParse(item);
     return row.success ? [row.data] : [];
   });
@@ -46,7 +48,7 @@ export function upsertObservations(body: string, incoming: readonly StoredObserv
 
 export function orderedObservations(observations: readonly StoredObservation[]): StoredObservation[] {
   return [...new Map(observations.map(item => [item.observation_id, item])).values()]
-    .sort((a, b) => a.date.localeCompare(b.date) || a.attempt_id.localeCompare(b.attempt_id) || a.observation_id.localeCompare(b.observation_id));
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.evidence_order ?? 0) - (b.evidence_order ?? 0));
 }
 
 export function renderProfile(observations: readonly StoredObservation[]): string {

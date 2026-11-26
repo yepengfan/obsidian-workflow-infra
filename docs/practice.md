@@ -453,3 +453,11 @@ structured evidence. Closeout remains pending until assessment and profile write
 succeed. `practice_rebuild_design_profile` regenerates the profile from progress
 assessment fences, including older corrections, without advancing any round.
 Profile replacement is conditional and preserves a concurrent writer's version.
+
+Same-day observations use optional `evidence_order` when the answer order is known.
+Unordered legacy evidence retains stable session-path order and saved order within
+each assessment; missing order sorts before explicit positions. Attempt IDs do
+not establish chronology. Earlier observations remain in the profile snapshot.
+A finalized finish retry preserves corrected assessments. An authorized finish
+can attach supplied concepts to a System Design question whose concept list is
+empty, without replacing an existing nonempty list.

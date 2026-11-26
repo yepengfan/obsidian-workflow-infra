@@ -203,7 +203,11 @@ export class Practice {
       }
     }
     await this.add(topic);
-    const current = await this.item(topic.id);
+    let current = await this.item(topic.id);
+    if (topic.domain === 'system-design' && !current.item.concept_ids.length && topic.concept_ids?.length) {
+      await this.notes.put(current.path, serialize({ ...current.metadata, concept_ids: topic.concept_ids }, current.body), current.revision);
+      current = await this.item(topic.id);
+    }
     if (!current.item.attempt_ids.includes(attempt.attempt_id)) {
       const registration = { ...attempt };
       delete registration.concept_observations;
@@ -232,9 +236,11 @@ export class Practice {
 
   private async persistDesignProfile(progressPath: string, attemptId: string, date: string, observations: z.infer<typeof conceptObservationSchema>[]) {
     const note = await this.read(progressPath);
+    const { metadata, body: assessment } = parsePracticeNote(note.text);
+    const tags = Array.isArray(metadata.tags) ? metadata.tags : [metadata.tags];
+    if (tags.includes('system-design/done')) return;
     const stored: StoredObservation[] = observations.map(item => ({ ...conceptObservationSchema.parse(item), attempt_id: attemptId, date }));
-    const body = upsertObservations(parsePracticeNote(note.text).body, stored);
-    const { metadata } = parsePracticeNote(note.text);
+    const body = upsertObservations(assessment, stored);
     await this.notes.put(progressPath, serialize(metadata, body), note.revision);
     await this.rebuildDesignProfile();
   }

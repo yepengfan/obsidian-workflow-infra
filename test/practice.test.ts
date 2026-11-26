@@ -1075,7 +1075,7 @@ it('persists assessment observations and replaces Profile.md from a normal finis
   const progress = 'Learning/Practice/System-Design/Solutions/profile-round/progress.md';
   await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
   const observation = { observation_id: 'cache-expiry-01', concept_id: 'cache.expiry', performance: 'partial' as const,
-    summary: 'Bounded cache lifetime by the link expiry.', anchor: 'Assessment' };
+    summary: 'Bounded cache lifetime by the link expiry.', anchor: 'Assessment', evidence_order: 1 };
   const finished = await practice.finishRound({ topic: designRequest, progress_path: progress, attempt: {
     attempt_id: 'profile-r1', reflection: 'My actual answer.', completed_on: '2026-11-14', concept_observations: [observation] } });
   expect(finished).toMatchObject({ verified: true, review_count: 1, completed_design_rounds: 1 });
@@ -1086,7 +1086,7 @@ it('persists assessment observations and replaces Profile.md from a normal finis
   await practice.createNote(later, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
   await practice.finishRound({ topic: designRequest, progress_path: later, attempt: {
     attempt_id: 'profile-r2', reflection: 'A later answer.', completed_on: '2026-11-14', concept_observations: [{
-      ...observation, observation_id: 'cache-expiry-02', performance: 'weak', summary: 'Left the cache unbounded.' }] } });
+      ...observation, observation_id: 'cache-expiry-02', evidence_order: 2, performance: 'weak', summary: 'Left the cache unbounded.' }] } });
   const text = store.files.get(root + profile)!;
   expect(text).toContain('Current: weak');
   expect(text).toContain('Contrary evidence: 2026-11-14 cache-expiry-01 partial');
@@ -1156,7 +1156,7 @@ it('rebuilds lost profiles and corrected old assessments with date ordering and 
   expect(store.files.get(profile)).toContain('Repeated error: Corrected assessment.');
   expect(store.files.get(profile)).toContain('Current: mastered. Bounded lifetime.');
   expect(renderProfile([old, observation])).toBe(renderProfile([observation, old]));
-  expect(renderProfile([{ ...old, date: observation.date }, observation])).toBe(renderProfile([observation, { ...old, date: observation.date }]));
+  expect(parseObservations(renderProfile([{ ...old, date: observation.date }, observation])).map(row => row.observation_id)).toEqual(['older', 'newer']);
 });
 
 it('preserves a concurrent profile replacement during assessment rebuilding', async () => {
@@ -1197,4 +1197,102 @@ it('registers question concepts and delivers an in-scope evidence-backed outline
     ] });
     expect((await client.callTool({ name: 'practice_design_outline', arguments: { concept_ids: concepts } })).structuredContent).toEqual(outline.structuredContent);
   } finally { await client.close(); }
+});
+
+it('recovers and retries MCP closeout while preserving canonical ordering, corrections and legacy concepts', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { store, index } = setup(), options = settings();
+  const handler = createFetchHandler(options, { store, writer: store, verify: async () => owner,
+    verifyScope: async () => owner, skills: [practiceSkill(options, index)] });
+  const client = new Client({ name: 'canonical-closeout', version: '1' });
+  const profile = 'Learning/Practice/System-Design/Profile.md';
+  const concepts = ['cache.expiry'];
+  const call = (name: string, args: Record<string, unknown>) => client.callTool({ name, arguments: args });
+  const evidence = (observation_id: string, evidence_order: number, performance: 'weak' | 'mastered') => ({
+    observation_id, evidence_order, concept_id: concepts[0]!, performance,
+    summary: performance === 'weak' ? 'No expiry.' : 'Bounded cache lifetime.', anchor: 'Assessment', learner: true,
+  });
+  const earlier = evidence('earlier-answer', 1, 'weak');
+  const later = evidence('later-answer', 2, 'mastered');
+  const progress = 'Learning/Practice/System-Design/Solutions/A-newer/progress.md';
+  const prior = 'Learning/Practice/System-Design/Solutions/Z-older/progress.md';
+  const finish = { topic: { ...designRequest, concept_ids: concepts }, progress_path: progress, attempt: {
+    attempt_id: 'a-later', completed_on: '2026-11-14', reflection: 'Actual answer.', concept_observations: [later],
+  } };
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
+    expect((await call('practice_add_review', designRequest)).isError).not.toBe(true);
+    const key = items + designRequest.id + '.md';
+    const legacy = parseFrontmatter(store.files.get(key)!)!;
+    delete legacy.metadata.concept_ids;
+    store.files.set(key, '---\n' + stringify({ ...legacy.metadata, custom_field: 'retained' }) + '---\n' + legacy.body);
+    const review = await call('practice_review', { id: designRequest.id });
+    const revision = z.object({ revision: z.string() }).parse(review.structuredContent).revision;
+    const beforeRecord = new Map(store.files);
+    expect((await call('practice_record_review', { ...finish.attempt, id: designRequest.id, revision })).isError).toBe(true);
+    expect(store.files).toEqual(beforeRecord);
+    for (const path of [prior, progress]) expect((await call('practice_create_note', { path,
+      content: '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n',
+    })).isError).not.toBe(true);
+    expect((await call('practice_finish_round', { topic: designRequest, progress_path: prior, attempt: {
+      ...finish.attempt, attempt_id: 'z-earlier', concept_observations: [earlier],
+    } })).isError).not.toBe(true);
+    const existingProfile = store.files.get(root + profile);
+    store.beforePut = path => { if (path === root + profile) throw new NoteError('note_unavailable'); };
+    expect((await call('practice_finish_round', finish)).isError).toBe(true);
+    expect(parseFrontmatter(store.files.get(root + progress)!)!.metadata).toMatchObject({ tags: ['system-design/wip'], confirmed_registration: { topic: finish.topic, attempt: finish.attempt } });
+    expect(store.files.get(root + profile)).toBe(existingProfile);
+    delete store.beforePut;
+    expect((await call('practice_finish_round', finish)).structuredContent).toMatchObject({ verified: true, completed_design_rounds: 2 });
+    expect(parseFrontmatter(store.files.get(key)!)!.metadata).toMatchObject({ concept_ids: concepts, custom_field: 'retained' });
+    const snapshot = store.files.get(root + profile)!;
+    expect(snapshot).toContain('Current: mastered. Bounded cache lifetime.');
+    expect(parseObservations(snapshot).map(row => [row.observation_id, row.evidence_order])).toEqual([['earlier-answer', 1], ['later-answer', 2]]);
+    expect(snapshot).toContain('Contrary evidence:');
+    expect((await call('practice_design_outline', { id: designRequest.id })).structuredContent).toMatchObject({
+      problem_concepts: concepts, follow_ups: [{ concept_id: concepts[0], performance: 'mastered', kind: 'variant' }],
+    });
+    store.files.delete(root + profile);
+    expect((await call('practice_rebuild_design_profile', {})).isError).not.toBe(true);
+    expect(store.files.get(root + profile)).toBe(snapshot);
+    store.files.set(root + profile, 'Stale profile');
+    expect((await call('practice_rebuild_design_profile', {})).isError).not.toBe(true);
+    expect(store.files.get(root + profile)).toBe(snapshot);
+    const read = await call('practice_read_note', { path: progress });
+    const correctedRevision = z.object({ revision: z.string() }).parse(read.structuredContent).revision;
+    expect((await call('practice_update_note', { path: progress, revision: correctedRevision, edits: [
+      { old: 'performance: mastered', replacement: 'performance: weak' },
+      { old: 'summary: Bounded cache lifetime.', replacement: 'summary: No expiry.' },
+    ] })).isError).not.toBe(true);
+    expect((await call('practice_rebuild_design_profile', {})).isError).not.toBe(true);
+    const corrected = new Map(store.files);
+    expect(store.files.get(root + profile)).toContain('Repeated error: No expiry.');
+    expect((await call('practice_finish_round', finish)).structuredContent).toMatchObject({ verified: true, completed_design_rounds: 2 });
+    expect(store.files).toEqual(corrected);
+    expect((await call('practice_design_outline', { id: designRequest.id })).structuredContent).toMatchObject({
+      follow_ups: [{ performance: 'weak', kind: 'probe' }],
+    });
+  } finally { await client.close(); }
+});
+
+
+it('retains legacy same-day session and saved observation order without ordering by attempt IDs', async () => {
+  const { practice, store } = setup();
+  const profile = root + 'Learning/Practice/System-Design/Profile.md';
+  const observation: StoredObservation = { observation_id: 'first', attempt_id: 'z-first', date: '2026-11-14',
+    concept_id: 'cache.expiry', performance: 'weak', summary: 'No expiry.', anchor: 'Assessment', learner: true };
+  const save = (folder: string, rows: StoredObservation[]) => store.files.set(root + `Learning/Practice/System-Design/Solutions/${folder}/progress.md`,
+    '---\ntopic: Cache\n---\n## Assessment\n```practice-observations\n' + stringify(rows) + '```\n');
+  save('Z-last', [{ ...observation, observation_id: 'last', attempt_id: 'a-last', performance: 'mastered', summary: 'Bounded lifetime.' }]);
+  save('A-first', [observation, { ...observation, observation_id: 'second', attempt_id: 'b-second' }]);
+  await practice.rebuildDesignProfile();
+  const snapshot = store.files.get(profile)!;
+  expect(parseObservations(snapshot).map(row => row.observation_id)).toEqual(['first', 'second', 'last']);
+  expect(snapshot).toContain('Current: mastered. Bounded lifetime.');
+  expect(snapshot).toContain('Repeated error: No expiry.');
+  const outline = await practice.outline({ concept_ids: ['cache.expiry'] });
+  expect(outline.follow_ups[0]).toMatchObject({ performance: 'mastered', kind: 'variant' });
+  expect(outline.follow_ups[0]!.evidence.map(row => row.observation_id)).toEqual(['first', 'second', 'last']);
 });
