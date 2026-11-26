@@ -9,8 +9,9 @@ import type { Settings } from './config.js';
 import { NoteError } from './paths.js';
 import type { NoteReader, NoteWriter } from './note-store.js';
 import { PracticeError } from './errors.js';
-import { CANVAS_REVIEW_PREFIX, type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
+import { CANVAS_REVIEW_PREFIX, DESIGN_PROFILE, type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
+import { conceptObservationSchema, parseObservations, renderProfile, upsertObservations, type StoredObservation } from './design-profile.js';
 import { readDesignCanvas, parseScene, writeDesignCanvas } from './design-canvas.js';
 import { dateSchema, REVIEW_ITEMS_PREFIX, reviewSummarySchema as summarySchema, slugSchema, type ReviewSummary } from './practice-schema.js';
 import { parsePracticeNote, PracticeNotes } from './practice-note.js';
@@ -28,7 +29,8 @@ export const addReviewSchema = z.strictObject({ id: slugSchema, domain: domainSc
 export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: revisionSchema,
   attempt_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u).max(128),
   outcome: z.enum(['independent', 'assisted', 'incomplete']).optional(), reflection: requiredText,
-  completed_on: dateSchema, submission: text.optional(), observations: text.optional() });
+  completed_on: dateSchema, submission: text.optional(), observations: text.optional(),
+  concept_observations: z.array(conceptObservationSchema).max(20).optional() });
 export const finishRoundSchema = z.strictObject({
   topic: addReviewSchema, attempt: recordReviewSchema.omit({ id: true, revision: true }),
   progress_path: z.string().max(1024).optional(),
@@ -218,7 +220,28 @@ export class Practice {
           tags: tags.map(tag => tag === 'system-design/wip' ? 'system-design/done' : tag) }, body), note.revision);
       } else if (!tags.includes('system-design/done')) throw new PracticeError('session_round_mismatch');
     }
+    if (topic.domain === 'system-design' && progress_path && attempt.concept_observations?.length) {
+      await this.persistDesignProfile(progress_path, attempt.attempt_id, attempt.completed_on, attempt.concept_observations);
+    }
     return { ...summarySchema.parse(verified.item), attempt_id: attempt.attempt_id, verified: true };
+  }
+
+  private async persistDesignProfile(progressPath: string, attemptId: string, date: string, observations: z.infer<typeof conceptObservationSchema>[]) {
+    const note = await this.read(progressPath);
+    const stored: StoredObservation[] = observations.map(item => ({ ...conceptObservationSchema.parse(item), attempt_id: attemptId, date }));
+    const body = upsertObservations(parsePracticeNote(note.text).body, stored);
+    const { metadata } = parsePracticeNote(note.text);
+    await this.notes.put(progressPath, serialize(metadata, body), note.revision);
+    let prior: StoredObservation[] = [];
+    let revision: string | undefined;
+    try {
+      const profile = await this.read(DESIGN_PROFILE);
+      prior = parseObservations(profile.text);
+      revision = profile.revision;
+    } catch (error) { if (!(error instanceof NoteError) || error.code !== 'note_unavailable') throw error; }
+    const merged = new Map(prior.map(item => [item.observation_id, item]));
+    for (const item of stored) merged.set(item.observation_id, item);
+    await this.notes.put(DESIGN_PROFILE, renderProfile([...merged.values()]), revision);
   }
 
   async readNote(path: string) {

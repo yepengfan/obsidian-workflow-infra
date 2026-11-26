@@ -29,6 +29,7 @@ export const practiceDomains = {
 } satisfies Record<PracticeDomain, { label: string; flow: string; module: string; root: string; writes: string[]; documents: string[] }>;
 
 export const DESIGN_COACHING_LOG = practiceDomains['system-design'].root + 'Log/coaching-rounds.md';
+export const DESIGN_PROFILE = practiceDomains['system-design'].root + 'Profile.md';
 
 export function practiceDocuments(domain: PracticeDomain) {
   const definition = practiceDomains[domain];
@@ -48,6 +49,7 @@ export function practiceNoteDomain(path: string): PracticeDomain {
 }
 
 export function validatePracticeWritePath(path: string): PracticeDomain {
+  if (path === DESIGN_PROFILE) return 'system-design';
   const domain = practiceNoteDomain(path), definition = practiceDomains[domain];
   const relative = path.slice(definition.root.length);
   const allowed = definition.writes.some(pattern => new RegExp('^' + pattern.split('*')

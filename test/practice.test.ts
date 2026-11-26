@@ -1051,3 +1051,27 @@ it.each(['practice_record_review', 'practice_finish_round'])('rejects extra publ
     expect((await client.callTool({ name, arguments: payload() })).structuredContent).toMatchObject({ review_count: 1 });
   } finally { await client.close(); }
 });
+
+it('persists assessment observations and replaces Profile.md from a normal finish', async () => {
+  const { store, practice } = setup();
+  const progress = 'Learning/Practice/System-Design/Solutions/profile-round/progress.md';
+  await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+  const observation = { observation_id: 'cache-expiry-01', concept_id: 'cache.expiry', performance: 'partial' as const,
+    summary: 'Bounded cache lifetime by the link expiry.', anchor: 'Assessment' };
+  const finished = await practice.finishRound({ topic: designRequest, progress_path: progress, attempt: {
+    attempt_id: 'profile-r1', reflection: 'My actual answer.', completed_on: '2026-11-14', concept_observations: [observation] } });
+  expect(finished).toMatchObject({ verified: true, review_count: 1, completed_design_rounds: 1 });
+  expect(store.files.get(root + progress)).toContain('observation_id: cache-expiry-01');
+  const profile = 'Learning/Practice/System-Design/Profile.md';
+  expect(store.files.get(root + profile)).toContain('Current: partial');
+  const later = 'Learning/Practice/System-Design/Solutions/profile-round-2/progress.md';
+  await practice.createNote(later, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+  await practice.finishRound({ topic: designRequest, progress_path: later, attempt: {
+    attempt_id: 'profile-r2', reflection: 'A later answer.', completed_on: '2026-11-14', concept_observations: [{
+      ...observation, observation_id: 'cache-expiry-02', performance: 'weak', summary: 'Left the cache unbounded.' }] } });
+  const text = store.files.get(root + profile)!;
+  expect(text).toContain('Current: weak');
+  expect(text).toContain('Contrary evidence: 2026-11-14 cache-expiry-01 partial');
+  expect(validatePracticeWritePath(profile)).toBe('system-design');
+  expect(() => validatePracticeWritePath('Learning/Practice/System-Design/AGENTS.md')).toThrow('invalid_path');
+});
