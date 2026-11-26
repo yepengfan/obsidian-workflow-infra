@@ -23,13 +23,15 @@ const storedObservationSchema = conceptObservationSchema.extend({ attempt_id: z.
 
 const fence = /```practice-observations\r?\n([\s\S]*?)```/u;
 
-export function parseObservations(body: string, completionDate?: string): StoredObservation[] {
+export function parseObservations(body: string, completionDate?: string, options: { deferUndated?: boolean } = {}): StoredObservation[] {
   const match = fence.exec(body);
   if (!match) return [];
   const parsed = parse(match[1] ?? '');
-  return z.array(storedObservationSchema).parse(parsed).map(row => ({
-    ...row, date: dateSchema.parse(row.date ?? completionDate),
-  }));
+  return z.array(storedObservationSchema).parse(parsed).flatMap(row => {
+    const date = row.date ?? completionDate;
+    if (date === undefined && options.deferUndated) return [];
+    return [{ ...row, date: dateSchema.parse(date) }];
+  });
 }
 
 export function upsertObservations(body: string, incoming: readonly StoredObservation[], completionDate?: string): string {

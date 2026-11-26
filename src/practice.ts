@@ -267,7 +267,10 @@ export class Practice {
             const note = await this.read(progressPath);
             const parsed = parsePracticeNote(note.text);
             const completed = dateSchema.safeParse(progressPath === session?.progressPath ? session.completedOn : parsed.metadata.round_completed_on);
-            observations.push(...parseObservations(parsed.body, completed.success ? completed.data : undefined));
+            const tags = Array.isArray(parsed.metadata.tags) ? parsed.metadata.tags : [parsed.metadata.tags];
+            observations.push(...parseObservations(parsed.body, completed.success ? completed.data : undefined, {
+              deferUndated: parsed.metadata.round_completed_on == null && tags.includes('system-design/wip'),
+            }));
           }
           next = children.next;
         } while (next);

@@ -1479,3 +1479,45 @@ it.each([
   expect(parseObservations(saved.body)).toMatchObject([{ observation_id: 'first-evidence', date: '2026-11-14' }]);
   expect(parseObservations(store.files.get(profile)!)).toMatchObject([{ observation_id: 'first-evidence', date: '2026-11-14' }]);
 });
+
+it.each([
+  { label: 'valid undated evidence', overrides: {}, valid: true },
+  { label: 'explicit invalid date', overrides: { date: '2026-02-30' }, valid: false },
+  { label: 'explicit invalid performance', overrides: { performance: 'excellent' }, valid: false },
+])('handles another unfinished session with $label', async ({ overrides, valid }) => {
+  const { practice, store } = setup();
+  const profile = root + 'Learning/Practice/System-Design/Profile.md';
+  const progress_path = 'Learning/Practice/System-Design/Solutions/current-session/progress.md';
+  const otherPath = 'Learning/Practice/System-Design/Solutions/other-session/progress.md';
+  const observation = { observation_id: 'current-answer', attempt_id: 'current-session', concept_id: 'cache.expiry',
+    performance: 'weak', summary: 'No expiration.', anchor: 'Assessment' };
+  const assessment = (rows: object[]) => '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) +
+    '---\n## Assessment\n```practice-observations\n' + stringify(rows) + '```\n';
+  await practice.createNote(progress_path, assessment([observation]));
+  await practice.createNote(otherPath, assessment([{ ...observation, observation_id: 'other-answer', attempt_id: 'other-session', ...overrides }]));
+  store.files.set(profile, 'Existing profile');
+  const before = new Map(store.files);
+  const writeCount = store.writes.length;
+  const payload = finishRoundSchema.parse({ topic: designRequest, progress_path, attempt: {
+    attempt_id: 'current-session', completed_on: '2026-11-14', reflection: 'Actual answer.',
+  } });
+  if (!valid) {
+    await expect(practice.finishRound(payload)).rejects.toThrow();
+    await expect(practice.outline({ concept_ids: ['cache.expiry'] })).rejects.toThrow();
+    await expect(practice.rebuildDesignProfile()).rejects.toThrow();
+    expect(store.files).toEqual(before);
+    expect(store.writes).toHaveLength(writeCount);
+    return;
+  }
+  expect(await practice.rebuildDesignProfile()).toMatchObject({ rebuilt: true, observations: 0 });
+  expect((await practice.outline({ concept_ids: ['cache.expiry'] })).follow_ups[0]).toMatchObject({ performance: 'uncovered', evidence: [] });
+  expect(await practice.finishRound(payload)).toMatchObject({ verified: true, review_count: 1 });
+  const saved = parseFrontmatter(store.files.get(root + progress_path)!)!;
+  expect(saved.metadata).toMatchObject({ round_completed_on: '2026-11-14', tags: ['system-design/done'] });
+  expect(parseObservations(saved.body)).toMatchObject([{ observation_id: 'current-answer', date: '2026-11-14' }]);
+  const outline = await practice.outline({ concept_ids: ['cache.expiry'] });
+  expect(outline.follow_ups[0]).toMatchObject({ performance: 'weak', evidence: [{ observation_id: 'current-answer', date: '2026-11-14' }] });
+  expect(await practice.rebuildDesignProfile()).toMatchObject({ rebuilt: true, observations: 1 });
+  expect(parseObservations(store.files.get(profile)!)).toMatchObject([{ observation_id: 'current-answer', date: '2026-11-14' }]);
+  expect(store.files.get(root + otherPath)).toBe(before.get(root + otherPath));
+});
