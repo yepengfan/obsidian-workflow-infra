@@ -109,8 +109,12 @@ switch(args[1]) {
   default:process.exit(90);
 }
 `, { mode: 0o700 });
-    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], { cwd: dir, encoding: 'utf8', timeout, env: {
-      ...process.env, PATH: `${dir}:${process.env.PATH}`, ACCOUNT: account, REGION: region, SOURCE_SHA: source,
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], { cwd: dir, encoding: 'utf8', timeout, killSignal: 'SIGKILL', env: {
+      ...process.env, PATH: `${dir}:${process.env.PATH}`,
+      // A command that escapes the PATH stubs must not hang on instance metadata or use live credentials.
+      AWS_EC2_METADATA_DISABLED: 'true', AWS_ACCESS_KEY_ID: '', AWS_SECRET_ACCESS_KEY: '', AWS_SESSION_TOKEN: '',
+      AWS_PROFILE: '', AWS_DEFAULT_PROFILE: '', AWS_CONFIG_FILE: '/dev/null', AWS_SHARED_CREDENTIALS_FILE: '/dev/null',
+      ACCOUNT: account, REGION: region, SOURCE_SHA: source,
       STORAGE_EXECUTION_ROLE: `arn:aws:iam::${account}:role/obsidian-workflow-storage-execution`,
       MCP_EXECUTION_ROLE: `arn:aws:iam::${account}:role/obsidian-mcp-execution`,
       GITHUB_REPOSITORY_ID: '123', GITHUB_REPOSITORY: 'owner/repo', GITHUB_REPOSITORY_OWNER: 'owner', GITHUB_RUN_ID: '456', GITHUB_RUN_ATTEMPT: '1',
