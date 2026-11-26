@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import bundle from '../workflows/practice.json' with { type: 'json' };
 import designRounds from './fixtures/design-rounds.json' with { type: 'json' };
 import { calendarDay, nextSchedule, Practice, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
+import { parseObservations, renderProfile, type StoredObservation } from '../src/design-profile.js';
 import { NoteError } from '../src/paths.js';
 import type { NoteStore, NoteWriter, WriteCondition } from '../src/note-store.js';
 import { parseFrontmatter } from '../src/frontmatter.js';
@@ -40,9 +41,14 @@ class PracticeStore implements NoteStore, NoteWriter {
   tag(key: string) { return '"' + createHash('sha256').update(this.files.get(key) ?? '').digest('hex') + '"'; }
   async list(prefix: string, limit: number, cursor: string | undefined, signal: AbortSignal) {
     signal.throwIfAborted(); this.lists.push({ prefix, limit });
-    const keys = [...this.files.keys()].filter(key => key.startsWith(prefix) && !key.slice(prefix.length).includes('/')).sort();
+    const matching = [...this.files.keys()].filter(key => key.startsWith(prefix));
+    const folders = [...new Set(matching.flatMap(key => {
+      const slash = key.indexOf('/', prefix.length);
+      return slash < 0 ? [] : [key.slice(0, slash + 1)];
+    }))];
+    const keys = [...folders, ...matching.filter(key => !key.slice(prefix.length).includes('/'))].sort();
     const start = Number(cursor ?? 0); const page = keys.slice(start, start + limit);
-    return { folders: [], notes: page.map(key => ({ key, size: Buffer.byteLength(this.files.get(key)!) })), next: keys.length > start + limit ? String(start + limit) : undefined };
+    return { folders: page.filter(key => key.endsWith('/')), notes: page.filter(key => !key.endsWith('/')).map(key => ({ key, size: Buffer.byteLength(this.files.get(key)!) })), next: keys.length > start + limit ? String(start + limit) : undefined };
   }
   async read(key: string, offset: number, length: number, etag: string | undefined, signal: AbortSignal) {
     signal.throwIfAborted(); this.reads.push(key);
@@ -769,7 +775,7 @@ it('keeps write tools out of the read-only practice catalog', async () => {
     const tools = (await client.listTools()).tools;
     expect(tools.map(tool => tool.name)).toContain('practice_review');
     expect(tools.map(tool => tool.name)).not.toContain('practice_complete_design_round');
-    expect(tools).toHaveLength(10); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
+    expect(tools).toHaveLength(11); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
     expect((await client.callTool({ name: 'practice_design_template', arguments: { topic: 'Design Dropbox', short_topic: 'Dropbox' } })).structuredContent).toMatchObject({ saved: false });
     expect((await client.callTool({ name: 'practice_add_review', arguments: request })).isError).toBe(true); expect(store.writes).toHaveLength(0);
   } finally { await client.close(); }
@@ -973,7 +979,12 @@ it.each(['practice_record_review', 'practice_finish_round'])('executes the share
     for (const step of designRounds.rounds) {
       day = step.date;
       const attempt = { attempt_id: step.attempt_id, outcome: step.outcome,
-        completed_on: day, reflection: 'My actual reflection.' };
+        completed_on: day, reflection: 'My actual reflection.',
+        ...(name === 'practice_finish_round' && step.attempt_id === 'r1' ? { concept_observations: [{
+          observation_id: 'sample-cache', concept_id: 'cache.expiry', performance: 'weak',
+          summary: 'Left the cache unbounded.', anchor: 'Assessment' }] } : {}),
+        ...(step.attempt_id === 'r6' ? { submission: '## Summary\nCache expiry needs work, citing sample-cache from round r1.' } : {}),
+      };
       const review = await practice.review(designRequest.id);
       expect(review).toMatchObject({ coaching_mode: step.completed_design_rounds <= 2 ? 'guided' : 'mock_interview',
         summary_required: step.attempt_id === 'r6' });
@@ -1009,6 +1020,13 @@ it.each(['practice_record_review', 'practice_finish_round'])('executes the share
         review_count: count, completed_design_rounds: step.completed_design_rounds,
         stage: step.stage, next_review: step.next_review, status: step.status,
       });
+      if (name === 'practice_finish_round' && step.attempt_id === 'r6') {
+        const profile = store.files.get(root + 'Learning/Practice/System-Design/Profile.md')!;
+        expect(parseObservations(profile).map(row => row.observation_id)).toEqual(['sample-cache']);
+        const finalHistory = parseFrontmatter(store.files.get(items + designRequest.id + '.md')!)!.body;
+        expect(finalHistory).toContain('citing sample-cache from round r1');
+        expect(parseFrontmatter(store.files.get(root + progress_path)!)!.metadata.tags).toEqual(['system-design/done']);
+      }
       const retry = await client.callTool({ name, arguments: args });
       expect(retry.isError).not.toBe(true);
       expect(retry.structuredContent).toMatchObject({ review_count: count, completed_design_rounds: step.completed_design_rounds });
@@ -1074,4 +1092,109 @@ it('persists assessment observations and replaces Profile.md from a normal finis
   expect(text).toContain('Contrary evidence: 2026-11-14 cache-expiry-01 partial');
   expect(validatePracticeWritePath(profile)).toBe('system-design');
   expect(() => validatePracticeWritePath('Learning/Practice/System-Design/AGENTS.md')).toThrow('invalid_path');
+});
+
+it.each(['assessment', 'profile'])('keeps %s write failures pending and retries without advancing twice', async failure => {
+  const { store, practice } = setup();
+  const progress = 'Learning/Practice/System-Design/Solutions/recovery/progress.md';
+  const profile = root + 'Learning/Practice/System-Design/Profile.md';
+  await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+  store.files.set(profile, 'Existing profile');
+  const payload = { topic: designRequest, progress_path: progress, attempt: {
+    attempt_id: 'recovery', reflection: 'Actual answer.', completed_on: '2026-11-14', concept_observations: [{
+      observation_id: 'recovery-evidence', concept_id: 'cache.expiry', performance: 'weak' as const,
+      summary: 'Left the cache unbounded.', anchor: 'Assessment' }] } };
+  store.beforePut = key => {
+    if (key === profile && failure === 'profile' || key === root + progress && failure === 'assessment' &&
+      parseFrontmatter(store.files.get(items + designRequest.id + '.md') ?? '')?.metadata.review_count === 1) throw new NoteError('note_unavailable');
+  };
+  await expect(practice.finishRound(payload)).rejects.toThrow('note_unavailable');
+  const pending = parseFrontmatter(store.files.get(root + progress)!)!.metadata;
+  expect(pending).toMatchObject({ tags: ['system-design/wip'], confirmed_registration: { topic: payload.topic, attempt: payload.attempt } });
+  expect(store.files.get(profile)).toBe('Existing profile');
+  delete store.beforePut;
+  expect(await practice.finishRound(payload)).toMatchObject({ verified: true, completed_design_rounds: 1, review_count: 1 });
+  const done = parseFrontmatter(store.files.get(root + progress)!)!.metadata;
+  expect(done.tags).toEqual(['system-design/done']);
+  expect(done).not.toHaveProperty('confirmed_registration');
+  expect(parseObservations(store.files.get(profile)!)).toHaveLength(1);
+});
+
+it('rejects standalone evidence before recording any state', async () => {
+  const { practice, store } = setup();
+  await practice.add(designRequest);
+  const before = new Map(store.files);
+  await expect(practice.record({ id: designRequest.id, revision: (await practice.review(designRequest.id)).revision,
+    attempt_id: 'unsupported', completed_on: '2026-11-14', reflection: 'Actual answer.', concept_observations: [{
+      observation_id: 'unsupported', concept_id: 'cache.expiry', performance: 'weak', learner: true,
+      summary: 'No expiry.', anchor: 'Assessment' }] })).rejects.toThrow('use_practice_finish_round_for_evidence');
+  expect(store.files).toEqual(before);
+});
+
+it('rebuilds lost profiles and corrected old assessments with date ordering and distinct-attempt repetition', async () => {
+  const { practice, store } = setup();
+  const profile = root + 'Learning/Practice/System-Design/Profile.md';
+  const observation: StoredObservation = { observation_id: 'newer', attempt_id: 'a2', date: '2026-11-14',
+    concept_id: 'cache.expiry', performance: 'mastered', summary: 'Bounded lifetime.', anchor: 'Assessment', learner: true };
+  const save = (folder: string, rows: StoredObservation[]) => store.files.set(root + `Learning/Practice/System-Design/Solutions/${folder}/progress.md`,
+    '---\ntopic: Cache\n---\n## Assessment\n\n```practice-observations\n' + stringify(rows) + '```\n');
+  const old = { ...observation, observation_id: 'older', attempt_id: 'a1', date: '2026-11-10', performance: 'weak' as const, summary: 'No expiry.' };
+  save('A-newer', [observation]); save('Z-older', [old, { ...old, observation_id: 'older-duplicate' }]);
+  await practice.rebuildDesignProfile();
+  const original = store.files.get(profile)!;
+  expect(original).toContain('Current: mastered. Bounded lifetime.');
+  expect(original).toContain('Contrary evidence: 2026-11-10');
+  expect(original).not.toContain('Repeated error:');
+  store.files.delete(profile);
+  await practice.rebuildDesignProfile();
+  expect(store.files.get(profile)).toBe(original);
+  save('Z-older', [{ ...old, summary: 'Corrected assessment.' }]);
+  await practice.rebuildDesignProfile();
+  expect(parseObservations(store.files.get(profile)!).find(row => row.observation_id === 'older')?.summary).toBe('Corrected assessment.');
+  save('B-repeated', [{ ...old, observation_id: 'repeated', attempt_id: 'a3', date: '2026-11-12', summary: 'Corrected assessment.' }]);
+  await practice.rebuildDesignProfile();
+  expect(store.files.get(profile)).toContain('Repeated error: Corrected assessment.');
+  expect(store.files.get(profile)).toContain('Current: mastered. Bounded lifetime.');
+  expect(renderProfile([old, observation])).toBe(renderProfile([observation, old]));
+  expect(renderProfile([{ ...old, date: observation.date }, observation])).toBe(renderProfile([observation, { ...old, date: observation.date }]));
+});
+
+it('preserves a concurrent profile replacement during assessment rebuilding', async () => {
+  const { practice, store } = setup();
+  const profile = root + 'Learning/Practice/System-Design/Profile.md';
+  store.files.set(profile, 'Original');
+  store.beforePut = key => {
+    if (key === profile) { store.files.set(profile, 'Concurrent profile'); delete store.beforePut; }
+  };
+  await expect(practice.rebuildDesignProfile()).rejects.toThrow('revision_conflict');
+  expect(store.files.get(profile)).toBe('Concurrent profile');
+});
+
+it('registers question concepts and delivers an in-scope evidence-backed outline through MCP', async () => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { store, index } = setup(), options = settings();
+  const observation: StoredObservation = { observation_id: 'cache-answer', attempt_id: 'prior-round', date: '2026-11-10',
+    concept_id: 'cache.expiry', performance: 'mastered', summary: 'Bounded cache lifetime.', anchor: 'Answer-1', learner: true };
+  store.files.set(root + 'Learning/Practice/System-Design/Solutions/prior/progress.md',
+    '---\ntopic: Prior\n---\n## Assessment\n```practice-observations\n' + stringify([observation,
+      { ...observation, observation_id: 'out-of-scope', concept_id: 'stream.order', performance: 'weak' }]) + '```\n');
+  const handler = createFetchHandler(options, { store, writer: store, verify: async () => owner,
+    verifyScope: async () => owner, skills: [practiceSkill(options, index)] });
+  const client = new Client({ name: 'outline-contract', version: '1' });
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
+    const concepts = ['cache.expiry', 'cache.eviction'];
+    const added = await client.callTool({ name: 'practice_add_review', arguments: { ...designRequest, concept_ids: concepts } });
+    expect(added.structuredContent).toMatchObject({ concept_ids: concepts });
+    const review = await client.callTool({ name: 'practice_review', arguments: { id: designRequest.id } });
+    expect(review.structuredContent).toMatchObject({ concept_ids: concepts });
+    const outline = await client.callTool({ name: 'practice_design_outline', arguments: { id: designRequest.id } });
+    expect(outline.structuredContent).toMatchObject({ problem_concepts: concepts, follow_ups: [
+      { concept_id: 'cache.eviction', kind: 'probe', performance: 'uncovered', evidence: [] },
+      { concept_id: 'cache.expiry', kind: 'variant', performance: 'mastered', evidence: [observation] },
+    ] });
+    expect((await client.callTool({ name: 'practice_design_outline', arguments: { concept_ids: concepts } })).structuredContent).toEqual(outline.structuredContent);
+  } finally { await client.close(); }
 });

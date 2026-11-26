@@ -199,8 +199,19 @@ it('limits optional practice saves to encrypted conditional writes on practice d
     expect(policy.Resource).toEqual(stack.resolve([
       'Review/Items/*.md', 'Algorithm/Patterns/*.md', 'Algorithm/Atoms/*.md', 'Algorithm/Log/*.md',
       'System-Design/Patterns/*.md', 'System-Design/Insights/*.md', 'System-Design/Log/*.md',
-      'System-Design/Solutions/*/progress.md', 'System-Design/Solutions/*/*.excalidraw.md', '.canvas-reviews/*.md',
+      'System-Design/Solutions/*/progress.md', 'System-Design/Solutions/*/*.excalidraw.md', 'System-Design/Profile.md', '.canvas-reviews/*.md',
     ].map(path => `arn:${stack.partition}:s3:::${storage.buckets.vault.name}/Knowledge/Learning/Practice/${path}`)));
+    const resolveArn = (value: unknown): string => {
+      if (typeof value === 'string') return value;
+      if (value && typeof value === 'object' && 'Ref' in value && value.Ref === 'AWS::Partition') return 'aws';
+      const join = (value as { 'Fn::Join': [string, unknown[]] })['Fn::Join'];
+      return join[1].map(resolveArn).join(join[0]);
+    };
+    const allowed = (key: string) => (policy.Resource as unknown[]).map(resolveArn).some(arn =>
+      new RegExp('^' + arn.split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('.*') + '$', 'u')
+        .test(`arn:aws:s3:::${storage.buckets.vault.name}/Knowledge/Learning/Practice/System-Design/${key}`));
+    expect(allowed('Profile.md')).toBe(true);
+    expect(allowed('AGENTS.md')).toBe(false);
     expect(policy.Condition?.StringEquals?.['s3:x-amz-server-side-encryption']).toBe('AES256');
   }
   expect(writes.some(s => s.Condition?.StringEquals?.['s3:if-none-match'] === '*')).toBe(true);

@@ -441,3 +441,15 @@ single-call queues. An in-memory index models indexer lag. Instructions define t
 handoff behavior; tests do not execute an LLM. After deployment and metadata
 refresh, verify those decisions in a fresh ChatGPT conversation before claiming
 host acceptance.
+
+System Design registration accepts and returns question-level `concept_ids`.
+Use `practice_design_outline` with the registered `id`, or with `concept_ids`
+before registration. It limits probes and variants to those concepts and returns
+canonical assessment evidence. Uncovered concepts have no prior evidence.
+
+Submit structured `concept_observations` through `practice_finish_round` with the
+session's `progress_path`; standalone `practice_record_review` rejects nonempty
+structured evidence. Closeout remains pending until assessment and profile writes
+succeed. `practice_rebuild_design_profile` regenerates the profile from progress
+assessment fences, including older corrections, without advancing any round.
+Profile replacement is conditional and preserves a concurrent writer's version.

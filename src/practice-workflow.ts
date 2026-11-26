@@ -14,6 +14,11 @@ const moduleSchema = z.object({ enabled: z.boolean(), interval_days: z.array(z.n
 type ModuleConfig = z.infer<typeof moduleSchema>;
 type DomainAvailability = { domain: PracticeDomain; label: string } & (
   { status: 'enabled'; time_limit: number } | { status: 'disabled' | 'unavailable'; reason: string });
+function mcpInstruction(text: string) {
+  return text.replaceAll('`python3 scripts/practice-review/review.py outline <id>`', '`practice_design_outline` with `id`')
+    .replaceAll('`python3 scripts/practice-review/review.py outline --concept-ids <concept-id> ...`', '`practice_design_outline` with `concept_ids`');
+}
+
 const documents: Record<string, { text: string; sha256: string }> = bundle.documents;
 
 export class PracticeWorkflow {
@@ -85,12 +90,13 @@ export class PracticeWorkflow {
   }
   async instruction(path: string, offset: number) {
     const doc = documents[path];
-    if (!doc || !path.endsWith('.md') || offset > doc.text.length) throw new PracticeError('unknown_practice_instruction');
+    if (!doc || !path.endsWith('.md') || offset > mcpInstruction(doc.text).length) throw new PracticeError('unknown_practice_instruction');
     const domain = domainSchema.options.find(domain => practiceDocuments(domain).includes(path));
     if (!domain) throw new PracticeError('unknown_practice_instruction');
     await this.config(sharedPracticeDocuments.includes(path) ? undefined : domain);
-    const text = doc.text.slice(offset, offset + 12000);
-    return { path, text, source_commit: bundle.sourceCommit, source_sha256: doc.sha256, offset, complete: offset + text.length >= doc.text.length,
-      ...(offset + text.length < doc.text.length ? { next_offset: offset + text.length } : {}) };
+    const adapted = mcpInstruction(doc.text);
+    const text = adapted.slice(offset, offset + 12000);
+    return { path, text, source_commit: bundle.sourceCommit, source_sha256: doc.sha256, offset, complete: offset + text.length >= adapted.length,
+      ...(offset + text.length < adapted.length ? { next_offset: offset + text.length } : {}) };
   }
 }
