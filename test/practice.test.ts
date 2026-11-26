@@ -1074,7 +1074,7 @@ it('persists assessment observations and replaces Profile.md from a normal finis
   const { store, practice } = setup();
   const progress = 'Learning/Practice/System-Design/Solutions/profile-round/progress.md';
   await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
-  const observation = { observation_id: 'cache-expiry-01', concept_id: 'cache.expiry', performance: 'partial' as const,
+  const observation = { observation_id: 'cache-expiry-01', concept_id: 'cache.expiry', performance: 'partial' as const, learner: true,
     summary: 'Bounded cache lifetime by the link expiry.', anchor: 'Assessment', evidence_order: 1 };
   const finished = await practice.finishRound({ topic: designRequest, progress_path: progress, attempt: {
     attempt_id: 'profile-r1', reflection: 'My actual answer.', completed_on: '2026-11-14', concept_observations: [observation] } });
@@ -1102,7 +1102,7 @@ it.each(['assessment', 'profile'])('keeps %s write failures pending and retries 
   store.files.set(profile, 'Existing profile');
   const payload = { topic: designRequest, progress_path: progress, attempt: {
     attempt_id: 'recovery', reflection: 'Actual answer.', completed_on: '2026-11-14', concept_observations: [{
-      observation_id: 'recovery-evidence', concept_id: 'cache.expiry', performance: 'weak' as const,
+      observation_id: 'recovery-evidence', concept_id: 'cache.expiry', performance: 'weak' as const, learner: true,
       summary: 'Left the cache unbounded.', anchor: 'Assessment' }] } };
   store.beforePut = key => {
     if (key === profile && failure === 'profile' || key === root + progress && failure === 'assessment' &&
