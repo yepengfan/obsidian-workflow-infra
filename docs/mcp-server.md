@@ -234,18 +234,11 @@ Gemini does not have one shared callback. In the Gemini web app, open
 then open **Advanced features** or **Additional settings > Show more** and use
 **Copy redirect URI**. That URI belongs to the signed-in Google account. It is
 an exact `https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-…`
-URL. Connected Apps Platform registration can instead show up to six exact
-app-specific URIs on `oauth-redirect.googleusercontent.com`,
-`oauth-redirect-sandbox.googleusercontent.com` and
-`oauth-redirect-test.googleusercontent.com`, each under `/r/<id>` or `/a/<id>`.
-The `*` forms in Google's OAuth guide are patterns. Cognito cannot register
-them, and this configuration rejects wildcards, other hosts, query strings,
-fragments and the Gemini Enterprise callback
-`https://vertexaisearch.cloud.google.com/oauth-redirect`.
+URL. The configuration accepts only one exact production account-bound redirect.
 
-1. Copy the redirect URI from Gemini. Do not invent the Google user id or the
-   host suffix. Put that exact URI, and only the other exact URIs Gemini shows
-   for this app, in `geminiCallbackUrls`. Leave the list empty until then.
+1. Copy the redirect URI from Gemini. Do not invent the account-specific suffix.
+   Put that single exact URI in `geminiCallbackUrls`. Leave the list empty until
+   the copied URI is supplied.
    Keep ChatGPT `callbackUrls` and Claude `claudeCallbackUrls` unchanged.
    Deploy this support before relying on a three-client allowlist: Lambda
    accepts at most the ChatGPT client plus the optional Claude and Gemini
@@ -283,8 +276,7 @@ live code exchange. Complete the connection checks below after approved Apply.
 Existing ChatGPT and Claude connections keep their current client IDs, secrets
 and callbacks.
 
-See [Connect custom apps in Gemini Apps](https://support.google.com/gemini/answer/17209137)
-and [Connected Apps OAuth](https://developers.google.com/connected-apps/mcp/oauth).
+See [Connect custom apps in Gemini Apps](https://support.google.com/gemini/answer/17209137).
 
 ## Connection verification
 
@@ -347,5 +339,4 @@ Sources: [OpenAI MCP authentication](https://developers.openai.com/plugins/build
 [Cognito resource binding](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-define-resource-servers.html),
 [Cognito group claims](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-user-groups.html),
 [Cognito token and refresh behavior](https://docs.aws.amazon.com/cognito/latest/developerguide/token-endpoint.html),
-[Gemini Apps custom apps](https://support.google.com/gemini/answer/17209137),
-[Connected Apps OAuth](https://developers.google.com/connected-apps/mcp/oauth).
+[Gemini Apps custom apps](https://support.google.com/gemini/answer/17209137).

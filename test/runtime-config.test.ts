@@ -52,7 +52,7 @@ it.each([
 ])('rejects non-exact Claude callback %s', callback => {
   expect(runtimeOptionsSchema.safeParse({ claudeCallbackUrls: [callback] }).success).toBe(false);
 });
-const geminiCallback = (host: string, prefix: 'r' | 'a', id: string) => `https://${host}/${prefix}/${id}`;
+const geminiCallback = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture';
 it('keeps Gemini opt-in until an exact redirect URI is configured', () => {
   const committed = JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8'));
   expect(committed).not.toHaveProperty('geminiCallbackUrls');
@@ -60,21 +60,22 @@ it('keeps Gemini opt-in until an exact redirect URI is configured', () => {
   expect(runtimeOptionsSchema.parse(committed).geminiCallbackUrls).toEqual([]);
   expect(runtimeOptionsSchema.parse({}).geminiCallbackUrls).toEqual([]);
   expect(runtimeOptionsSchema.shape.geminiCallbackUrls.parse(undefined)).toEqual([]);
-  const callback = geminiCallback('oauth-redirect.googleusercontent.com', 'r', 'user_bound_custom-mcp-fixture');
+  const callback = geminiCallback;
   expect(runtimeOptionsSchema.parse({ geminiCallbackUrls: [callback] }).geminiCallbackUrls).toEqual([callback]);
   expect(runtimeOptionsSchema.safeParse({ callbackUrls: [callback] }).success).toBe(false);
   expect(runtimeOptionsSchema.safeParse({ claudeCallbackUrls: [callback] }).success).toBe(false);
 });
-it('accepts the six exact Connected Apps redirect families', () => {
-  const hosts = ['oauth-redirect.googleusercontent.com', 'oauth-redirect-sandbox.googleusercontent.com', 'oauth-redirect-test.googleusercontent.com'];
-  const callbacks = hosts.flatMap(host => (['r', 'a'] as const).map((prefix, index) => geminiCallback(host, prefix, `app-${index}`)));
-  expect(runtimeOptionsSchema.parse({ geminiCallbackUrls: callbacks }).geminiCallbackUrls).toEqual(callbacks);
-  expect(runtimeOptionsSchema.safeParse({ geminiCallbackUrls: [...callbacks, geminiCallback(hosts[0]!, 'r', 'extra')] }).success).toBe(false);
+it('rejects multiple Gemini account callbacks', () => {
+  expect(runtimeOptionsSchema.safeParse({ geminiCallbackUrls: [geminiCallback, `${geminiCallback}-other`] }).success).toBe(false);
 });
 it.each([
   'https://oauth-redirect.googleusercontent.com/r/*',
-  'https://oauth-redirect-sandbox.googleusercontent.com/a/*',
-  'https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-*',
+  'https://oauth-redirect-sandbox.googleusercontent.com/r/user_bound_custom-mcp-fixture',
+  'https://oauth-redirect-test.googleusercontent.com/r/user_bound_custom-mcp-fixture',
+  'https://oauth-redirect.googleusercontent.com/a/user_bound_custom-mcp-fixture',
+  'https://oauth-redirect.googleusercontent.com/r/app-fixture',
+  'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-',
+  'https://oauth-redirect.googleusercontent.com:8443/r/user_bound_custom-mcp-fixture',
   'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture/extra',
   'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture/',
   'https://oauth-redirect.googleusercontent.com/r/',

@@ -30,14 +30,9 @@ export const runtimeOptionsSchema = z.strictObject({
       (url.pathname === '/connector_platform_oauth_redirect' || /^\/connector\/oauth\/[A-Za-z0-9_-]+$/u.test(url.pathname));
   }, 'Copy the exact ChatGPT production callback URI')).max(2).default([]),
   claudeCallbackUrls: z.array(z.literal('https://claude.ai/api/mcp/auth_callback')).max(1).default([]),
-  // Gemini Apps and Connected Apps publish account- or app-specific redirect URIs.
-  // The documented `*` forms are patterns, not callbacks Cognito can register.
-  geminiCallbackUrls: z.array(z.url().refine(value => {
-    const url = new URL(value);
-    return url.protocol === 'https:' && !url.hash && !url.search && !url.username && !url.password &&
-      /^(?:oauth-redirect-sandbox|oauth-redirect-test|oauth-redirect)\.googleusercontent\.com$/u.test(url.hostname) &&
-      /^\/(?:r|a)\/[A-Za-z0-9_-]+$/u.test(url.pathname);
-  }, 'Copy the exact Gemini Apps or Connected Apps redirect URI')).max(6).default([]),
+  geminiCallbackUrls: z.array(z.url().refine(value =>
+    /^https:\/\/oauth-redirect\.googleusercontent\.com\/r\/user_bound_custom-mcp-[A-Za-z0-9_-]+$/u.test(value),
+  'Copy the exact Gemini web account-bound redirect URI')).max(1).default([]),
   allowedOrigins: z.array(z.url().refine(value => new URL(value).origin === value && value.startsWith('https://'))).max(5).default(['https://chatgpt.com']),
   limits: limitsSchema.default(defaults),
 });
