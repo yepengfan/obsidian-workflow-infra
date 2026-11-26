@@ -197,6 +197,7 @@ export class Practice {
         (metadata.review_item_id != null && metadata.review_item_id !== topic.id) ||
         (metadata.round_completed_on && metadata.round_completed_on !== attempt.completed_on)) throw new PracticeError('session_round_mismatch');
       if (metadata.confirmed_registration && !isDeepStrictEqual(metadata.confirmed_registration, { topic, attempt })) throw new PracticeError('confirmed_registration_mismatch');
+      await this.assessmentObservations();
       if (tags.includes('system-design/wip') && !metadata.confirmed_registration) {
         await this.notes.put(progress_path, serialize({ ...metadata, round_id: attempt.attempt_id, review_item_id: topic.id,
           round_completed_on: attempt.completed_on, confirmed_registration: { topic, attempt } }, body), note.revision);

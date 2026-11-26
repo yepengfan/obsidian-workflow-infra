@@ -1391,3 +1391,60 @@ it('rejects generic profile writes while retaining dedicated rebuild ownership',
   expect(store.files.get(root + profile)).toBe(before);
   await expect(practice.createNote('Learning/Practice/System-Design/AGENTS.md', 'Guide')).rejects.toThrow('invalid_path');
 });
+
+it.each([
+  { date: '2026-02-30' },
+  { performance: 'excellent' },
+])('rejects malformed canonical evidence %j before rebuild or pending finish writes', async invalid => {
+  const { practice, store } = setup();
+  const progress = 'Learning/Practice/System-Design/Solutions/invalid-evidence/progress.md';
+  const profile = root + 'Learning/Practice/System-Design/Profile.md';
+  await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+  const observation = { observation_id: 'invalid-evidence', concept_id: 'cache.expiry', performance: 'weak' as const,
+    summary: 'No expiration.', anchor: 'Assessment' };
+  const payload = finishRoundSchema.parse({ topic: designRequest, progress_path: progress, attempt: {
+    attempt_id: 'invalid-evidence', completed_on: '2026-11-14', reflection: 'Actual answer.', concept_observations: [observation],
+  } });
+  store.files.set(profile, 'Existing profile');
+  store.beforePut = key => { if (key === profile) throw new NoteError('note_unavailable'); };
+  await expect(practice.finishRound(payload)).rejects.toThrow('note_unavailable');
+  delete store.beforePut;
+  const pending = parseFrontmatter(store.files.get(root + progress)!)!;
+  const malformed = { ...observation, attempt_id: payload.attempt.attempt_id, date: '2026-11-14', ...invalid };
+  store.files.set(root + progress, '---\n' + stringify(pending.metadata) + '---\n## Assessment\n```practice-observations\n' +
+    stringify([malformed]) + '```\n');
+  const before = new Map(store.files);
+  const writeCount = store.writes.length;
+  await expect(practice.rebuildDesignProfile()).rejects.toThrow();
+  expect(store.files).toEqual(before);
+  await expect(practice.finishRound(payload)).rejects.toThrow();
+  expect(store.files).toEqual(before);
+  expect(store.writes).toHaveLength(writeCount);
+  expect(parseFrontmatter(store.files.get(items + designRequest.id + '.md')!)!.metadata.review_count).toBe(1);
+});
+
+it('repeats error IDs across concepts and distinct attempts without mixing conclusions', async () => {
+  const { practice, store } = setup();
+  const profile = root + 'Learning/Practice/System-Design/Profile.md';
+  const base = { error_id: 'missing-failure-recovery', performance: 'weak', anchor: 'Assessment' };
+  const finish = async (id: string, observations: object[]) => {
+    const progress_path = `Learning/Practice/System-Design/Solutions/${id}/progress.md`;
+    await practice.createNote(progress_path, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+    await practice.finishRound(finishRoundSchema.parse({ topic: designRequest, progress_path, attempt: {
+      attempt_id: id, completed_on: '2026-11-14', reflection: 'Actual learner answer.', concept_observations: observations,
+    } }));
+  };
+  await finish('routing-errors', [
+    { ...base, observation_id: 'routing-error', concept_id: 'shard.routing', summary: 'Lost routing after a shard failure.' },
+    { ...base, observation_id: 'queue-first', concept_id: 'queue.delivery', summary: 'No recovery after delivery failure.' },
+  ]);
+  expect(store.files.get(profile)).not.toContain('Repeated error:');
+  await finish('queue-errors', [
+    { ...base, observation_id: 'queue-error', concept_id: 'queue.delivery', summary: 'Dropped messages on consumer failure.' },
+  ]);
+  const text = store.files.get(profile)!;
+  expect(text).toContain('Repeated error: missing-failure-recovery.');
+  expect(text).toContain('Evidence: routing-error, queue-first, queue-error.');
+  expect(text).toContain('## shard.routing\n\nCurrent: weak. Lost routing after a shard failure.');
+  expect(text).toContain('## queue.delivery\n\nCurrent: weak. Dropped messages on consumer failure.');
+});
