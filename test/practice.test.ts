@@ -922,17 +922,22 @@ it('normalizes upcoming indexed design rows and persists cutover idempotently wi
   expect(store.writes).toHaveLength(1);
 });
 
-it('persists replayed archives and excludes stale active index rows from the queue', async () => {
+it.each(['assisted', 'incomplete'])('keeps replayed archives terminal after a trailing %s attempt', async outcome => {
   const { store, index, practice } = setup();
-  const history = Array.from({ length: 6 }, (_, i) => `### 2026-11-0${i + 1} · Round ${i + 1}\n\n**assisted** · Next review 2026-11-14`).join('\n\n');
+  const history = Array.from({ length: 6 }, (_, i) => `### 2026-11-0${i + 1} · Round ${i + 1}\n\n**assisted** · Next review 2026-11-14`).join('\n\n') +
+    `\n\n### 2026-11-07 · Round 7\n\n**${outcome}** · Next review 2026-11-14`;
   const key = items + designRequest.id + '.md';
-  store.files.set(key, '---\n' + stringify({ ...item, ...designRequest, review_count: 6,
-    last_review: '2026-11-06', next_review: '2026-11-14' }) + '---\n' + history);
+  store.files.set(configPath, moduleText.replace(/^archive_after_final: .*\n/mu, ''));
+  store.files.set(key, '---\n' + stringify({ ...item, ...designRequest, review_count: 7,
+    last_review: '2026-11-07', next_review: '2026-11-14' }) + '---\n' + history);
   index.snapshot();
   await expect(practice.review(designRequest.id)).rejects.toThrow('review_archived');
   expect(await practice.reviews({ domain: 'system-design' })).toMatchObject({ overdue: [], today: [], upcoming: [], unstarted: [] });
   expect(await practice.recalculateDesignReviews()).toEqual({ updated: 1 });
-  expect(parseFrontmatter(store.files.get(key)!)!.metadata).toMatchObject({ status: 'archived', archived_on: '2026-11-06', completed_design_rounds: 6 });
+  expect(parseFrontmatter(store.files.get(key)!)!.metadata).toMatchObject({ status: 'archived', archived_on: '2026-11-06',
+    completed_design_rounds: 6, review_count: 7, last_review: '2026-11-07', next_review: null });
+  expect(parseFrontmatter(store.files.get(key)!)!.body).toBe(history);
+  await expect(practice.record(attempt(store.tag(key), { id: designRequest.id, attempt_id: 'after-archive' }))).rejects.toThrow('review_archived');
   expect(await practice.recalculateDesignReviews()).toEqual({ updated: 0 });
 });
 
@@ -952,6 +957,7 @@ it.each(['practice_record_review', 'practice_finish_round'])('executes the share
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
   const { createFetchHandler } = await import('../src/handler.js');
   const { store, index } = setup(), options = settings();
+  store.files.set(configPath, moduleText.replace(/^archive_after_final: .*\n/mu, ''));
   let day = designRounds.rounds[0]!.date;
   const practice = new Practice(store, index, options, AbortSignal.timeout(10000),
     { writer: store, now: () => new Date(day + 'T02:00:00Z') });
@@ -969,8 +975,30 @@ it.each(['practice_record_review', 'practice_finish_round'])('executes the share
       const attempt = { attempt_id: step.attempt_id, outcome: step.outcome,
         completed_on: day, reflection: 'My actual reflection.' };
       const review = await practice.review(designRequest.id);
+      expect(review).toMatchObject({ coaching_mode: step.completed_design_rounds <= 2 ? 'guided' : 'mock_interview',
+        summary_required: step.attempt_id === 'r6' });
       const progress_path = `Learning/Practice/System-Design/Solutions/${step.attempt_id}/progress.md`;
-      if (name === 'practice_finish_round') await practice.createNote(progress_path,
+      const checkpoint = designRounds.checkpoints.find(entry => entry.attempt_id === step.attempt_id);
+      if (checkpoint) {
+        day = checkpoint.paused_on;
+        const before = store.files.get(items + designRequest.id + '.md');
+        expect((await client.callTool({ name: 'practice_create_note', arguments: { path: progress_path,
+          content: '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'], round_id: checkpoint.attempt_id,
+            started: day }) + '---\nResume the active round.' } })).isError).not.toBe(true);
+        const saved = await client.callTool({ name: 'practice_read_note', arguments: { path: progress_path } });
+        const revision = z.object({ revision: z.string() }).parse(saved.structuredContent).revision;
+        expect((await client.callTool({ name: 'practice_update_note', arguments: { path: progress_path, revision,
+          edits: [{ old: 'Resume the active round.', replacement: 'Paused at the end of the day. Resume Deep Dives.' }] } })).isError).not.toBe(true);
+        expect(store.files.get(items + designRequest.id + '.md')).toBe(before);
+        day = checkpoint.resumed_on;
+        const resumed = await client.callTool({ name: 'practice_read_note', arguments: { path: progress_path } });
+        const note = parseFrontmatter(z.object({ text: z.string() }).parse(resumed.structuredContent).text)!;
+        expect(note.metadata).toMatchObject({ round_id: step.attempt_id, started: checkpoint.paused_on, tags: ['system-design/wip'] });
+        expect(note.body).toBe('Paused at the end of the day. Resume Deep Dives.');
+        expect(store.files.get(items + designRequest.id + '.md')).toBe(before);
+        expect(await practice.review(designRequest.id)).toEqual(review);
+      }
+      if (name === 'practice_finish_round' && !checkpoint) await practice.createNote(progress_path,
         '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
       const args = name === 'practice_finish_round' ? { topic: designRequest, attempt, progress_path } :
         { ...attempt, id: designRequest.id, revision: review.revision };
@@ -987,5 +1015,39 @@ it.each(['practice_record_review', 'practice_finish_round'])('executes the share
     }
     expect(await practice.reviews({ domain: 'system-design' })).toMatchObject({ overdue: [], today: [], upcoming: [], unstarted: [] });
     await expect(practice.review(designRequest.id)).rejects.toThrow('review_archived');
+  } finally { await client.close(); }
+});
+
+it.each(['practice_record_review', 'practice_finish_round'])('rejects extra public outcome spellings but accepts omission through %s', async name => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { store, practice, index } = setup(), options = settings();
+  await practice.add(designRequest);
+  const progress_path = 'Learning/Practice/System-Design/Solutions/omitted/progress.md';
+  await practice.createNote(progress_path, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+  const review = await practice.review(designRequest.id);
+  const attempt = { attempt_id: 'omitted-outcome', reflection: 'My actual answer.', completed_on: '2026-11-14' };
+  const payload = (outcome?: string) => name === 'practice_finish_round' ?
+    { topic: designRequest, attempt: { ...attempt, ...(outcome ? { outcome } : {}) }, progress_path } :
+    { ...attempt, ...(outcome ? { outcome } : {}), id: designRequest.id, revision: review.revision };
+  const handler = createFetchHandler(options, { store, writer: store, verify: async () => owner,
+    verifyScope: async () => owner, skills: [practiceSkill(options, index)] });
+  const client = new Client({ name: 'public-outcome-contract', version: '1' });
+  client.onerror = () => {};
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
+    const before = new Map(store.files), writes = [...store.writes];
+    for (const outcome of ['completed', '已完成']) {
+      expect((await client.callTool({ name, arguments: payload(outcome) })).isError).toBe(true);
+      expect(store.files).toEqual(before);
+      expect(store.writes).toEqual(writes);
+    }
+    const registered = await client.callTool({ name, arguments: payload() });
+    expect(registered.isError).not.toBe(true);
+    expect(registered.structuredContent).toMatchObject({ completed_design_rounds: 1, review_count: 1, next_review: '2026-11-15' });
+    const history = await practice.review(designRequest.id, true);
+    expect(history.history).toContain('**completed** · Next review 2026-11-15');
+    expect((await client.callTool({ name, arguments: payload() })).structuredContent).toMatchObject({ review_count: 1 });
   } finally { await client.close(); }
 });

@@ -27,7 +27,7 @@ export const addReviewSchema = z.strictObject({ id: slugSchema, domain: domainSc
   source: text.optional(), review_focus: text.optional() });
 export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: revisionSchema,
   attempt_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u).max(128),
-  outcome: z.enum(['independent', 'assisted', 'incomplete', 'completed']).optional(), reflection: requiredText,
+  outcome: z.enum(['independent', 'assisted', 'incomplete']).optional(), reflection: requiredText,
   completed_on: dateSchema, submission: text.optional(), observations: text.optional() });
 export const finishRoundSchema = z.strictObject({
   topic: addReviewSchema, attempt: recordReviewSchema.omit({ id: true, revision: true }),
@@ -165,7 +165,7 @@ export class Practice {
     if (input.completed_on > this.today()) throw new PracticeError('review_date_is_in_future');
     if (input.revision !== note.revision) throw new PracticeError('revision_conflict');
     const outcome = input.outcome ?? (note.item.domain === 'system-design' ? 'completed' : undefined);
-    if (!outcome || (note.item.domain !== 'system-design' && outcome === 'completed')) throw new PracticeError('invalid_review_outcome');
+    if (!outcome) throw new PracticeError('invalid_review_outcome');
     const schedule = nextSchedule(note.item, outcome, input.completed_on, config.interval_days, config.retry_days, config.archive_after_final);
     const metadata = { ...note.metadata, ...schedule, last_outcome: outcome, attempt_ids: [...note.item.attempt_ids, input.attempt_id] };
     let entry = `\n\n### ${input.completed_on} · Round ${schedule.review_count}\n\n**${outcome}** · ${schedule.status === 'archived' ? 'Archived' : `Next review ${schedule.next_review}`}\n\n#### My reflection\n\n${input.reflection}\n`;

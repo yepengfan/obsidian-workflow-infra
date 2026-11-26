@@ -222,11 +222,12 @@ Algorithm reviews follow the canonical outcome-based scheduling policy:
 - Assisted/incomplete ended round: retry interval, preserving the stage.
 
 System Design advances by completed round, including early and late completions.
-Rounds 1 and 2 are guided, rounds 3 through 5 are mock interviews, and round 6
-is a summary. The first five completions schedule the configured intervals from
-the actual completion date; the sixth archives when `archive_after_final` is
-enabled. An ended incomplete attempt retries without advancing the completed
-round count. A paused session remains a checkpoint, without a review record.
+Rounds 1 and 2 are guided, rounds 3 through 6 are mock interviews, and round 6
+also requires a summary citing existing observations. The first five completions
+schedule the configured intervals from the actual completion date; the sixth
+always archives, independently of `archive_after_final`. An ended incomplete
+attempt retries without advancing the completed round count. A paused session
+remains a checkpoint, without a review record.
 System Design may omit outcome; older assisted and independent outcomes still
 count as completions. Retrying a registered attempt ID does not advance again,
 including after archive.
@@ -298,9 +299,12 @@ each result honestly, including partial success.
 The stable review item tracks completed full rounds for each topic. Its first two
 rounds use guided learning, followed by the first and second configured intervals
 (defaults 1 and 3 days). The third round begins independent mock interviews and
-uses the usual promotion/retry schedule. A paused session keeps its UUID and mode.
+advances by completion rather than outcome. Round 6 remains a mock interview,
+requires a summary of existing evidence, and archives on completion. A paused
+session keeps its UUID and mode.
 `practice_record_review` saves the outcome, count and schedule in one conditional
-write. Review queues and prompts return the next round and default coaching mode.
+write. Review queues and prompts return the next round, default coaching mode,
+and `summary_required` for the final mock interview.
 For older items, the service derives completions from dated English or Chinese
 round entries. The next confirmed record persists the derived state.
 
