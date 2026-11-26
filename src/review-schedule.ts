@@ -31,7 +31,8 @@ export function designHistory(item: ReviewSummary, body: string, intervals: numb
   }
   const progress = { completed_design_rounds: replay.completed_design_rounds! };
   if (entries.length && item.status === 'active' && replay.last_review === item.last_review) {
-    return { ...progress, stage: replay.stage, next_review: replay.next_review };
+    return { ...progress, stage: replay.stage, next_review: replay.next_review,
+      status: replay.status, ...(replay.status === 'archived' ? { archived_on: replay.last_review } : {}) };
   }
   return progress;
 }

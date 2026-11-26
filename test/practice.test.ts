@@ -4,12 +4,13 @@ import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 import bundle from '../workflows/practice.json' with { type: 'json' };
+import designRounds from './fixtures/design-rounds.json' with { type: 'json' };
 import { calendarDay, nextSchedule, Practice, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
 import { NoteError } from '../src/paths.js';
 import type { NoteStore, NoteWriter, WriteCondition } from '../src/note-store.js';
 import { parseFrontmatter } from '../src/frontmatter.js';
 import { reviewSummarySchema } from '../src/practice-schema.js';
-import { practiceSkill } from '../src/practice-tools.js';
+import { practiceSkill, registerPracticeTools } from '../src/practice-tools.js';
 import type { IndexedReview, ReviewIndex, SessionIndex } from '../src/review-index.js';
 import { owner, runtimeSettings } from './runtime-fixtures.js';
 
@@ -898,5 +899,93 @@ it('saves an exact reviewed scene from ChatGPT by receipt and conditionally over
     expect(store.files.get(root + path)).toContain('Final design ^node1234');
     expect(store.files.get(root + path)).not.toContain('Before');
     expect(store.files.get(root + path)?.match(/^%%$/gmu)).toHaveLength(2);
+  } finally { await client.close(); }
+});
+
+it('normalizes upcoming indexed design rows and persists cutover idempotently without changing history', async () => {
+  const { store, index } = setup();
+  const practice = new Practice(store, index, settings(), AbortSignal.timeout(10000),
+    { writer: store, now: () => new Date('2026-11-26T02:00:00Z') });
+  const key = items + designRequest.id + '.md';
+  const history = ['2026-11-21', '2026-11-22', '2026-11-25'].map((day, i) =>
+    `### ${day} · Round ${i + 1}\n\n**assisted** · Next review 2026-11-28`).join('\n\n');
+  store.files.set(key, '---\n' + stringify({ ...item, ...designRequest, completed_design_rounds: 3,
+    review_count: 3, last_review: '2026-11-25', next_review: '2026-11-28' }) + '---\n' + history);
+  index.snapshot();
+  expect((await practice.reviews({ domain: 'system-design' })).upcoming[0]).toMatchObject({ next_review: '2026-12-02', stage: 2 });
+  expect(await practice.review(designRequest.id)).toMatchObject({ next_review: '2026-12-02', stage: 2 });
+  expect(store.writes).toHaveLength(0);
+  expect(await practice.recalculateDesignReviews()).toEqual({ updated: 1 });
+  expect(parseFrontmatter(store.files.get(key)!)!.metadata).toMatchObject({ next_review: '2026-12-02', stage: 2 });
+  expect(parseFrontmatter(store.files.get(key)!)!.body).toBe(history);
+  expect(await practice.recalculateDesignReviews()).toEqual({ updated: 0 });
+  expect(store.writes).toHaveLength(1);
+});
+
+it('persists replayed archives and excludes stale active index rows from the queue', async () => {
+  const { store, index, practice } = setup();
+  const history = Array.from({ length: 6 }, (_, i) => `### 2026-11-0${i + 1} · Round ${i + 1}\n\n**assisted** · Next review 2026-11-14`).join('\n\n');
+  const key = items + designRequest.id + '.md';
+  store.files.set(key, '---\n' + stringify({ ...item, ...designRequest, review_count: 6,
+    last_review: '2026-11-06', next_review: '2026-11-14' }) + '---\n' + history);
+  index.snapshot();
+  await expect(practice.review(designRequest.id)).rejects.toThrow('review_archived');
+  expect(await practice.reviews({ domain: 'system-design' })).toMatchObject({ overdue: [], today: [], upcoming: [], unstarted: [] });
+  expect(await practice.recalculateDesignReviews()).toEqual({ updated: 1 });
+  expect(parseFrontmatter(store.files.get(key)!)!.metadata).toMatchObject({ status: 'archived', archived_on: '2026-11-06', completed_design_rounds: 6 });
+  expect(await practice.recalculateDesignReviews()).toEqual({ updated: 0 });
+});
+
+it('preserves concurrent edits during cutover', async () => {
+  const { store, practice } = setup();
+  const key = items + designRequest.id + '.md';
+  store.files.set(key, '---\n' + stringify({ ...item, ...designRequest, review_count: 1,
+    last_review: '2026-11-01', next_review: '2026-11-14' }) + '---\n### 2026-11-01 · Round 1\n\n**assisted** · Next review 2026-11-14');
+  store.beforePut = path => { store.beforePut = undefined; store.files.set(path, store.files.get(path)! + '\nHuman edit'); };
+  await expect(practice.recalculateDesignReviews()).rejects.toThrow('revision_conflict');
+  expect(store.files.get(key)).toContain('Human edit');
+  expect(parseFrontmatter(store.files.get(key)!)!.metadata.next_review).toBe('2026-11-14');
+});
+
+it.each(['practice_record_review', 'practice_finish_round'])('executes the shared six-round sample through %s with duplicate and concurrent registration', async name => {
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+  const { createFetchHandler } = await import('../src/handler.js');
+  const { store, index } = setup(), options = settings();
+  let day = designRounds.rounds[0]!.date;
+  const practice = new Practice(store, index, options, AbortSignal.timeout(10000),
+    { writer: store, now: () => new Date(day + 'T02:00:00Z') });
+  const handler = createFetchHandler(options, { store, writer: store, verify: async () => owner,
+    verifyScope: async () => owner, skills: [{ instructions: '', scopes: [],
+      register: ({ server, result }) => registerPracticeTools(server, practice, options, result, async () => {}) }] });
+  const client = new Client({ name: 'design-round-sample', version: '1' });
+  client.onerror = () => {};
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
+    await client.callTool({ name: 'practice_add_review', arguments: designRequest });
+    let count = 0;
+    for (const step of designRounds.rounds) {
+      day = step.date;
+      const attempt = { attempt_id: step.attempt_id, outcome: step.outcome,
+        completed_on: day, reflection: 'My actual reflection.' };
+      const review = await practice.review(designRequest.id);
+      const progress_path = `Learning/Practice/System-Design/Solutions/${step.attempt_id}/progress.md`;
+      if (name === 'practice_finish_round') await practice.createNote(progress_path,
+        '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+      const args = name === 'practice_finish_round' ? { topic: designRequest, attempt, progress_path } :
+        { ...attempt, id: designRequest.id, revision: review.revision };
+      const results = await Promise.all([client.callTool({ name, arguments: args }), client.callTool({ name, arguments: args })]);
+      expect(results.some(result => !result.isError)).toBe(true);
+      count++;
+      expect(parseFrontmatter(store.files.get(items + designRequest.id + '.md')!)!.metadata).toMatchObject({
+        review_count: count, completed_design_rounds: step.completed_design_rounds,
+        stage: step.stage, next_review: step.next_review, status: step.status,
+      });
+      const retry = await client.callTool({ name, arguments: args });
+      expect(retry.isError).not.toBe(true);
+      expect(retry.structuredContent).toMatchObject({ review_count: count, completed_design_rounds: step.completed_design_rounds });
+    }
+    expect(await practice.reviews({ domain: 'system-design' })).toMatchObject({ overdue: [], today: [], upcoming: [], unstarted: [] });
+    await expect(practice.review(designRequest.id)).rejects.toThrow('review_archived');
   } finally { await client.close(); }
 });

@@ -111,8 +111,7 @@ export class Practice {
   }
   private async currentReviews(indexed: IndexedReview[], day: string, config: ScheduleConfig) {
     const summary = (row: ReviewSummary): ReviewSummary => summarySchema.parse(row);
-    const needsNote = (row: IndexedReview) => row.next_review === null || row.next_review <= day ||
-      (row.domain === 'system-design' && row.completed_design_rounds === undefined);
+    const needsNote = (row: IndexedReview) => row.domain === 'system-design' || row.next_review === null || row.next_review <= day;
     const rows = indexed.filter(row => !needsNote(row)).map(summary);
     const unconfirmed = indexed.filter(needsNote);
     for (let index = 0; index < unconfirmed.length; index += 4) {
@@ -122,6 +121,19 @@ export class Practice {
       })));
     }
     return rows;
+  }
+  async recalculateDesignReviews() {
+    const config = await this.workflows.config('system-design');
+    let updated = 0;
+    for (const row of await this.indexedReviews('system-design')) {
+      const note = await this.item(row.id, true, config);
+      const normalized = designHistory(itemSchema.parse(note.metadata), note.body,
+        config.interval_days, config.retry_days, config.archive_after_final);
+      if (Object.entries(normalized).every(([key, value]) => isDeepStrictEqual(note.metadata[key], value))) continue;
+      await this.notes.put(note.path, serialize({ ...note.metadata, ...normalized }, note.body), note.revision);
+      updated++;
+    }
+    return { updated };
   }
   async review(id: string, includeHistory = false) {
     const note = await this.item(id);
@@ -148,8 +160,8 @@ export class Practice {
   async record(input: z.infer<typeof recordReviewSchema>) {
     const note = await this.item(input.id);
     const config = await this.workflows.config(domainSchema.parse(note.item.domain));
-    if (note.item.status !== 'active') throw new PracticeError('review_archived');
     if (note.item.attempt_ids.includes(input.attempt_id)) return { ...summarySchema.parse(note.item), recorded: false };
+    if (note.item.status !== 'active') throw new PracticeError('review_archived');
     if (input.completed_on > this.today()) throw new PracticeError('review_date_is_in_future');
     if (input.revision !== note.revision) throw new PracticeError('revision_conflict');
     const outcome = input.outcome ?? (note.item.domain === 'system-design' ? 'completed' : undefined);

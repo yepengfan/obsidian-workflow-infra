@@ -210,7 +210,7 @@ reflection history and post-attempt focus. Feedback is requested after the
 independent attempt. The owner still has ordinary note-read access; the phase
 separation is a coaching rule, not an access control against the owner.
 
-The backend follows the canonical scheduling policy:
+Algorithm reviews follow the canonical outcome-based scheduling policy:
 
 - First independent completion: first interval from actual completion day.
 - On-time/late independent completion: advance one interval, capped at the last.
@@ -220,6 +220,26 @@ The backend follows the canonical scheduling policy:
   interval. Archived items leave the queue and refuse further review records.
 - Early independent extra practice: keep the existing due date and stage.
 - Assisted/incomplete ended round: retry interval, preserving the stage.
+
+System Design advances by completed round, including early and late completions.
+Rounds 1 and 2 are guided, rounds 3 through 5 are mock interviews, and round 6
+is a summary. The first five completions schedule the configured intervals from
+the actual completion date; the sixth archives when `archive_after_final` is
+enabled. An ended incomplete attempt retries without advancing the completed
+round count. A paused session remains a checkpoint, without a review record.
+System Design may omit outcome; older assisted and independent outcomes still
+count as completions. Retrying a registered attempt ID does not advance again,
+including after archive.
+
+System Design queue and item reads replay complete saved history, including
+upcoming indexed rows, without writing. At cutover, the write-authorized
+`practice_recalculate_design_reviews` tool conditionally persists that same
+normalization for every indexed active System Design item. It preserves history
+and historical completion dates, including the final archive date. Repeating it
+does not rewrite already normalized notes. A concurrent edit rejects that write;
+refresh and retry. Run this migration against a temporary vault copy and review
+the resulting dates and archive statuses before authorizing it against the live
+vault. The asynchronous index updates from the persisted notes.
 
 Defaults are 1/3/7/14/60 days, a one-day retry and archiving after the final
 interval, read from the live manifest. `archive_after_final` defaults to false

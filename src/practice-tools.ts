@@ -41,6 +41,9 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   const writeSecurity = writeToolSecurity(settings);
   const write = (work: () => Promise<object>) => result(async () => { await authorizeWrite(); return work(); });
   const canvasPath = z.string().max(1024);
+  server.registerTool('practice_recalculate_design_reviews', { ...writeSecurity, outputSchema,
+    description: 'Persist completed-round scheduling for all indexed active System Design reviews at cutover. Preserves historical entries and dates. Replays final-round archive status. Conditional writes reject concurrent edits; retry safely after refreshing the index. First prove the migration on a temporary vault copy before authorizing the live migration.',
+    inputSchema: z.strictObject({}) }, () => write(() => practice.recalculateDesignReviews()));
   server.registerTool('practice_stage_canvas', { ...writeSecurity, outputSchema,
     _meta: { ...writeSecurity._meta, ui: { visibility: ['app', 'model'] }, 'openai/widgetAccessible': true },
     description: 'Stage a complete reviewed Excalidraw scene for a later confirmed save. For an older canvas use this only if the exact full scene is available. Returns a snapshot receipt.',
