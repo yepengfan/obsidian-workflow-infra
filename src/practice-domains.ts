@@ -49,7 +49,6 @@ export function practiceNoteDomain(path: string): PracticeDomain {
 }
 
 export function validatePracticeWritePath(path: string): PracticeDomain {
-  if (path === DESIGN_PROFILE) return 'system-design';
   const domain = practiceNoteDomain(path), definition = practiceDomains[domain];
   const relative = path.slice(definition.root.length);
   const allowed = definition.writes.some(pattern => new RegExp('^' + pattern.split('*')

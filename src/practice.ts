@@ -239,8 +239,13 @@ export class Practice {
     const { metadata, body: assessment } = parsePracticeNote(note.text);
     const tags = Array.isArray(metadata.tags) ? metadata.tags : [metadata.tags];
     if (tags.includes('system-design/done')) return;
-    const stored: StoredObservation[] = observations.map(item => ({ ...conceptObservationSchema.parse(item), attempt_id: attemptId, date }));
-    const body = upsertObservations(assessment, stored);
+    const prior = new Map(parseObservations(assessment, date).map(item => [item.observation_id, item]));
+    const stored: StoredObservation[] = observations.map(item => {
+      const observation = conceptObservationSchema.parse(item);
+      const existing = prior.get(observation.observation_id);
+      return { ...existing, ...observation, attempt_id: attemptId, date: observation.date ?? existing?.date ?? date };
+    });
+    const body = upsertObservations(assessment, stored, date);
     await this.notes.put(progressPath, serialize(metadata, body), note.revision);
     await this.rebuildDesignProfile();
   }
@@ -258,7 +263,9 @@ export class Practice {
           const children = await this.store.list(folder, 100, next, this.signal);
           if (children.notes.some(note => note.key === folder + 'progress.md')) {
             const note = await this.read((folder + 'progress.md').slice(this.settings.prefix.length));
-            observations.push(...parseObservations(parsePracticeNote(note.text).body));
+            const parsed = parsePracticeNote(note.text);
+            const completed = dateSchema.safeParse(parsed.metadata.round_completed_on);
+            observations.push(...parseObservations(parsed.body, completed.success ? completed.data : undefined));
           }
           next = children.next;
         } while (next);

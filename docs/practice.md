@@ -456,8 +456,15 @@ Profile replacement is conditional and preserves a concurrent writer's version.
 
 Same-day observations use optional `evidence_order` when the answer order is known.
 Unordered legacy evidence retains stable session-path order and saved order within
-each assessment; missing order sorts before explicit positions. Attempt IDs do
+each assessment. Unordered observations keep their encounter positions while
+explicitly ordered observations are sorted within that day’s ordered positions. Attempt IDs do
 not establish chronology. Earlier observations remain in the profile snapshot.
 A finalized finish retry preserves corrected assessments. An authorized finish
 can attach supplied concepts to a System Design question whose concept list is
 empty, without replacing an existing nonempty list.
+
+Observation `date` is the answer day, preserved independently of round completion.
+Completion day is used only when no answer date is recorded. `error_id` identifies
+a recurring error across weak or partial answers in distinct attempts; summaries
+remain descriptions, not identities. Generic practice note writes reject the
+profile. Only finish-triggered and explicit rebuilds replace that generated index.

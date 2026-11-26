@@ -1,11 +1,14 @@
 import { parse, stringify } from 'yaml';
 import { z } from 'zod';
+import { dateSchema } from './practice-schema.js';
 
 export const conceptIdSchema = z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u).max(80);
 
 export const conceptObservationSchema = z.strictObject({
   observation_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u).max(80),
   concept_id: conceptIdSchema,
+  error_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u).max(80).optional(),
+  date: dateSchema.optional(),
   performance: z.enum(['mastered', 'partial', 'weak', 'uncovered']),
   summary: z.string().trim().min(1).max(500),
   anchor: z.string().trim().min(1).max(200),
@@ -16,39 +19,41 @@ export const conceptObservationSchema = z.strictObject({
 export type ConceptObservation = z.infer<typeof conceptObservationSchema>;
 export type StoredObservation = ConceptObservation & { attempt_id: string; date: string };
 
+const storedObservationSchema = conceptObservationSchema.extend({ attempt_id: z.string().min(1) }).strip();
+
 const fence = /```practice-observations\r?\n([\s\S]*?)```/u;
 
-export function parseObservations(body: string): StoredObservation[] {
+export function parseObservations(body: string, completionDate?: string): StoredObservation[] {
   const match = fence.exec(body);
   if (!match) return [];
   const parsed = parse(match[1] ?? '');
   if (!Array.isArray(parsed)) return [];
   return parsed.flatMap(item => {
-    const row = z.object({
-      observation_id: conceptObservationSchema.shape.observation_id,
-      attempt_id: z.string().min(1),
-      concept_id: conceptObservationSchema.shape.concept_id,
-      performance: conceptObservationSchema.shape.performance,
-      summary: conceptObservationSchema.shape.summary,
-      anchor: conceptObservationSchema.shape.anchor,
-      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
-      learner: z.boolean().default(true),
-      evidence_order: conceptObservationSchema.shape.evidence_order,
-    }).safeParse(item);
-    return row.success ? [row.data] : [];
+    const row = storedObservationSchema.safeParse(item);
+    if (!row.success) return [];
+    const date = dateSchema.safeParse(row.data.date ?? completionDate);
+    return date.success ? [{ ...row.data, date: date.data }] : [];
   });
 }
 
-export function upsertObservations(body: string, incoming: readonly StoredObservation[]): string {
-  const merged = new Map(parseObservations(body).map(item => [item.observation_id, item]));
+export function upsertObservations(body: string, incoming: readonly StoredObservation[], completionDate?: string): string {
+  const merged = new Map(parseObservations(body, completionDate).map(item => [item.observation_id, item]));
   for (const item of incoming) merged.set(item.observation_id, item);
   const block = '```practice-observations\n' + stringify([...merged.values()]) + '```';
   return fence.test(body) ? body.replace(fence, () => block) : body.replace(/\s*$/u, '\n\n') + block + '\n';
 }
 
 export function orderedObservations(observations: readonly StoredObservation[]): StoredObservation[] {
-  return [...new Map(observations.map(item => [item.observation_id, item])).values()]
-    .sort((a, b) => a.date.localeCompare(b.date) || (a.evidence_order ?? 0) - (b.evidence_order ?? 0));
+  const dated = [...new Map(observations.map(item => [item.observation_id, item])).values()]
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const days = new Map<string, StoredObservation[]>();
+  for (const item of dated) days.set(item.date, [...(days.get(item.date) ?? []), item]);
+  return [...days.values()].flatMap(items => {
+    const explicit = items.filter(item => item.evidence_order !== undefined)
+      .sort((a, b) => a.evidence_order! - b.evidence_order!);
+    let index = 0;
+    return items.map(item => item.evidence_order === undefined ? item : explicit[index++]!);
+  });
 }
 
 export function renderProfile(observations: readonly StoredObservation[]): string {
@@ -63,12 +68,11 @@ export function renderProfile(observations: readonly StoredObservation[]): strin
     lines.push('', `## ${concept}`, '', `Current: ${current.performance}. ${current.summary}`, '', `Evidence: ${current.date} ${current.observation_id}.`);
     const errors = new Map<string, StoredObservation[]>();
     for (const item of items.filter(item => item.performance === 'weak' || item.performance === 'partial')) {
-      const key = item.summary.trim().toLowerCase();
-      errors.set(key, [...(errors.get(key) ?? []), item]);
+      if (item.error_id) errors.set(item.error_id, [...(errors.get(item.error_id) ?? []), item]);
     }
-    for (const repeated of errors.values()) {
+    for (const [errorId, repeated] of errors) {
       if (new Set(repeated.map(item => item.attempt_id)).size > 1) {
-        lines.push('', `Repeated error: ${repeated[0]!.summary} Evidence: ${repeated.map(item => item.observation_id).join(', ')}.`);
+        lines.push('', `Repeated error: ${errorId}. ${repeated[0]!.summary} Evidence: ${repeated.map(item => item.observation_id).join(', ')}.`);
       }
     }
     if (contrary.length) lines.push('', 'Contrary evidence: ' + contrary.map(item => `${item.date} ${item.observation_id} ${item.performance}`).join('; ') + '.');
