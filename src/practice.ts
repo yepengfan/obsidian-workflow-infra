@@ -27,7 +27,7 @@ export const addReviewSchema = z.strictObject({ id: slugSchema, domain: domainSc
   source: text.optional(), review_focus: text.optional() });
 export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: revisionSchema,
   attempt_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u).max(128),
-  outcome: z.enum(['independent', 'assisted', 'incomplete']), reflection: requiredText,
+  outcome: z.enum(['independent', 'assisted', 'incomplete', 'completed']).optional(), reflection: requiredText,
   completed_on: dateSchema, submission: text.optional(), observations: text.optional() });
 export const finishRoundSchema = z.strictObject({
   topic: addReviewSchema, attempt: recordReviewSchema.omit({ id: true, revision: true }),
@@ -49,7 +49,7 @@ function reviewQueue(rows: readonly ReviewSummary[], day: string) {
   return queue;
 }
 
-type ScheduleConfig = Pick<Awaited<ReturnType<PracticeWorkflow['config']>>, 'interval_days' | 'retry_days'>;
+type ScheduleConfig = Pick<Awaited<ReturnType<PracticeWorkflow['config']>>, 'interval_days' | 'retry_days' | 'archive_after_final'>;
 
 export class Practice {
   private readonly notes: PracticeNotes;
@@ -88,9 +88,9 @@ export class Practice {
     const item = itemSchema.parse(parsed.metadata);
     if (item.id !== id) throw new PracticeError('review_id_mismatch');
     if (!forQueue && !domainSchema.safeParse(item.domain).success) throw new PracticeError('unsupported_practice_domain');
-    if (item.domain === 'system-design' && item.completed_design_rounds === undefined) {
+    if (item.domain === 'system-design') {
       const schedule = config ?? await this.workflows.config('system-design');
-      Object.assign(item, designHistory(item, parsed.body, schedule.interval_days, schedule.retry_days));
+      Object.assign(item, designHistory(item, parsed.body, schedule.interval_days, schedule.retry_days, schedule.archive_after_final));
     }
     return { ...note, ...parsed, item, path };
   }
@@ -152,9 +152,11 @@ export class Practice {
     if (note.item.attempt_ids.includes(input.attempt_id)) return { ...summarySchema.parse(note.item), recorded: false };
     if (input.completed_on > this.today()) throw new PracticeError('review_date_is_in_future');
     if (input.revision !== note.revision) throw new PracticeError('revision_conflict');
-    const schedule = nextSchedule(note.item, input.outcome, input.completed_on, config.interval_days, config.retry_days, config.archive_after_final);
-    const metadata = { ...note.metadata, ...schedule, last_outcome: input.outcome, attempt_ids: [...note.item.attempt_ids, input.attempt_id] };
-    let entry = `\n\n### ${input.completed_on} · Round ${schedule.review_count}\n\n**${input.outcome}** · ${schedule.status === 'archived' ? 'Archived' : `Next review ${schedule.next_review}`}\n\n#### My reflection\n\n${input.reflection}\n`;
+    const outcome = input.outcome ?? (note.item.domain === 'system-design' ? 'completed' : undefined);
+    if (!outcome || (note.item.domain !== 'system-design' && outcome === 'completed')) throw new PracticeError('invalid_review_outcome');
+    const schedule = nextSchedule(note.item, outcome, input.completed_on, config.interval_days, config.retry_days, config.archive_after_final);
+    const metadata = { ...note.metadata, ...schedule, last_outcome: outcome, attempt_ids: [...note.item.attempt_ids, input.attempt_id] };
+    let entry = `\n\n### ${input.completed_on} · Round ${schedule.review_count}\n\n**${outcome}** · ${schedule.status === 'archived' ? 'Archived' : `Next review ${schedule.next_review}`}\n\n#### My reflection\n\n${input.reflection}\n`;
     if (input.submission) entry += `\n#### Submission\n\n${input.submission}\n`;
     if (input.observations) entry += `\n#### Feedback\n\n${input.observations}\n`;
     await this.notes.put(note.path, serialize(metadata, note.body + entry), note.revision);
