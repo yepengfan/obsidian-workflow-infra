@@ -6,7 +6,7 @@ import { S3NoteStore } from '../src/s3.js';
 
 it('executes actual SDK listing serialization with delimiter, prefix and page bounds', async () => {
   const calls: unknown[] = [];
-  const client = new S3Client({ region: 'ap-southeast-2', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
+  const client = new S3Client({ region: 'us-east-1', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
     requestHandler: { handle: async (request: HttpRequest) => {
       calls.push({ method: request.method, query: request.query });
       return { response: { statusCode: 200, headers: { 'content-type': 'application/xml' }, body: Readable.from([
@@ -22,7 +22,7 @@ it('executes actual SDK listing serialization with delimiter, prefix and page bo
 });
 it('sends a bounded Range and If-Match and consumes only the selected object bytes', async () => {
   const calls: unknown[] = [];
-  const client = new S3Client({ region: 'ap-southeast-2', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
+  const client = new S3Client({ region: 'us-east-1', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
     requestHandler: { handle: async (request: HttpRequest) => {
       calls.push({ method: request.method, path: request.path, headers: request.headers });
       return { response: { statusCode: 206, headers: { 'content-length': '3', 'content-range': 'bytes 2-4/8', etag: '"selected"' }, body: Readable.from(['abc']) } };
@@ -35,7 +35,7 @@ it('sends a bounded Range and If-Match and consumes only the selected object byt
   } finally { client.destroy(); }
 });
 it('fails closed if the service ignores Range and sends an oversized body', async () => {
-  const client = new S3Client({ region: 'ap-southeast-2', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
+  const client = new S3Client({ region: 'us-east-1', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
     requestHandler: { handle: async () => ({ response: { statusCode: 200, headers: { 'content-length': '10000', etag: '"selected"' }, body: Readable.from(['x'.repeat(10000)]) } }) },
   });
   try { await expect(new S3NoteStore(client, 'private-test-vault').read('Vault/hello.md', 0, 100, undefined, AbortSignal.timeout(1000))).rejects.toThrow('note_unavailable'); }
@@ -44,7 +44,7 @@ it('fails closed if the service ignores Range and sends an oversized body', asyn
 
 it('serializes encrypted create, revision and explicit unconditional writes and rejects S3 conflicts without retry', async () => {
   const calls: { headers: Record<string, string> }[] = []; let status = 200;
-  const client = new S3Client({ region: 'ap-southeast-2', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
+  const client = new S3Client({ region: 'us-east-1', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
     requestHandler: { handle: async (request: HttpRequest) => {
       calls.push({ headers: request.headers });
       return { response: { statusCode: status, headers: { etag: '"saved"', 'content-type': 'application/xml' },

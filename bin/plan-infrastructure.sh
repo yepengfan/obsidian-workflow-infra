@@ -12,7 +12,7 @@ fi
 {
   echo '## Infrastructure plan'
   echo
-  echo "Region: ${REGION} | Verified commit: ${SOURCE_SHA}"
+  echo "Verified commit: ${SOURCE_SHA}"
   echo "MCP rollout stage: ${stage}. IAM is never applied by this workflow."
   echo
   echo '| Stack | Operation | Action | Logical resource | Type | Replacement |'
@@ -121,6 +121,6 @@ done
   fi
 } >> "$GITHUB_STEP_SUMMARY"
 # Only account-independent change set identifiers cross the public artifact boundary.
-jq 'del(.account) | .stacks[].arn |= split(":changeSet/")[1]' infrastructure-plan.json > public-plan.json
+jq 'del(.account, .region) | .stacks[].arn |= split(":changeSet/")[1]' infrastructure-plan.json > public-plan.json
 echo "plan_digest=$(sha256sum public-plan.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 echo "has_changes=$(jq 'any(.stacks[]; .hasChanges)' infrastructure-plan.json)" >> "$GITHUB_OUTPUT"

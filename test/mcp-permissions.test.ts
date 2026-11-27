@@ -3,13 +3,13 @@ import fs from 'node:fs';
 import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
 import { describe, expect, it } from 'vitest';
-import { githubSchema, GitHubTrustStack } from '../infra/github-stack.js';
+import { githubSchema, loadGitHubConfig, GitHubTrustStack } from '../infra/github-stack.js';
 import { storageSchema } from '../infra/storage-config.js';
 import { mcpDeploymentSchema } from '../infra/mcp-permissions.js';
 import { INDEX_RESOURCES } from '../infra/practice-index-resources.js';
 
 const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
-const config = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
+const config = loadGitHubConfig(storage.region);
 const settings = mcpResources(storage, config.runtimeRoleName);
 type Statement = { Action: string | string[]; Resource: unknown; Effect: string; Condition?: Record<string, Record<string, unknown>> };
 function build(prefix = '', practiceWrites = false, journalWrites = false) {
@@ -184,7 +184,7 @@ describe('MCP runtime permission boundary', () => {
     expect(mcpDeploymentSchema.safeParse({ ...settings, notePrefix }).success).toBe(false);
   });
   it('keeps generated resource IDs out of GitHub configuration', () => {
-    expect(githubSchema.safeParse({ ...config, mcpUserPoolId: 'ap-southeast-2_Manual' }).success).toBe(false);
+    expect(githubSchema.safeParse({ ...config, mcpUserPoolId: 'us-east-1_Manual' }).success).toBe(false);
   });
 });
 

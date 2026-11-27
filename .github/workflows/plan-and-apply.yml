@@ -61,18 +61,9 @@ jobs:
       - name: Read AWS session settings
         id: config
         env:
-          DEPLOY_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
-        run: |
-          node --input-type=commonjs <<'NODE' >> "$GITHUB_OUTPUT"
-          const s = { region: 'ap-southeast-2', account: process.env.DEPLOY_ACCOUNT };
-          if (!/^\d{12}$/.test(s.account)) throw Error('Set the AWS_ACCOUNT_ID repository secret');
-          const g = require('./config/github.json');
-          console.log('account=' + s.account);
-          console.log('region=' + s.region);
-          console.log('storageRole=arn:aws:iam::' + s.account + ':role/' + g.executionRoleName);
-          console.log('mcpRole=arn:aws:iam::' + s.account + ':role/' + g.mcpExecutionRoleName);
-          console.log('roleArn=arn:aws:iam::' + s.account + ':role/' + g.planRoleName);
-          NODE
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: node_modules/.bin/tsx bin/github-session-settings.ts plan >> "$GITHUB_OUTPUT"
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ steps.config.outputs.roleArn }}
@@ -143,16 +134,9 @@ jobs:
       - name: Read AWS session settings
         id: config
         env:
-          DEPLOY_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
-        run: |
-          node --input-type=commonjs <<'NODE' >> "$GITHUB_OUTPUT"
-          const s = { region: 'ap-southeast-2', account: process.env.DEPLOY_ACCOUNT };
-          if (!/^\d{12}$/.test(s.account)) throw Error('Set the AWS_ACCOUNT_ID repository secret');
-          const g = require('./config/github.json');
-          console.log('account=' + s.account);
-          console.log('region=' + s.region);
-          console.log('roleArn=arn:aws:iam::' + s.account + ':role/' + g.deployRoleName);
-          NODE
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: node_modules/.bin/tsx bin/github-session-settings.ts apply >> "$GITHUB_OUTPUT"
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ steps.config.outputs.roleArn }}
@@ -176,7 +160,7 @@ jobs:
           test "$(sha256sum reviewed-plan/public-plan.json | cut -d' ' -f1)" = "$PLAN_DIGEST" || {
             echo "Plan digest mismatch" >&2; exit 1;
           }
-          jq --arg account "$ACCOUNT" --arg region "$REGION" '.account=$account |
+          jq --arg account "$ACCOUNT" --arg region "$REGION" '.account=$account | .region=$region |
             .stacks[].arn |= ("arn:aws:cloudformation:" + $region + ":" + $account + ":changeSet/" + .)' \
             reviewed-plan/public-plan.json > infrastructure-plan.json
           npm run synth -- --quiet

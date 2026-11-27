@@ -2,10 +2,10 @@ import fs from 'node:fs';
 import { expect, it } from 'vitest';
 import { environmentSettings, runtimeOptionsSchema } from '../src/config.js';
 
-const resource = 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp';
+const resource = 'https://example.execute-api.us-east-1.amazonaws.com/mcp';
 const environment = {
-  AWS_REGION: 'ap-southeast-2', NOTE_BUCKET: 'private-test-vault', MCP_OPTIONS: '{}',
-  MCP_RESOURCE: resource, OAUTH_ISSUER: 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_Test',
+  AWS_REGION: 'us-east-1', NOTE_BUCKET: 'private-test-vault', MCP_OPTIONS: '{}',
+  MCP_RESOURCE: resource, OAUTH_ISSUER: 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Test',
   OAUTH_CLIENT_IDS: JSON.stringify(['test-client']), OAUTH_SCOPE: `${resource}/read`,
 };
 

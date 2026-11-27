@@ -4,7 +4,13 @@ set -euo pipefail
 umask 077
 mode=${1:-all}
 [[ "$mode" == all || "$mode" == storage ]]
-region=ap-southeast-2
+region=${AWS_REGION:-${AWS_DEFAULT_REGION:-}}
+if [[ -z "$region" ]]; then
+  region=$(aws configure get region) || {
+    echo 'Set a default region for the AWS profile or export AWS_REGION.' >&2
+    exit 1
+  }
+fi
 tmp=$(mktemp -d config/.production-XXXXXX)
 trap 'rm -rf "$tmp"' EXIT
 read_parameter() {

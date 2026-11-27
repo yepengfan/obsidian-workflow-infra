@@ -5,13 +5,13 @@ import { buildRuntime } from './runtime-package.js';
 import fs from 'node:fs';
 import { App } from 'aws-cdk-lib';
 import { CognitoStack, cognitoSchema } from '../infra/cognito-stack.js';
-import { githubSchema, GitHubTrustStack } from '../infra/github-stack.js';
+import { loadGitHubConfig, GitHubTrustStack } from '../infra/github-stack.js';
 import { STORAGE_STACK_NAME, storageSchema } from '../infra/storage-config.js';
 import { StorageStack } from '../infra/storage-stack.js';
 
 const app = new App();
 const aws = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
-const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
+const github = loadGitHubConfig(aws.region);
 const options = mcpAppSchema.parse(JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8')));
 const { stage } = mcpRolloutSchema.parse(JSON.parse(fs.readFileSync('config/mcp-deployment.json', 'utf8')));
 const code = stage === 'runtime' ? await buildRuntime(app.outdir, process.env.SOURCE_SHA ?? 'local') : undefined;

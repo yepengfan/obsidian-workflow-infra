@@ -1,5 +1,5 @@
 import { mcpResources } from '../infra/mcp-resources.js';
-import { githubSchema } from '../infra/github-config.js';
+import { loadGitHubConfig } from '../infra/github-config.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { S3Client } from '@aws-sdk/client-s3';
@@ -13,7 +13,7 @@ try {
   const source = process.env.SOURCE_SHA;
   if (!directory || !source || !/^[a-f0-9]{40}$/u.test(source)) throw Error('Verified source and artifact directory required');
   const aws = storageSchema.parse(JSON.parse(await fs.readFile('config/storage.json', 'utf8')));
-  const github = githubSchema.parse(JSON.parse(await fs.readFile('config/github.json', 'utf8')));
+  const github = loadGitHubConfig(aws.region);
   const deployment = mcpResources(aws, github.runtimeRoleName);
   const template = JSON.parse(await fs.readFile(path.join(directory, 'ObsidianMcp.template.json'), 'utf8'));
   const bucket = template.Resources.CodeArtifacts.Properties.BucketName;

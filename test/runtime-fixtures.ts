@@ -4,9 +4,9 @@ import type { CatalogPage, NoteChunk, NoteStore } from '../src/note-store.js';
 export const owner = '11111111-1111-4111-8111-111111111111';
 export const ownerGroup = 'obsidian-mcp-owners';
 export const runtimeSettings = (overrides: Partial<Settings> = {}): Settings => ({
-  ...runtimeOptionsSchema.parse({ ownerGroup }), bucket: 'private-test-vault', prefix: 'Vault/', region: 'ap-southeast-2',
-  issuer: 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_Test', clientIds: ['test-client'],
-  resource: 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp', scope: 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp/read', ...overrides,
+  ...runtimeOptionsSchema.parse({ ownerGroup }), bucket: 'private-test-vault', prefix: 'Vault/', region: 'us-east-1',
+  issuer: 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Test', clientIds: ['test-client'],
+  resource: 'https://example.execute-api.us-east-1.amazonaws.com/mcp', scope: 'https://example.execute-api.us-east-1.amazonaws.com/mcp/read', ...overrides,
 });
 export class MemoryStore implements NoteStore {
   calls: { kind: 'list' | 'read'; key: string; limit: number; cursor?: string; etag?: string }[] = [];

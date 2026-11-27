@@ -3,7 +3,7 @@ import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
 import { expect, it } from 'vitest';
 import { CognitoStack, cognitoSchema } from '../infra/cognito-stack.js';
-import { githubSchema } from '../infra/github-stack.js';
+import { loadGitHubConfig } from '../infra/github-stack.js';
 import { mcpResources } from '../infra/mcp-resources.js';
 import { mcpAppSchema } from '../infra/mcp-runtime.js';
 import { INDEX_RESOURCES } from '../infra/practice-index-resources.js';
@@ -11,7 +11,7 @@ import { RECONCILE_SCHEDULE } from '../infra/practice-index.js';
 import { storageSchema } from '../infra/storage-config.js';
 
 const aws = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
-const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
+const github = loadGitHubConfig(aws.region);
 const cognito = cognitoSchema.parse(JSON.parse(fs.readFileSync('config/cognito.json', 'utf8')));
 const code = { schemaVersion: 1 as const, sourceSha: 'local', sha256: 'a'.repeat(64), sha256Base64: 'a'.repeat(43) + '=', key: 'releases/' + 'a'.repeat(64) + '.zip', bytes: 100 };
 function synth(notePrefix = '') {

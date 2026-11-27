@@ -4,7 +4,7 @@ import { CfnOutput, DefaultStackSynthesizer, Duration, Fn, Stack } from 'aws-cdk
 import * as iam from 'aws-cdk-lib/aws-iam';
 import type { Construct } from 'constructs';
 import type { GitHubConfig } from './github-config.js';
-export { githubSchema } from './github-config.js';
+export { githubSchema, loadGitHubConfig } from './github-config.js';
 import { STORAGE_STACK_NAME, type StorageConfig } from './storage-config.js';
 import { grantMcpRuntime, mcpDeploymentSchema, MCP_RESOURCE_TYPES } from './mcp-permissions.js';
 import { grantMetadataConfiguration } from './metadata-search.js';
@@ -48,7 +48,7 @@ export class GitHubTrustStack extends Stack {
         's3:ListBucket', 's3:GetBucketLocation',
       ];
     execution.addToPolicy(new iam.PolicyStatement({
-      // AWS::S3::Bucket read permissions (Sydney registry, 2026-11-13),
+      // AWS::S3::Bucket read permissions (regional registry, 2026-11-13),
       // excluding its unrecognized GetBucketDefaultStorageClass action.
       // ListBucket is needed for HeadBucket; no object-body permissions are granted.
       actions: bucketReadActions,

@@ -99,7 +99,7 @@ or IAM-update permission. Plan and Deploy gain no version-deletion permission.
    the read-only audit; first code publication also requires verification after
    the later runtime rollout. Do not upload/delete canary objects implicitly.
 
-Retention uses the AWS_ACCOUNT_ID repository secret for OIDC and reads the pinned storage parameter. An IAM approval and a resource Apply remain separate
+Retention uses the AWS_ACCOUNT_ID and AWS_REGION repository secrets for OIDC and reads the pinned storage parameter. An IAM approval and a resource Apply remain separate
 because ordinary CI cannot widen its own privileges.
 
 ## Preview and verification

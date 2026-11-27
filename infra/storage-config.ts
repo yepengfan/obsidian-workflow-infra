@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const STORAGE_STACK_NAME = 'ObsidianWorkflowStorage';
+export const awsRegionSchema = z.string().regex(/^[a-z]{2}-[a-z]+-\d$/u);
 
 const bucketName = z.string().min(3).max(63)
   .regex(/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/u)
@@ -26,7 +27,7 @@ const bucketSchema = z.object({
 
 export const storageSchema = z.object({
   account: z.string().regex(/^\d{12}$/u),
-  region: z.string().regex(/^[a-z]{2}-[a-z]+-\d$/u),
+  region: awsRegionSchema,
   retention: z.strictObject({
     unusedCodeDays: z.number().int().min(1).max(3650),
     incompleteMultipartUploadDays: z.number().int().min(1).max(365),

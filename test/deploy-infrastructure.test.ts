@@ -10,7 +10,7 @@ type Job = { needs?: string; if?: string; environment: string; permissions: Reco
 const workflow = parse(fs.readFileSync('.github/workflows/plan-and-apply.yml', 'utf8')) as {
   name: string; on: { workflow_run: unknown }; jobs: Record<string, Job>;
 };
-const source = 'a'.repeat(40), account = '111111111111', region = 'ap-southeast-2';
+const source = 'a'.repeat(40), account = '111111111111', region = 'us-east-1';
 const storage = 'ObsidianWorkflowStorage', cognito = 'ObsidianMcp';
 const codeBucketName = `obsidian-mcp-code-${account}-${region}`;
 const codeDigest = createHash('sha256').update('fixture-code').digest();
@@ -53,16 +53,16 @@ function execute(script: string, fixture: Record<string, unknown> = {}, plan = m
       } : {}),
       ...(stage === 'runtime' ? {
       McpFunction: { Type: 'AWS::Lambda::Function', Properties: { FunctionName: 'obsidian-mcp-server', Code: { S3Key: code.key },
-        Environment: { Variables: { MCP_RESOURCE: 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp' } } } },
+        Environment: { Variables: { MCP_RESOURCE: 'https://example.execute-api.us-east-1.amazonaws.com/mcp' } } } },
       NotesResourceServer: { Type: 'AWS::Cognito::UserPoolResourceServer', Properties: { UserPoolId: { Ref: 'UserPool' },
-        Identifier: fixture.wrongResourceBinding ? 'https://other.example/mcp' : 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp' } },
+        Identifier: fixture.wrongResourceBinding ? 'https://other.example/mcp' : 'https://example.execute-api.us-east-1.amazonaws.com/mcp' } },
       IndexerFunction: { Type: 'AWS::Lambda::Function', Properties: { FunctionName: 'obsidian-mcp-indexer' } },
       IndexReconcileRule: { Type: 'AWS::Events::Rule', Properties: { Name: 'obsidian-mcp-index-reconcile' } },
       IndexReconcilePermission: { Type: 'AWS::Lambda::Permission', Properties: { Action: 'lambda:InvokeFunction',
         FunctionName: { Ref: fixture.wrongPermissionBinding === 'function' ? 'McpFunction' : 'IndexerFunction' },
         Principal: fixture.wrongPermissionBinding === 'principal' ? 'apigateway.amazonaws.com' : 'events.amazonaws.com',
         SourceArn: { 'Fn::Join': ['', ['arn:', { Ref: 'AWS::Partition' },
-          `:events:ap-southeast-2:${account}:rule/${fixture.wrongPermissionBinding === 'rule' ? 'other-rule' : 'obsidian-mcp-index-reconcile'}`]] } } },
+          `:events:us-east-1:${account}:rule/${fixture.wrongPermissionBinding === 'rule' ? 'other-rule' : 'obsidian-mcp-index-reconcile'}`]] } } },
       } : {}),
     } };
     fs.writeFileSync(path.join(dir, 'cdk.out/ObsidianMcp.template.json'), JSON.stringify(template));
@@ -100,7 +100,7 @@ switch(args[1]) {
     respond(executed ? {Stacks:[{StackStatus:'UPDATE_COMPLETE',EnableTerminationProtection:true}]} : item.stack);break;
   }
   case 'describe-stack-resources':respond(item.resources);break;
-  case 'create-change-set':console.log('arn:aws:cloudformation:ap-southeast-2:111111111111:changeSet/'+value('--change-set-name')+'/example');break;
+  case 'create-change-set':console.log('arn:aws:cloudformation:us-east-1:111111111111:changeSet/'+value('--change-set-name')+'/example');break;
   case 'describe-change-set':respond(item.plan);break;
   case 'wait':process.exit(args[2]==='change-set-create-complete'?(item.waitExit??0):(item.applyWaitExit??0));break;
   case 'execute-change-set':case 'update-termination-protection':break;
@@ -161,6 +161,7 @@ describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
     const digest = createHash('sha256').update(result.publicPlan).digest('hex');
     expect(result.output).toContain(`plan_digest=${digest}`);
     expect(result.publicPlan).not.toContain(account);
+    expect(result.publicPlan).not.toContain(region);
     expect(JSON.parse(result.publicPlan).stacks.map((stack: { arn: string }) => stack.arn))
       .toEqual(result.plan.stacks.map(stack => stack.arn.split(':changeSet/')[1]));
 
@@ -310,7 +311,7 @@ describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
     const plan = manifest();
     if (kind === 'sha') plan.sourceSha = 'b'.repeat(40);
     if (kind === 'account') plan.account = '111122223333';
-    if (kind === 'region') plan.region = 'us-east-1';
+    if (kind === 'region') plan.region = 'us-west-2';
     if (kind === 'missing') plan.stacks.pop();
     if (kind === 'duplicate') plan.stacks[1]!.name = storage;
     if (kind === 'IAM stack') plan.stacks[1]!.name = 'ObsidianGitHubTrust';

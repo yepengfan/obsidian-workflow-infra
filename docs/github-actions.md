@@ -110,13 +110,13 @@ aws cloudformation create-change-set \
   --change-set-type UPDATE --capabilities CAPABILITY_NAMED_IAM \
   --template-body file://cdk.github.out/ObsidianGitHubTrust.template.json \
   --description "Reviewed foundation $(git rev-parse HEAD)" \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 aws cloudformation wait change-set-create-complete \
   --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 aws cloudformation describe-change-set \
   --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 ```
 
 Only after the user confirms that actual plan and its IAM policies:
@@ -124,20 +124,21 @@ Only after the user confirms that actual plan and its IAM policies:
 ```sh
 aws cloudformation execute-change-set \
   --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 aws cloudformation wait stack-update-complete \
   --stack-name ObsidianGitHubTrust \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 aws cloudformation update-termination-protection --enable-termination-protection \
   --stack-name ObsidianGitHubTrust \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 aws cloudformation describe-stacks --stack-name ObsidianGitHubTrust \
-  --query 'Stacks[0].Outputs' --profile obsidian-admin --region ap-southeast-2
+  --query 'Stacks[0].Outputs' --profile obsidian-admin
 ```
 
-Set the repository Actions secret `AWS_ACCOUNT_ID` to the production account
-number before enabling this revision. The jobs use it to construct their OIDC
-role ARNs. After authentication they restore the pinned SSM values with
+Set the repository Actions secrets `AWS_ACCOUNT_ID` and `AWS_REGION` to the
+production account number and region before enabling this revision. The jobs
+use these values to configure AWS OIDC and resolve the regional role names.
+After authentication they restore the pinned SSM values with
 `bin/production-config.sh`. Plan and Apply can read the storage and app
 parameters. Artifact retention reads only storage. Restore production settings
 locally before synthesizing a foundation update. See the
@@ -186,7 +187,7 @@ same two bucket ARNs, but can indirectly cause permanent historical-version
 deletion by S3. IAM does not constrain lifecycle rules to the
 [selected retention policy](retention.md); the separate resource update
 must encode that policy in the bucket template. No lifecycle rule is enabled by
-the IAM-only permission update. Read actions follow the Sydney CloudFormation
+the IAM-only permission update. Read actions follow the regional CloudFormation
 registry schema checked on 2026-11-13, excluding its unrecognized
 `GetBucketDefaultStorageClass` action (AWS Access Analyzer reports INVALID_ACTION;
 that property is not modeled here). Granting every advertised create/update

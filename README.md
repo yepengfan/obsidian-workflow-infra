@@ -17,7 +17,8 @@ AWS_PROFILE=obsidian-admin bash bin/production-config.sh
 ```
 
 The four JSON files created directly under `config/` are Git-ignored.
-In the AWS console, select Sydney (`ap-southeast-2`) and open Systems Manager
+The restore script takes the region from the AWS environment or the selected
+profile. In the AWS console, select that profile’s region and open Systems Manager
 → Parameter Store. `/obsidian-mcp/prod/storage` holds the account, region, bucket
 names and Cognito domain prefix. `/obsidian-mcp/prod/app` holds the ChatGPT and
 Gemini callback lists. The restore command selects the parameter versions
