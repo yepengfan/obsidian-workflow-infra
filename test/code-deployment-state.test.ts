@@ -23,7 +23,7 @@ beforeEach(() => {
   const aws = `#!${process.execPath}\nconst fs=require('node:fs'); const f=JSON.parse(fs.readFileSync(process.env.STATE_FIXTURE)); const a=process.argv.slice(2); fs.appendFileSync(process.env.STATE_CALLS, JSON.stringify(a)+'\\n');
 if(a[0]==='cloudformation'&&a[1]==='describe-stacks') console.log(JSON.stringify(f.stack));
 else if(a[0]==='cloudformation'&&a[1]==='get-template') console.log(JSON.stringify(f.template));
-else if(a[0]==='sts'&&a[1]==='get-caller-identity') console.log(JSON.stringify({Account:'391824190072',Arn:'arn:aws:sts::391824190072:assumed-role/LocalSso/session'}));
+else if(a[0]==='sts'&&a[1]==='get-caller-identity') console.log(JSON.stringify({Account:'111111111111',Arn:'arn:aws:sts::111111111111:assumed-role/LocalSso/session'}));
 else if(a[0]==='lambda'&&a[1]==='get-function-configuration') { if(f.fn) console.log(JSON.stringify(f.fn)); else { console.error(f.missingError||'(ResourceNotFoundException)'); process.exit(254); } }
 else process.exit(99);\n`;
   fs.writeFileSync(path.join(directory, 'aws'), aws, { mode: 0o700 });
@@ -103,8 +103,8 @@ it('executes the default CLI preview through real SDK HTTP with zero mutations',
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
     const address = server.address(); if (!address || typeof address === 'string') throw Error('Fixture listener failed');
-    fixture.stack = { ...fixture.stack, StackId: 'arn:aws:cloudformation:ap-southeast-2:391824190072:stack/ObsidianMcp/test' };
-    fixture.template.Resources.CodeArtifacts!.Properties.BucketName = 'obsidian-mcp-code-391824190072-ap-southeast-2';
+    fixture.stack = { ...fixture.stack, StackId: 'arn:aws:cloudformation:ap-southeast-2:111111111111:stack/ObsidianMcp/test' };
+    fixture.template.Resources.CodeArtifacts!.Properties.BucketName = 'obsidian-mcp-code-111111111111-ap-southeast-2';
     fs.writeFileSync(process.env.STATE_FIXTURE!, JSON.stringify(fixture));
     const result = await promisify(execFile)(process.execPath, ['--import', 'tsx', path.resolve('bin/retain-code.ts')], {
       cwd: directory, env: { ...process.env, AWS_ENDPOINT_URL_S3: `http://127.0.0.1:${address.port}`, AWS_ACCESS_KEY_ID: 'fixture', AWS_SECRET_ACCESS_KEY: 'fixture', AWS_SESSION_TOKEN: '',
@@ -113,7 +113,7 @@ it('executes the default CLI preview through real SDK HTTP with zero mutations',
     expect(JSON.parse(result.stdout)).toMatchObject({ dryRun: true, scanned: 0, deleted: 0, markedUnused: 0 });
     expect(requests).toHaveLength(1); expect(requests[0]!.method).toBe('GET');
     const url = new URL(requests[0]!.url, 'http://fixture');
-    expect(url.pathname).toBe('/obsidian-mcp-code-391824190072-ap-southeast-2/');
+    expect(url.pathname).toBe('/obsidian-mcp-code-111111111111-ap-southeast-2/');
     expect(url.searchParams.get('prefix')).toBe('releases/'); expect(url.searchParams.get('max-keys')).toBe('1000');
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
 }, 15000);

@@ -3,13 +3,13 @@
   "metadataSearch": true,
   "ownerGroup": "obsidian-mcp-owners",
   "callbackUrls": [
-    "https://chatgpt.com/connector/oauth/JqeUjWLzAhtd"
+    "https://chatgpt.com/connector/oauth/example"
   ],
   "claudeCallbackUrls": [
     "https://claude.ai/api/mcp/auth_callback"
   ],
   "geminiCallbackUrls": [
-    "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-bcea5441da023dbec8dbe33c"
+    "https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-example"
   ],
   "allowedOrigins": [
     "https://chatgpt.com",

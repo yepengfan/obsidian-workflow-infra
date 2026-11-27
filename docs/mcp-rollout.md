@@ -184,9 +184,9 @@ its remaining events. Current notes/books and user-pool accounts are unaffected
 by the runtime deletion policy. See
 [CloudFormation deletion policies](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-attribute-deletionpolicy.html).
 
-The owners-group name and exact ChatGPT callback are configured in
-[`config/mcp-runtime.json`](../config/mcp-runtime.json); no individual user
-identifiers or memberships belong in that configuration or Lambda configuration.
+The owners-group name is defined in the [versioned runtime configuration](../config/examples/mcp-runtime.json).
+The exact ChatGPT callback is restored from the pinned SSM app parameter. Cognito
+stores individual user memberships.
 The deployed owners-group setup used the separately approved
 [local SSO IAM prerequisite](github-actions.md#one-time-foundation-and-github-environment-setup)
 for the group grants described in [Permission scope](#permission-scope).

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import runtimeConfig from '../config/mcp-runtime.json' with { type: 'json' };
+import runtimeConfig from '../config/examples/mcp-runtime.json' with { type: 'json' };
 import { practiceOptionsSchema } from './practice-options.js';
 
 const defaults = runtimeConfig.limits;

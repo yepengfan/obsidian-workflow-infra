@@ -10,7 +10,7 @@ type Job = { needs?: string; if?: string; environment: string; permissions: Reco
 const workflow = parse(fs.readFileSync('.github/workflows/plan-and-apply.yml', 'utf8')) as {
   name: string; on: { workflow_run: unknown }; jobs: Record<string, Job>;
 };
-const source = 'a'.repeat(40), account = '391824190072', region = 'ap-southeast-2';
+const source = 'a'.repeat(40), account = '111111111111', region = 'ap-southeast-2';
 const storage = 'ObsidianWorkflowStorage', cognito = 'ObsidianMcp';
 const codeBucketName = `obsidian-mcp-code-${account}-${region}`;
 const codeDigest = createHash('sha256').update('fixture-code').digest();
@@ -100,7 +100,7 @@ switch(args[1]) {
     respond(executed ? {Stacks:[{StackStatus:'UPDATE_COMPLETE',EnableTerminationProtection:true}]} : item.stack);break;
   }
   case 'describe-stack-resources':respond(item.resources);break;
-  case 'create-change-set':console.log('arn:aws:cloudformation:ap-southeast-2:391824190072:changeSet/'+value('--change-set-name')+'/example');break;
+  case 'create-change-set':console.log('arn:aws:cloudformation:ap-southeast-2:111111111111:changeSet/'+value('--change-set-name')+'/example');break;
   case 'describe-change-set':respond(item.plan);break;
   case 'wait':process.exit(args[2]==='change-set-create-complete'?(item.waitExit??0):(item.applyWaitExit??0));break;
   case 'execute-change-set':case 'update-termination-protection':break;
@@ -122,7 +122,7 @@ switch(args[1]) {
     } });
     expect(result.error).toBeUndefined();
     const read = (file: string) => fs.existsSync(path.join(dir, file)) ? fs.readFileSync(path.join(dir, file), 'utf8') : '';
-    return { status: result.status, stderr: result.stderr, calls: read('calls').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Call), output: read('output'), summary: read('summary'), plan: JSON.parse(read('infrastructure-plan.json')) as ReturnType<typeof manifest> };
+    return { status: result.status, stderr: result.stderr, calls: read('calls').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Call), output: read('output'), summary: read('summary'), publicPlan: read('public-plan.json'), plan: JSON.parse(read('infrastructure-plan.json')) as ReturnType<typeof manifest> };
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 const planScript = `bash ${JSON.stringify(path.resolve('bin/plan-infrastructure.sh'))}`;
@@ -158,8 +158,14 @@ describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.plan.stacks.map(s => s.name)).toEqual([storage, cognito]);
     expect(result.output).toContain('has_changes=true');
+    const digest = createHash('sha256').update(result.publicPlan).digest('hex');
+    expect(result.output).toContain(`plan_digest=${digest}`);
+    expect(result.publicPlan).not.toContain(account);
+    expect(JSON.parse(result.publicPlan).stacks.map((stack: { arn: string }) => stack.arn))
+      .toEqual(result.plan.stacks.map(stack => stack.arn.split(':changeSet/')[1]));
+
     expect(result.summary).toContain(storage); expect(result.summary).toContain(cognito);
-    for (const bucket of resources.storage) expect(result.summary).toContain(bucket.PhysicalResourceId);
+    for (const bucket of resources.storage) expect(result.summary).not.toContain(bucket.PhysicalResourceId);
     expect(executions(result.calls)).toEqual([]);
     const creates = result.calls.filter(c => c.args[1] === 'create-change-set');
     expect(creates).toHaveLength(2);

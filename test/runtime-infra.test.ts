@@ -175,10 +175,10 @@ it.each(['https://oauth-redirect.googleusercontent.com/r/*', 'https://gemini.goo
   expect(mcpAppSchema.safeParse({ notePrefix: '', geminiCallbackUrls: [callback] }).success).toBe(false);
 });
 it('enables the committed Gemini client for the owner redirect', () => {
-  const ownerRedirect = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-bcea5441da023dbec8dbe33c';
+  const ownerRedirect = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-example';
   const options = mcpAppSchema.parse(JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8')));
   expect(options.geminiCallbackUrls).toEqual([ownerRedirect]);
-  expect(options.callbackUrls).toEqual(['https://chatgpt.com/connector/oauth/JqeUjWLzAhtd']);
+  expect(options.callbackUrls).toEqual(['https://chatgpt.com/connector/oauth/example']);
   expect(options.claudeCallbackUrls).toEqual(['https://claude.ai/api/mcp/auth_callback']);
   expect(options.allowedOrigins).toEqual(['https://chatgpt.com', 'https://claude.ai']);
   const stack = new CognitoStack(new App(), 'Committed', aws, cognito,

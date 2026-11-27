@@ -162,8 +162,10 @@ describe('MCP runtime permission boundary', () => {
     expect(cleanup.flatMap(actions).sort()).toEqual([
       'cloudformation:DescribeStacks', 'cloudformation:GetTemplate', 'lambda:GetFunctionConfiguration',
       's3:DeleteObjectVersion', 's3:GetObjectTagging', 's3:GetObjectVersionTagging',
-      's3:ListBucketVersions', 's3:PutObjectTagging', 's3:PutObjectVersionTagging',
+      's3:ListBucketVersions', 's3:PutObjectTagging', 's3:PutObjectVersionTagging', 'ssm:GetParameter',
     ]);
+    expect(cleanup.find(s => actions(s).includes('ssm:GetParameter'))?.Resource)
+      .toEqual(stack.resolve(`arn:${stack.partition}:ssm:${storage.region}:${storage.account}:parameter/obsidian-mcp/prod/storage`));
     expect(cleanup.find(s => actions(s).includes('s3:ListBucketVersions'))).toMatchObject({
       Resource: bucket, Condition: { StringLike: { 's3:prefix': ['releases/*'] }, NumericLessThanEquals: { 's3:max-keys': 1000 } },
     });

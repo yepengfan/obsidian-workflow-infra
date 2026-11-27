@@ -66,7 +66,7 @@ scope, read tools still work and write tools return `authentication_required`.
 claim and the resource-bound read/write scopes remain mandatory. ID tokens are
 never accepted as API credentials.
 
-The committed defaults are in [`config/mcp-runtime.json`](../config/mcp-runtime.json);
+The committed defaults are in [`config/examples/mcp-runtime.json`](../config/examples/mcp-runtime.json);
 [`src/config.ts`](../src/config.ts) defines the allowed bounds. Page size, selected
 note count, parallel reads, per-note body bytes, chunk bytes, request/response
 bytes and tool deadline are bounded independently. The
@@ -237,7 +237,7 @@ an exact `https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-â
 URL. The configuration accepts only one exact production account-bound redirect.
 
 1. Copy the redirect URI from Gemini. Do not invent the account-specific suffix.
-   Put that single exact URI in `geminiCallbackUrls`. Leave the list empty until
+   Put that single exact URI in `geminiCallbackUrls` in the SSM app parameter and advance its pinned version in `bin/production-config.sh`. Leave the list empty until
    the copied URI is supplied.
    Keep ChatGPT `callbackUrls` and Claude `claudeCallbackUrls` unchanged.
    Deploy this support before relying on a three-client allowlist: Lambda

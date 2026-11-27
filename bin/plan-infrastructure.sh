@@ -12,7 +12,7 @@ fi
 {
   echo '## Infrastructure plan'
   echo
-  echo "Account: ${ACCOUNT} | Region: ${REGION} | Verified commit: ${SOURCE_SHA}"
+  echo "Region: ${REGION} | Verified commit: ${SOURCE_SHA}"
   echo "MCP rollout stage: ${stage}. IAM is never applied by this workflow."
   echo
   echo '| Stack | Operation | Action | Logical resource | Type | Replacement |'
@@ -88,7 +88,7 @@ for stack in ObsidianWorkflowStorage ObsidianMcp; do
     if [[ "$operation" == update ]] && jq -e '.Status == "FAILED" and ((.StatusReason | startswith("The submitted information didn\u0027t contain changes.")) or (.StatusReason | startswith("No updates are to be performed")))' "$plan"; then
       has_changes=false
     else
-      cat "$plan" >&2; exit 1
+      echo "Change set failed for $stack. Inspect its status in CloudFormation." >&2; exit 1
     fi
   else
     aws cloudformation describe-change-set --change-set-name "$arn" > "$plan"
@@ -109,15 +109,9 @@ done
 {
   echo
   echo '### Exact change sets'
-  jq -r '.stacks[] | "- \(.name): \(.arn) (changes: \(.hasChanges))"' infrastructure-plan.json
+  jq -r '.stacks[] | "- \(.name): \(.arn | split("/") | .[1]) (changes: \(.hasChanges))"' infrastructure-plan.json
   echo
-  echo '### Existing storage binding'
-  echo '| Logical resource | Original bucket |'
-  echo '| --- | --- |'
-  jq -r '.[] | "| \(.LogicalResourceId) | \(.ResourceIdentifier.BucketName) |"' config/import-resources.json
-  echo
-  echo 'Review the entire infrastructure plan and template artifact. One production approval authorizes Apply of these exact changed ARNs. AWS executes each stack independently; partial completion is possible and must be inspected before retrying.'
-  echo 'The IAM foundation is previewed but never deployed by ordinary CI. Permission changes require the reviewed local SSO procedure. Production approval precedes any runtime code upload; the exact downloaded artifacts and native change sets are applied without resynthesis.'
+  echo 'Review these named change sets and their templates in the AWS CloudFormation console before approving production. The IAM foundation requires a separate SSO review.'
   if [[ "$stage" == runtime ]]; then
     echo
     echo '### Runtime code artifact'
@@ -126,5 +120,7 @@ done
     echo 'This prerequisite stage builds and uploads no Lambda ZIP. After identity export Apply, review/apply the IAM foundation via local SSO before advancing to code-storage; advance to runtime only after code-storage Apply completes.'
   fi
 } >> "$GITHUB_STEP_SUMMARY"
-echo "plan=$(jq -c . infrastructure-plan.json)" >> "$GITHUB_OUTPUT"
+# Only account-independent change set identifiers cross the public artifact boundary.
+jq 'del(.account) | .stacks[].arn |= split(":changeSet/")[1]' infrastructure-plan.json > public-plan.json
+echo "plan_digest=$(sha256sum public-plan.json | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 echo "has_changes=$(jq 'any(.stacks[]; .hasChanges)' infrastructure-plan.json)" >> "$GITHUB_OUTPUT"

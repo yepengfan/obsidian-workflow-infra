@@ -3,14 +3,14 @@
     "ResourceType": "AWS::S3::Bucket",
     "LogicalResourceId": "Vault",
     "ResourceIdentifier": {
-      "BucketName": "obsidian-vault-sync-391824190072"
+      "BucketName": "obsidian-vault-sync-111111111111"
     }
   },
   {
     "ResourceType": "AWS::S3::Bucket",
     "LogicalResourceId": "Library",
     "ResourceIdentifier": {
-      "BucketName": "obsidian-ebook-library-391824190072"
+      "BucketName": "obsidian-ebook-library-111111111111"
     }
   }
 ]

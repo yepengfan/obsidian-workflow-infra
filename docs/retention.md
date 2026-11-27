@@ -80,7 +80,7 @@ After Apply completes, run these commands using an authorized local profile;
 they do not read note bodies or modify objects:
 
 ```sh
-for bucket in obsidian-vault-sync-391824190072 obsidian-ebook-library-391824190072; do
+for bucket in $(jq -r '.buckets[].name' config/storage.json); do
   aws s3api get-bucket-versioning --bucket "$bucket" \
     --profile obsidian-admin --region ap-southeast-2
   aws s3api get-bucket-lifecycle-configuration --bucket "$bucket" \

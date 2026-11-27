@@ -54,7 +54,7 @@ it.each([
 });
 const geminiCallback = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-fixture';
 it('keeps Gemini empty until configured and accepts the committed owner redirect', () => {
-  const ownerRedirect = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-bcea5441da023dbec8dbe33c';
+  const ownerRedirect = 'https://oauth-redirect.googleusercontent.com/r/user_bound_custom-mcp-example';
   const committed = JSON.parse(fs.readFileSync('config/mcp-runtime.json', 'utf8'));
   expect(committed.geminiCallbackUrls).toEqual([ownerRedirect]);
   delete committed.notePrefix;

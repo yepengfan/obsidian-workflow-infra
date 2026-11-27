@@ -126,6 +126,11 @@ export class GitHubTrustStack extends Stack {
     // environment provides OIDC; this role cannot access notes or manage infrastructure.
     const cleanup = new iam.Role(this, 'CodeRetentionRole', { roleName: github.codeRetentionRoleName,
       assumedBy: principal('production-plan'), maxSessionDuration: Duration.hours(1) });
+    const parameterArn = `arn:${this.partition}:ssm:${this.region}:${this.account}:parameter/obsidian-mcp/prod`;
+    for (const role of [plan, apply]) {
+      role.addToPolicy(new iam.PolicyStatement({ actions: ['ssm:GetParameter'], resources: [`${parameterArn}/storage`, `${parameterArn}/app`] }));
+    }
+    cleanup.addToPolicy(new iam.PolicyStatement({ actions: ['ssm:GetParameter'], resources: [`${parameterArn}/storage`] }));
     cleanup.addToPolicy(new iam.PolicyStatement({ actions: ['s3:ListBucketVersions'], resources: [codeBucket],
       conditions: { StringLike: { 's3:prefix': [`${deployment.codePrefix}*`] }, NumericLessThanEquals: { 's3:max-keys': 1000 } } }));
     cleanup.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObjectTagging', 's3:GetObjectVersionTagging',

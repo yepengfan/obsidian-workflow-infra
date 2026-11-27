@@ -40,9 +40,12 @@ jobs:
       - run: npm ci
       - name: Read reviewed retention role and account
         id: config
+        env:
+          DEPLOY_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
         run: |
           node --input-type=commonjs <<'NODE' >> "$GITHUB_OUTPUT"
-          const s = require('./config/storage.json');
+          const s = { region: 'ap-southeast-2', account: process.env.DEPLOY_ACCOUNT };
+          if (!/^\d{12}$/.test(s.account)) throw Error('Set the AWS_ACCOUNT_ID repository secret');
           const g = require('./config/github.json');
           console.log('account=' + s.account);
           console.log('region=' + s.region);
@@ -53,6 +56,8 @@ jobs:
           role-to-assume: ${{ steps.config.outputs.roleArn }}
           aws-region: ${{ steps.config.outputs.region }}
           allowed-account-ids: ${{ steps.config.outputs.account }}
+      - name: Restore pinned deployment settings
+        run: bash bin/production-config.sh storage
       - name: Run bounded code-only retention
         env:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
