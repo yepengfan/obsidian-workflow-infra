@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
 import { describe, expect, it } from 'vitest';
-import { githubSchema, GitHubTrustStack } from '../infra/github-stack.js';
+import { loadGitHubConfig, GitHubTrustStack } from '../infra/github-stack.js';
 import { mcpResources } from '../infra/mcp-resources.js';
 import { MCP_RESOURCE_TYPES } from '../infra/mcp-permissions.js';
 import { INDEX_RESOURCE_TYPES } from '../infra/practice-index-permissions.js';
@@ -10,7 +10,7 @@ import { INDEX_RESOURCES } from '../infra/practice-index-resources.js';
 import { storageSchema } from '../infra/storage-config.js';
 
 const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
-const config = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
+const config = loadGitHubConfig(storage.region);
 type Statement = { Action: string | string[]; Resource: unknown; Effect: string; Condition?: Record<string, Record<string, unknown>> };
 const actions = (s: Statement) => [s.Action].flat();
 

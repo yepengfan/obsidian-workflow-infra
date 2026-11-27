@@ -2,13 +2,13 @@ import fs from 'node:fs';
 import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
 import { expect, it } from 'vitest';
-import { githubSchema, GitHubTrustStack } from '../infra/github-stack.js';
+import { loadGitHubConfig, GitHubTrustStack } from '../infra/github-stack.js';
 import { CognitoStack, cognitoSchema } from '../infra/cognito-stack.js';
 import { MCP_POOL_ARN_EXPORT } from '../infra/mcp-resources.js';
 import { storageSchema } from '../infra/storage-config.js';
 
 const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
-const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
+const github = loadGitHubConfig(storage.region);
 it('exports the ARN of the CDK-managed pool and imports that exact binding into IAM', () => {
   const app = new App();
   const pool = Template.fromStack(new CognitoStack(app, 'ObsidianMcp', storage,

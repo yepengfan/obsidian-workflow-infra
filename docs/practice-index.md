@@ -76,7 +76,7 @@ Permissions are part of the IAM foundation and follow
 
    ```sh
    aws s3api get-bucket-notification-configuration --profile obsidian-admin \
-     --bucket obsidian-vault-sync-391824190072
+     --bucket "$(jq -r .buckets.vault.name config/storage.json)"
    ```
 
    An empty response or only `EventBridgeConfiguration` is safe.

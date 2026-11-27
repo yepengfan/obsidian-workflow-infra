@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { S3Client } from '@aws-sdk/client-s3';
 import { storageSchema } from '../infra/storage-config.js';
-import { githubSchema } from '../infra/github-config.js';
+import { loadGitHubConfig } from '../infra/github-config.js';
 import { mcpResources } from '../infra/mcp-resources.js';
 import { retainCode } from '../src/artifact-retention.js';
 import { awsJson, deployedCode, requireCurrentMain } from './code-deployment-state.js';
@@ -11,7 +11,7 @@ try {
   if (args.length > 1 || args.some(arg => !['--apply', '--dry-run'].includes(arg))) throw Error('Use --dry-run or --apply');
   const apply = args[0] === '--apply';
   const aws = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
-  const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
+  const github = loadGitHubConfig(aws.region);
   const deployment = { ...aws, ...mcpResources(aws, github.runtimeRoleName) };
   const identity = awsJson(['sts', 'get-caller-identity']) as { Account: string; Arn: string };
   if (identity.Account !== aws.account) throw Error('Wrong AWS account');

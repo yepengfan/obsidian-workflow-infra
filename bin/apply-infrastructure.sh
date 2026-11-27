@@ -78,7 +78,7 @@ while IFS= read -r entry; do
   aws cloudformation wait "$waiter" --stack-name "$stack"
   aws cloudformation describe-stacks --stack-name "$stack" > "infrastructure-apply/${stack}.stack.json"
   jq -e '.Stacks[0].EnableTerminationProtection == true' "infrastructure-apply/${stack}.stack.json"
-  echo "Applied ${stack} (${operation}): ${arn}. This stack has completed even if a later operation or check fails." >> "$GITHUB_STEP_SUMMARY"
+  echo "Applied ${stack} (${operation}). This stack has completed even if a later operation or check fails." >> "$GITHUB_STEP_SUMMARY"
 done < <(jq -c '.stacks[] | select(.hasChanges)' "$manifest")
 
 # Preserve the existing storage drift check. It never reads note bodies.
@@ -89,7 +89,7 @@ for _ in {1..30}; do
   status=$(jq -r .DetectionStatus infrastructure-apply/drift.json)
   case "$status" in
     DETECTION_COMPLETE) jq -e '.StackDriftStatus == "IN_SYNC"' infrastructure-apply/drift.json; complete=true; break ;;
-    DETECTION_FAILED) cat infrastructure-apply/drift.json >&2; exit 1 ;;
+    DETECTION_FAILED) echo "Storage drift detection failed. Inspect AWS for details." >&2; exit 1 ;;
   esac
   sleep 5
 done

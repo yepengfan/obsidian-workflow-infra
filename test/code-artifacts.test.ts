@@ -4,12 +4,12 @@ import { Template } from 'aws-cdk-lib/assertions';
 import { describe, expect, it } from 'vitest';
 import { CognitoStack, cognitoSchema } from '../infra/cognito-stack.js';
 import { mcpResources } from '../infra/mcp-resources.js';
-import { githubSchema } from '../infra/github-stack.js';
+import { loadGitHubConfig } from '../infra/github-stack.js';
 import { storageSchema } from '../infra/storage-config.js';
 
 const aws = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
 const cognito = cognitoSchema.parse(JSON.parse(fs.readFileSync('config/cognito.json', 'utf8')));
-const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
+const github = loadGitHubConfig(aws.region);
 const deployment = mcpResources(aws, github.runtimeRoleName);
 
 describe('private Lambda code-artifact storage', () => {

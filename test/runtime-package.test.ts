@@ -26,15 +26,15 @@ it.each([false, true])('builds deterministic ZIPs and executes the Lambda with p
     expect(() => validateCode(first, zip, 'b'.repeat(40))).toThrow();
     const files = unzipSync(zip); expect(Object.keys(files)).toEqual(['index.mjs', 'indexer.mjs']);
     const file = path.join(directory, 'index.mjs'); await fs.writeFile(file, files['index.mjs']!);
-    process.env.AWS_REGION = 'ap-southeast-2'; process.env.NOTE_BUCKET = 'private-test-vault'; process.env.NOTE_PREFIX = '';
-    process.env.OAUTH_ISSUER = 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_Test'; process.env.OAUTH_CLIENT_IDS = JSON.stringify(['test-client']);
-    process.env.MCP_RESOURCE = 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp'; process.env.OAUTH_SCOPE = `${process.env.MCP_RESOURCE}/read`; process.env.MCP_OPTIONS = JSON.stringify({ ownerGroup: 'obsidian-mcp-owners', practice: { enabled, writesEnabled: enabled } });
+    process.env.AWS_REGION = 'us-east-1'; process.env.NOTE_BUCKET = 'private-test-vault'; process.env.NOTE_PREFIX = '';
+    process.env.OAUTH_ISSUER = 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Test'; process.env.OAUTH_CLIENT_IDS = JSON.stringify(['test-client']);
+    process.env.MCP_RESOURCE = 'https://example.execute-api.us-east-1.amazonaws.com/mcp'; process.env.OAUTH_SCOPE = `${process.env.MCP_RESOURCE}/read`; process.env.MCP_OPTIONS = JSON.stringify({ ownerGroup: 'obsidian-mcp-owners', practice: { enabled, writesEnabled: enabled } });
     const emitted = await import(pathToFileURL(file).href);
     const result = await emitted.handler({ rawPath: '/.well-known/oauth-protected-resource/mcp', headers: {}, requestContext: { http: { method: 'GET' } } }, { awsRequestId: 'fixture-request' });
     expect(result.statusCode).toBe(200); expect(JSON.parse(result.body).resource).toBe(process.env.MCP_RESOURCE);
     expect(JSON.parse(result.body).scopes_supported).toEqual(['openid', process.env.OAUTH_SCOPE, ...(enabled ? [`${process.env.MCP_RESOURCE}/write`] : [])]);
     const indexerFile = path.join(directory, 'indexer.mjs'); await fs.writeFile(indexerFile, files['indexer.mjs']!);
-    process.env.INDEX_QUEUE_URL = 'https://sqs.ap-southeast-2.amazonaws.com/000000000000/obsidian-mcp-index.fifo';
+    process.env.INDEX_QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/000000000000/obsidian-mcp-index.fifo';
     const indexer = await import(pathToFileURL(indexerFile).href);
     // Unknown invocations are rejected before any AWS call.
     await expect(indexer.handler({ action: 'unknown' })).rejects.toThrow();
@@ -44,7 +44,7 @@ it.each(['new', 'exists', 'conflict', 'wrong checksum', 'wrong artifact'] as con
   const bytes = Buffer.from('zip-fixture'); const sha = createHash('sha256').update(bytes).digest();
   const metadata = { schemaVersion: 1 as const, sourceSha: 'a'.repeat(40), bytes: bytes.length, sha256: sha.toString('hex'), sha256Base64: sha.toString('base64'), key: `releases/${sha.toString('hex')}.zip` };
   const calls: { method: string; headers: Record<string, string> }[] = [];
-  const client = new S3Client({ region: 'ap-southeast-2', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
+  const client = new S3Client({ region: 'us-east-1', credentials: { accessKeyId: 'fixture', secretAccessKey: 'fixture' }, maxAttempts: 1,
     requestHandler: { handle: async (request: HttpRequest) => {
       calls.push({ method: request.method, headers: request.headers });
       if (request.method === 'PUT' && mode !== 'new') return { response: { statusCode: mode === 'conflict' ? 409 : 412, headers: {}, body: Readable.from(['<Error><Code>PreconditionFailed</Code></Error>']) } };

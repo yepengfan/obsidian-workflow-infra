@@ -4,7 +4,7 @@ import { CfnOutput, DefaultStackSynthesizer, Duration, Fn, Stack } from 'aws-cdk
 import * as iam from 'aws-cdk-lib/aws-iam';
 import type { Construct } from 'constructs';
 import type { GitHubConfig } from './github-config.js';
-export { githubSchema } from './github-config.js';
+export { githubSchema, loadGitHubConfig } from './github-config.js';
 import { STORAGE_STACK_NAME, type StorageConfig } from './storage-config.js';
 import { grantMcpRuntime, mcpDeploymentSchema, MCP_RESOURCE_TYPES } from './mcp-permissions.js';
 import { grantMetadataConfiguration } from './metadata-search.js';
@@ -48,7 +48,7 @@ export class GitHubTrustStack extends Stack {
         's3:ListBucket', 's3:GetBucketLocation',
       ];
     execution.addToPolicy(new iam.PolicyStatement({
-      // AWS::S3::Bucket read permissions (Sydney registry, 2026-11-13),
+      // AWS::S3::Bucket read permissions (regional registry, 2026-11-13),
       // excluding its unrecognized GetBucketDefaultStorageClass action.
       // ListBucket is needed for HeadBucket; no object-body permissions are granted.
       actions: bucketReadActions,
@@ -126,6 +126,11 @@ export class GitHubTrustStack extends Stack {
     // environment provides OIDC; this role cannot access notes or manage infrastructure.
     const cleanup = new iam.Role(this, 'CodeRetentionRole', { roleName: github.codeRetentionRoleName,
       assumedBy: principal('production-plan'), maxSessionDuration: Duration.hours(1) });
+    const parameterArn = `arn:${this.partition}:ssm:${this.region}:${this.account}:parameter/obsidian-mcp/prod`;
+    for (const role of [plan, apply]) {
+      role.addToPolicy(new iam.PolicyStatement({ actions: ['ssm:GetParameter'], resources: [`${parameterArn}/storage`, `${parameterArn}/app`] }));
+    }
+    cleanup.addToPolicy(new iam.PolicyStatement({ actions: ['ssm:GetParameter'], resources: [`${parameterArn}/storage`] }));
     cleanup.addToPolicy(new iam.PolicyStatement({ actions: ['s3:ListBucketVersions'], resources: [codeBucket],
       conditions: { StringLike: { 's3:prefix': [`${deployment.codePrefix}*`] }, NumericLessThanEquals: { 's3:max-keys': 1000 } } }));
     cleanup.addToPolicy(new iam.PolicyStatement({ actions: ['s3:GetObjectTagging', 's3:GetObjectVersionTagging',

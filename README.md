@@ -4,6 +4,27 @@ AWS CDK infrastructure for a private Obsidian knowledge base and its staged
 ChatGPT, Claude and optional Gemini MCP integrations. GitHub holds code and IaC,
 never notes or credentials.
 
+## Recover deployment settings on another computer
+
+Git tracks deployment policy and synthetic values in `config/examples/`. With
+Node 22.18 and npm installed, `npm ci` prepares an offline checkout. For live
+work, sign in to the production AWS account and restore the pinned SSM values
+after checkout and whenever the revision changes. Run from the repository root:
+
+```sh
+aws sso login --profile obsidian-admin
+AWS_PROFILE=obsidian-admin bash bin/production-config.sh
+```
+
+The four JSON files created directly under `config/` are Git-ignored.
+The restore script takes the region from the AWS environment or the selected
+profile. In the AWS console, select that profile’s region and open Systems Manager
+→ Parameter Store. `/obsidian-mcp/prod/storage` holds the account, region, bucket
+names and Cognito domain prefix. `/obsidian-mcp/prod/app` holds the ChatGPT and
+Gemini callback lists. The restore command selects the parameter versions
+reviewed in Git. To change a value, create a new SecureString version, then
+update its version selector in the restore command through review.
+
 ## Architecture
 
 The C4 views below describe the intended runtime architecture. The

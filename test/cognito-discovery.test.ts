@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { checkCognitoDiscovery, checkCognitoResourceBinding } from '../infra/cognito-discovery.js';
 
-const issuer = 'https://cognito-idp.ap-southeast-2.amazonaws.com/ap-southeast-2_Example';
-const domain = 'https://example.auth.ap-southeast-2.amazoncognito.com';
+const issuer = 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Example';
+const domain = 'https://example.auth.us-east-1.amazoncognito.com';
 const metadata = {
   issuer, jwks_uri: `${issuer}/.well-known/jwks.json`,
   authorization_endpoint: `${domain}/oauth2/authorize`, token_endpoint: `${domain}/oauth2/token`,
@@ -12,7 +12,7 @@ const metadata = {
 
 describe('anonymous authorization response contract', () => {
   const callback = 'https://chatgpt.com/connector/oauth/example';
-  const resource = 'https://example.execute-api.ap-southeast-2.amazonaws.com/mcp';
+  const resource = 'https://example.execute-api.us-east-1.amazonaws.com/mcp';
   const probe = (mutate: (params: URLSearchParams) => void) => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async input => {
       const request = new URL(String(input));
@@ -54,7 +54,7 @@ describe('live Cognito discovery contract', () => {
       .mockResolvedValueOnce(Response.json(metadata));
     await expect(checkCognitoDiscovery(issuer, domain, fetcher)).resolves.toBeUndefined();
     expect(fetcher.mock.calls.map(call => call[0])).toEqual([
-      'https://cognito-idp.ap-southeast-2.amazonaws.com/.well-known/oauth-authorization-server/ap-southeast-2_Example',
+      'https://cognito-idp.us-east-1.amazonaws.com/.well-known/oauth-authorization-server/us-east-1_Example',
       `${issuer}/.well-known/openid-configuration`,
     ]);
     expect(fetcher.mock.calls.every(call => call[1]?.redirect === 'error' && call[1]?.signal instanceof AbortSignal)).toBe(true);

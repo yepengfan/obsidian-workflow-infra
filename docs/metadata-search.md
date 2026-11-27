@@ -139,8 +139,8 @@ for retained-table requirements.
 
 ## Cost and acceptance checks
 
-Sydney on-demand SQL costs US$5/TB, with a 10 MB minimum per query. At that
-minimum, 10,000 executed queries cost about US$0.48. Pending continuations reuse
+Athena on-demand SQL rates vary by region, with a 10 MB minimum per query.
+See [Athena pricing](https://aws.amazon.com/athena/pricing/). Pending continuations reuse
 an execution; later result pages start another query. Scans read metadata,
 not Markdown bodies. Backfill, journal updates, table storage, requests,
 maintenance and catalog usage are separate. No provisioned Athena capacity,

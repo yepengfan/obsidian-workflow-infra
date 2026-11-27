@@ -19,3 +19,8 @@ storage-plan-run.json
 code-retention-result.json
 *.log
 .DS_Store
+config/storage.json
+config/mcp-runtime.json
+config/cognito.json
+config/import-resources.json
+config/.production-*/

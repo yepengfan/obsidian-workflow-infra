@@ -5,12 +5,12 @@ import { expect, it } from 'vitest';
 import { StorageStack } from '../infra/storage-stack.js';
 import { storageSchema } from '../infra/storage-config.js';
 import { CognitoStack, cognitoSchema } from '../infra/cognito-stack.js';
-import { GitHubTrustStack, githubSchema } from '../infra/github-stack.js';
+import { GitHubTrustStack, loadGitHubConfig } from '../infra/github-stack.js';
 import { mcpResources } from '../infra/mcp-resources.js';
 import { mcpAppSchema } from '../infra/mcp-runtime.js';
 
 const load = (name: string) => JSON.parse(fs.readFileSync(`config/${name}.json`, 'utf8'));
-const storage = storageSchema.parse(load('storage')), github = githubSchema.parse(load('github'));
+const storage = storageSchema.parse(load('storage')), github = loadGitHubConfig(storage.region);
 const code = { schemaVersion: 1 as const, sourceSha: 'local', sha256: 'a'.repeat(64), sha256Base64: 'a'.repeat(43) + '=', key: 'releases/' + 'a'.repeat(64) + '.zip', bytes: 100 };
 type Statement = { Action: string | string[]; Resource: unknown; Condition?: unknown };
 type Resource = { Type: string; Properties: { RoleName?: string; Roles?: { Ref: string }[]; PolicyDocument?: { Statement: Statement[] } } };

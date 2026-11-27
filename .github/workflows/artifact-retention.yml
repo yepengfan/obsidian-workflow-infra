@@ -40,19 +40,17 @@ jobs:
       - run: npm ci
       - name: Read reviewed retention role and account
         id: config
-        run: |
-          node --input-type=commonjs <<'NODE' >> "$GITHUB_OUTPUT"
-          const s = require('./config/storage.json');
-          const g = require('./config/github.json');
-          console.log('account=' + s.account);
-          console.log('region=' + s.region);
-          console.log('roleArn=arn:aws:iam::' + s.account + ':role/' + g.codeRetentionRoleName);
-          NODE
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: node_modules/.bin/tsx bin/github-session-settings.ts retention >> "$GITHUB_OUTPUT"
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ steps.config.outputs.roleArn }}
           aws-region: ${{ steps.config.outputs.region }}
           allowed-account-ids: ${{ steps.config.outputs.account }}
+      - name: Restore pinned deployment settings
+        run: bash bin/production-config.sh storage
       - name: Run bounded code-only retention
         env:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}

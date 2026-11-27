@@ -97,6 +97,7 @@ absent foundation, use `CREATE` and `stack-create-complete` instead of the
 UPDATE type and waiter below.
 
 ```sh
+AWS_PROFILE=obsidian-admin bash bin/production-config.sh
 npx --no-install cdk synth ObsidianGitHubTrust \
   --app 'npx --no-install tsx bin/github.ts' --no-lookups \
   --output cdk.github.out --quiet
@@ -109,13 +110,13 @@ aws cloudformation create-change-set \
   --change-set-type UPDATE --capabilities CAPABILITY_NAMED_IAM \
   --template-body file://cdk.github.out/ObsidianGitHubTrust.template.json \
   --description "Reviewed foundation $(git rev-parse HEAD)" \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 aws cloudformation wait change-set-create-complete \
   --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 aws cloudformation describe-change-set \
   --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 ```
 
 Only after the user confirms that actual plan and its IAM policies:
@@ -123,23 +124,25 @@ Only after the user confirms that actual plan and its IAM policies:
 ```sh
 aws cloudformation execute-change-set \
   --stack-name ObsidianGitHubTrust --change-set-name "$FOUNDATION_CHANGE_SET" \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 aws cloudformation wait stack-update-complete \
   --stack-name ObsidianGitHubTrust \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 aws cloudformation update-termination-protection --enable-termination-protection \
   --stack-name ObsidianGitHubTrust \
-  --profile obsidian-admin --region ap-southeast-2
+  --profile obsidian-admin
 aws cloudformation describe-stacks --stack-name ObsidianGitHubTrust \
-  --query 'Stacks[0].Outputs' --profile obsidian-admin --region ap-southeast-2
+  --query 'Stacks[0].Outputs' --profile obsidian-admin
 ```
 
-No AWS Repository variables or AWS static-key Secrets are required. Plan and
-Apply calculate their own role ARN from the versioned account and the respective
-`planRoleName` / `deployRoleName`. CloudFormation outputs are diagnostic values,
-not values to copy into GitHub settings. The storage execution role uses the
-same `executionRoleName` declared by CDK. Do not introduce a discovery role,
-SSM parameter mirror, or credentials just to look up these predictable ARNs.
+Set the repository Actions secrets `AWS_ACCOUNT_ID` and `AWS_REGION` to the
+production account number and region before enabling this revision. The jobs
+use these values to configure AWS OIDC and resolve the regional role names.
+After authentication they restore the pinned SSM values with
+`bin/production-config.sh`. Plan and Apply can read the storage and app
+parameters. Artifact retention reads only storage. Restore production settings
+locally before synthesizing a foundation update. See the
+[recovery commands](../README.md#recover-deployment-settings-on-another-computer).
 
 If the previous standard-bootstrap preview still exists, delete its unexecuted
 change set after verifying it was not executed; do not execute that
@@ -184,7 +187,7 @@ same two bucket ARNs, but can indirectly cause permanent historical-version
 deletion by S3. IAM does not constrain lifecycle rules to the
 [selected retention policy](retention.md); the separate resource update
 must encode that policy in the bucket template. No lifecycle rule is enabled by
-the IAM-only permission update. Read actions follow the Sydney CloudFormation
+the IAM-only permission update. Read actions follow the regional CloudFormation
 registry schema checked on 2026-11-13, excluding its unrecognized
 `GetBucketDefaultStorageClass` action (AWS Access Analyzer reports INVALID_ACTION;
 that property is not modeled here). Granting every advertised create/update
@@ -273,10 +276,11 @@ manifest in `cdk.out`. No AWS code upload occurs during Plan:
 2. Prepare native source-bound change sets for both stacks using their dedicated
    service roles and reviewed resource-type scopes. The IAM foundation is never
    included in this execution list. Plan creates metadata, not resources.
-3. Publish one `infrastructure-plan.json`, one summary covering both stacks and
-   their exact ARNs/actions/replacements, and one review artifact containing all
-   templates, native plans and, for `runtime`, the exact ZIP and digest manifest. A failed
-   second plan prevents any Apply.
+3. Publish a summary with the change-set names, actions and replacements, plus
+   an artifact with account-independent change-set identifiers, the template
+   digest and the exact runtime ZIP and digest manifest when applicable. Open
+   the named change sets in the AWS console to review production values.
+   A failed second plan prevents any Apply.
 
 Only a recognized no-change UPDATE is tolerated as unchanged. Approval is
 skipped only when **all** deployment stacks are unchanged; that path still
@@ -286,11 +290,12 @@ once. Artifact retention is seven days.
 ### One approval and infrastructure Apply
 
 The `apply` job depends on the combined Plan and uses the native `production`
-environment. Review **the entire plan** and templates in that Actions run, then
-use **Review deployments** to approve or reject once. Apply receives the combined
-manifest through same-run job outputs, downloads that run's review artifact and
-compares its manifest with those outputs. It never resynthesizes templates or
-constructs replacement plans.
+environment. Review both named change sets and their templates in AWS, then
+use **Review deployments** to approve or reject once. Apply reconstructs the
+manifest from the same run's artifact and verifies it against the Plan digest.
+It synthesizes the pinned configuration locally to verify the original MCP
+template digest. AWS executes the original change sets and the workflow uses
+the original runtime ZIP.
 
 `bin/apply-infrastructure.sh` verifies the manifest's source/repository/account/
 Region, template-bound rollout stage and exact deployment stack set. It inspects **every changed native plan
@@ -298,7 +303,7 @@ before any code upload or stack execution**. Each must be available, bound to
 the expected stack and source, and pass its existing resource checks: storage IMPORT is exactly Vault /
 Library; storage UPDATE permits original bucket modifications or reviewed later
 BucketPolicy changes. MCP accepts only UPDATE, compares the complete native
-change-set template with the exact downloaded template, and permits only
+change-set template with the digest-verified template, and permits only
 additions/modifications whose logical IDs and resource types match that model,
 excluding IAM roles/policies. An UPDATE with no resource actions is allowed for
 native metadata/output changes. Removals are rejected. There are two replacement

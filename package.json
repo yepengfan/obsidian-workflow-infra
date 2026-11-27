@@ -8,6 +8,7 @@
     "node": ">=22.18.0 <23"
   },
   "scripts": {
+    "prepare": "node bin/example-config.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",

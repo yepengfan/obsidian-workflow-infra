@@ -3,12 +3,12 @@ import fs from 'node:fs';
 import { App } from 'aws-cdk-lib';
 import { Template } from 'aws-cdk-lib/assertions';
 import { describe, expect, it } from 'vitest';
-import { githubSchema, GitHubTrustStack } from '../infra/github-stack.js';
+import { githubSchema, loadGitHubConfig, GitHubTrustStack } from '../infra/github-stack.js';
 import { mcpAppSchema } from '../infra/mcp-runtime.js';
 import { storageSchema } from '../infra/storage-config.js';
 
 const storage = storageSchema.parse(JSON.parse(fs.readFileSync('config/storage.json', 'utf8')));
-const github = githubSchema.parse(JSON.parse(fs.readFileSync('config/github.json', 'utf8')));
+const github = loadGitHubConfig(storage.region);
 type Statement = { Action: string | string[]; Resource?: unknown; Principal?: { Federated?: unknown; Service?: string }; Condition?: { StringEquals?: Record<string, string> } };
 type Role = { Properties: { RoleName: string; AssumeRolePolicyDocument: { Statement: Statement[] } } };
 type Policy = { Properties: { Roles: { Ref: string }[]; PolicyDocument: { Statement: Statement[] } } };

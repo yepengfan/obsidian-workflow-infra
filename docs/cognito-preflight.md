@@ -94,7 +94,7 @@ To repeat the check locally after an approved deployment:
 
 ```sh
 aws cloudformation describe-stacks --stack-name ObsidianMcp \
-  --profile obsidian-admin --region ap-southeast-2 > /tmp/obsidian-cognito-stack.json
+  --profile obsidian-admin > /tmp/obsidian-cognito-stack.json
 npm run check:cognito -- /tmp/obsidian-cognito-stack.json
 ```
 
