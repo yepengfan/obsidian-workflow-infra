@@ -73,3 +73,24 @@ export function writeDesignCanvas(previous: string | undefined, scene: ReturnTyp
   });
   return updated + drawing(block[1]!) + previous.slice(block.index + block[0].length);
 }
+
+/** A native Excalidraw scene of stacked text sections, as the practice canvas opens it. */
+export function textCanvas(sections: readonly string[], idPrefix: string) {
+  const fontSize = 20;
+  let y = 0;
+  const elements = sections.map((text, i) => {
+    const height = text.split('\n').length * fontSize * 1.25;
+    const element = { id: `${idPrefix}-${i}`, type: 'text', x: 100, y,
+      width: Math.max(500, ...text.split('\n').map(line => line.length * fontSize * 0.7)), height, angle: 0,
+      strokeColor: '#1e1e1e', backgroundColor: 'transparent', fillStyle: 'solid', strokeWidth: 2,
+      strokeStyle: 'solid', roughness: 1, opacity: 100, groupIds: [], frameId: null,
+      index: `a${i.toString(36)}`, roundness: null, seed: i + 1, version: 1,
+      versionNonce: i + 1, isDeleted: false, boundElements: null, updated: 0, link: null, locked: false,
+      text, fontSize, fontFamily: 5, textAlign: 'left', verticalAlign: 'top', containerId: null,
+      originalText: text, autoResize: true, lineHeight: 1.25 };
+    y += height + 120;
+    return element;
+  });
+  return { type: 'excalidraw', version: 2, source: 'https://github.com/zsviczian/obsidian-excalidraw-plugin',
+    elements, appState: { currentItemFontSize: fontSize, theme: 'light', viewBackgroundColor: '#ffffff' }, files: {} };
+}

@@ -201,7 +201,8 @@ it('limits optional practice saves to encrypted conditional writes on practice d
     expect(policy.Resource).toEqual(stack.resolve([
       'Review/Items/*.md', 'Algorithm/Patterns/*.md', 'Algorithm/Atoms/*.md', 'Algorithm/Log/*.md',
       'System-Design/Patterns/*.md', 'System-Design/Insights/*.md', 'System-Design/Log/*.md',
-      'System-Design/Solutions/*/progress.md', 'System-Design/Solutions/*/*.excalidraw.md', 'System-Design/Profile.md', '.canvas-reviews/*.md',
+      'System-Design/Solutions/*/progress.md', 'System-Design/Solutions/*/*.excalidraw.md', 'System-Design/Blocks/Reviews/*/*.excalidraw.md',
+      'System-Design/Profile.md', '.canvas-reviews/*.md',
     ].map(path => `arn:${stack.partition}:s3:::${storage.buckets.vault.name}/Knowledge/Learning/Practice/${path}`)));
     const resolveArn = (value: unknown): string => {
       if (typeof value === 'string') return value;

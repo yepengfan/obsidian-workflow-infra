@@ -19,13 +19,17 @@ const moduleSchema = z.object({ enabled: z.boolean(),
   shared_criteria: z.array(criterionSchema).max(20).refine(uniqueIds).default([]),
   consumers: z.record(z.string(), z.unknown()) });
 /** One module's registration in the practice-review `consumers` table. */
-const consumerSchema = z.strictObject({ enabled: z.boolean(), module: slugSchema, flow: z.string(), time_limit: z.unknown().optional() });
+const consumerSchema = z.strictObject({ enabled: z.boolean(), module: slugSchema, flow: z.string(), time_limit: z.unknown().optional(),
+  placement_interval: z.unknown().optional() });
 /** A module's own pass criteria: shared criteria by id, or its own with a rule. */
 const passCriteriaSchema = z.array(z.union([criterionIdSchema, criterionSchema])).min(1).max(20);
 type ModuleConfig = z.infer<typeof moduleSchema>;
-type DomainPolicy = { time_limit: number; pass_criteria: PassCriterion[] };
+/** `placement_interval` is set for a module that places familiar items; `placement_stage` is the stage that waits it. */
+type DomainPolicy = { time_limit: number; pass_criteria: PassCriterion[]; placement_interval?: number; placement_stage?: number };
 type DomainAvailability = { domain: PracticeDomain; label: string } & (
-  ({ status: 'enabled' } & DomainPolicy) | { status: 'disabled' | 'unavailable'; reason: string });
+  ({ status: 'enabled' } & DomainPolicy) | { status: 'disabled' | 'unavailable'; reason: string; errors?: readonly string[] });
+/** A module's own availability condition beyond its configuration, such as a valid data file. */
+export type DomainCheck = () => Promise<void>;
 
 /** Reads the practice-review module's settings; invalid settings fail every module. */
 export function reviewConfig(metadata: Record<string, unknown>) {
@@ -44,6 +48,11 @@ export function passCriteria(declared: unknown, shared: readonly PassCriterion[]
 }
 
 const documents: Record<string, { text: string; sha256: string }> = bundle.documents;
+const adaptations: Partial<Record<string, string>> = bundle.adaptations;
+/** A domain's own MCP adaptations, after the shared entry. */
+const adaptation = (domain: PracticeDomain) => adaptations[domain] ? '\n' + adaptations[domain] : '';
+const placementIntervals = (policies: readonly ({ domain: PracticeDomain } & DomainPolicy)[]) =>
+  Object.fromEntries(policies.flatMap(policy => policy.placement_interval ? [[policy.domain, policy.placement_interval]] : []));
 /** Switched off on purpose, as opposed to broken or misconfigured. */
 const disabledReasons = new Set(['consumer_disabled', 'domain_module_disabled']);
 
@@ -53,6 +62,7 @@ export class PracticeWorkflow {
     private readonly read: (path: string) => Promise<{ text: string }>,
     private readonly now: () => Date,
     private readonly signal: AbortSignal,
+    private readonly checks: Partial<Record<PracticeDomain, DomainCheck>> = {},
   ) {}
 
   async config(domain?: z.infer<typeof domainSchema>) {
@@ -65,8 +75,9 @@ export class PracticeWorkflow {
   /**
    * A module can be reviewed only when all five hold: practice review is
    * enabled (checked by `config`), its consumer entry is enabled, its own
-   * module is enabled, the entry and the module's pass criteria are valid, and
-   * its workflow was imported. Returns the time limit and pass criteria.
+   * module is enabled, the entry, the module's pass criteria and any data its
+   * own check covers are valid, and its workflow was imported. Returns the
+   * time limit, pass criteria and any placement.
    */
   private async checkDomain(config: ModuleConfig, domain: PracticeDomain): Promise<DomainPolicy> {
     const definition = practiceDomains[domainSchema.parse(domain)];
@@ -81,9 +92,14 @@ export class PracticeWorkflow {
     const limit = z.number().positive().max(240).safeParse(consumer.data.time_limit);
     if (!limit.success) throw new PracticeError('invalid_review_time_limit');
     const criteria = passCriteria(metadata.pass_criteria, config.shared_criteria);
+    const placement = consumer.data.placement_interval;
+    const placementStage = placement === undefined ? undefined : config.schedule.intervals.indexOf(placement as number) + 1;
+    if (placementStage === 0) throw new PracticeError('invalid_placement_interval');
+    await this.checks[domain]?.();
     // The snapshot always holds the server's definition, so a different flow is one this server has not imported.
     if (consumer.data.flow !== definition.flow) throw new PracticeError('workflow_mapping_changed_refresh_required');
-    return { time_limit: limit.data, pass_criteria: criteria };
+    return { time_limit: limit.data, pass_criteria: criteria,
+      ...(placementStage ? { placement_interval: placement as number, placement_stage: placementStage } : {}) };
   }
   private async domainAvailability(config: ModuleConfig, domain: PracticeDomain): Promise<DomainAvailability> {
     const definition = { domain, label: practiceDomains[domain].label };
@@ -92,7 +108,8 @@ export class PracticeWorkflow {
     } catch (error) {
       this.signal.throwIfAborted();
       if (!(error instanceof PracticeError || error instanceof NoteError)) throw error;
-      return { ...definition, status: disabledReasons.has(error.code) ? 'disabled' : 'unavailable', reason: error.code };
+      return { ...definition, status: disabledReasons.has(error.code) ? 'disabled' : 'unavailable', reason: error.code,
+        ...(error.details?.length ? { errors: error.details } : {}) };
     }
   }
   private workflowMetadata(config: ModuleConfig) {
@@ -104,8 +121,9 @@ export class PracticeWorkflow {
     const definition = practiceDomains[domain];
     return { ...this.workflowMetadata(config), status: 'ready' as const, availability: 'complete' as const,
       selected_domain: domain, available_domains: [{ domain, label: definition.label }], unavailable_domains: [] as DomainAvailability[],
-      entry: bundle.entry.replaceAll('{{domain}}', domain).replaceAll('{{label}}', definition.label).replaceAll('{{flow}}', definition.flow),
-      documents: practiceDocuments(domain), time_limits: { [domain]: policy.time_limit }, pass_criteria: { [domain]: policy.pass_criteria } };
+      entry: (bundle.entry + adaptation(domain)).replaceAll('{{domain}}', domain).replaceAll('{{label}}', definition.label).replaceAll('{{flow}}', definition.flow),
+      documents: practiceDocuments(domain), time_limits: { [domain]: policy.time_limit }, pass_criteria: { [domain]: policy.pass_criteria },
+      placement_intervals: placementIntervals([{ domain, ...policy }]) };
   }
   async workflow(domain?: PracticeDomain) {
     if (domain !== undefined) domainSchema.parse(domain);
@@ -124,7 +142,8 @@ export class PracticeWorkflow {
       selected_domain: null, available_domains: available.map(({ domain, label }) => ({ domain, label })), unavailable_domains: unavailable,
       entry: bundle.overview, documents: sharedPracticeDocuments,
       time_limits: Object.fromEntries(available.map(state => [state.domain, state.time_limit])),
-      pass_criteria: Object.fromEntries(available.map(state => [state.domain, state.pass_criteria])) };
+      pass_criteria: Object.fromEntries(available.map(state => [state.domain, state.pass_criteria])),
+      placement_intervals: placementIntervals(available) };
   }
   async instruction(path: string, offset: number) {
     const doc = documents[path];

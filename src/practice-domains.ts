@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { NoteError, validPath } from './paths.js';
 
-export const domainSchema = z.enum(['algorithm', 'system-design']);
+export const domainSchema = z.enum(['algorithm', 'system-design', 'sd-blocks']);
 export type PracticeDomain = z.infer<typeof domainSchema>;
 
 export const sharedPracticeDocuments = [
@@ -26,10 +26,18 @@ export const practiceDomains = {
     documents: ['Learning/Practice/System-Design/AGENTS.md', 'Learning/Practice/Review/Content/system-design.md',
       'Templates/SD Pattern.md', 'Templates/SD Log.md'],
   },
+  'sd-blocks': {
+    label: 'SD Blocks', flow: '.agents/skills/sd-blocks/SKILL.md',
+    module: 'system/modules/sd-blocks/module.md', root: 'Learning/Practice/System-Design/Blocks/',
+    writes: ['Reviews/*/*.excalidraw.md'],
+    documents: ['Learning/Practice/Review/Content/sd-blocks.md'],
+  },
 } satisfies Record<PracticeDomain, { label: string; flow: string; module: string; root: string; writes: string[]; documents: string[] }>;
 
 export const DESIGN_COACHING_LOG = practiceDomains['system-design'].root + 'Log/coaching-rounds.md';
 export const DESIGN_PROFILE = practiceDomains['system-design'].root + 'Profile.md';
+/** The block map: read-only for the server, maintained by the learner. */
+export const BLOCK_MAP = practiceDomains['system-design'].root + 'Blocks.md';
 
 export function practiceDocuments(domain: PracticeDomain) {
   const definition = practiceDomains[domain];
@@ -41,9 +49,11 @@ export const practiceWriteResources = ['Learning/Practice/Review/Items/*.md',
   ...Object.values(practiceDomains).flatMap(domain => domain.writes.map(path => domain.root + path)),
   DESIGN_PROFILE, CANVAS_REVIEW_PREFIX + '*.md'];
 
+/** The domain owning a path: the one with the longest root containing it, since roots may nest. */
 export function practiceNoteDomain(path: string): PracticeDomain {
   validPath(path);
-  const domain = domainSchema.options.find(domain => path.startsWith(practiceDomains[domain].root));
+  const owners = domainSchema.options.filter(domain => path.startsWith(practiceDomains[domain].root));
+  const domain = owners.sort((a, b) => practiceDomains[b].root.length - practiceDomains[a].root.length)[0];
   if (!domain) throw new NoteError('invalid_path');
   return domain;
 }

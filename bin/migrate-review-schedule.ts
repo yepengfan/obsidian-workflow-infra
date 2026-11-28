@@ -25,6 +25,12 @@ const policy: MigrationPolicy = {
     retryDays: config.schedule.on_fail.retry_days, archiveAfterFinal: config.schedule.archive_after_final },
   criteria: Object.fromEntries(await Promise.all(domainSchema.options.map(async domain =>
     [domain, passCriteria((await note(practiceDomains[domain].module)).pass_criteria, config.shared_criteria)]))) as MigrationPolicy['criteria'],
+  // A consumer's placement interval names the stage a passed placement moves to.
+  placementStages: Object.fromEntries(domainSchema.options.flatMap(domain => {
+    const interval = (config.consumers[domain] as { placement_interval?: unknown } | undefined)?.placement_interval;
+    const stage = config.schedule.intervals.indexOf(interval as number) + 1;
+    return stage ? [[domain, stage]] : [];
+  })),
 };
 
 const folder = path.join(vault, REVIEW_ITEMS_PREFIX);

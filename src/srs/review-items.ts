@@ -35,12 +35,18 @@ export interface NewReview<Domain extends string> {
 export interface RecordedAttempt {
   id: string; revision: string; attempt_id: string; reflection: string; completed_on: string;
   criteria: readonly CriterionResult[]; submission?: string; observations?: string;
+  /** Records the item's first attempt as a placement; see `nextSchedule`. */
+  placement?: boolean;
+  /** A module's own history section, rendered after the criteria. */
+  details?: string;
 }
 
 /** How one module's items are scheduled and judged. */
 export interface ReviewPolicy {
   readonly schedule: ScheduleConfig;
   readonly criteria: readonly PassCriterion[];
+  /** The stage a passed placement moves to; absent when the module records no placements. */
+  readonly placementStage?: number;
 }
 
 export interface ReviewItemsDependencies<Domain extends string> {
@@ -145,20 +151,22 @@ export class ReviewItems<Domain extends string> {
   /** Records one attempt exactly once, judges it and appends it to the practice history. */
   async record(input: RecordedAttempt) {
     const note = await this.note(input.id);
-    const { schedule, criteria } = await this.deps.policy(note.item.domain as Domain);
+    const { schedule, criteria, placementStage } = await this.deps.policy(note.item.domain as Domain);
     if (note.item.attempt_ids.includes(input.attempt_id)) return { ...summarySchema.parse(note.item), recorded: false };
     if (note.item.status !== 'active') throw new PracticeError('review_archived');
     if (input.completed_on > this.deps.today()) throw new PracticeError('review_date_is_in_future');
     if (input.revision !== note.revision) throw new PracticeError('revision_conflict');
+    if (input.placement && placementStage === undefined) throw new PracticeError('placement_not_supported');
     const { passed, unmet } = judge(criteria, input.criteria);
-    const change = nextSchedule(note.item, passed, input.completed_on, schedule);
+    const change = nextSchedule(note.item, passed, input.completed_on, schedule, input.placement ? placementStage : undefined);
     // last_result replaces the legacy last_outcome.
     const metadata: Record<string, unknown> = { ...note.metadata, ...change, last_result: passed ? 'passed' : 'failed',
       unmet_criteria: unmet, attempt_ids: [...note.item.attempt_ids, input.attempt_id] };
     delete metadata.last_outcome;
     const ordered = criteria.map(criterion => input.criteria.find(result => result.id === criterion.id)!);
     const entry = renderEntry({ date: input.completed_on, round: change.review_count, passed, nextReview: change.next_review,
-      criteria: ordered, reflection: input.reflection, submission: input.submission, observations: input.observations });
+      criteria: ordered, reflection: input.reflection, submission: input.submission, observations: input.observations,
+      placement: input.placement, details: input.details });
     await this.deps.notes.put(note.path, serializeNote(metadata, note.body + entry), note.revision);
     return { ...summarySchema.parse(metadata), passed, unmet_criteria: unmet, recorded: true };
   }

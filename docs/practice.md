@@ -76,7 +76,10 @@ workflow repository's public tracked definitions, including guides, templates
 and review content definitions for both domains.
 `workflows/practice-entry.md`, `workflows/practice-overview.md` and
 `workflows/practice-adapter.md` are the maintained MCP adaptations; the importer
-includes them in the snapshot. The service fills domain-entry placeholders and
+includes them in the snapshot. A domain's own adaptations live in
+`workflows/practice-entry-<domain>.md` and are appended to the entry only for
+that domain, so Algorithm never receives the System Design or SD Blocks canvas
+rules. The service fills domain-entry placeholders and
 returns a shared catalog for generic entry or a domain-specific catalog for
 ready results. The shared catalog now includes the canonical top-level practice
 skill. The MCP adapter explicitly overrides its module-menu and new-problem
@@ -102,7 +105,8 @@ committed snapshot remain deterministic.
 
 The live S3 practice-review manifest controls `enabled`, the global `schedule`
 rule and `shared_criteria`. Its `consumers` table registers each module that
-uses spaced review: `enabled`, `module`, `flow` and `time_limit`. Each module
+uses spaced review: `enabled`, `module`, `flow`, `time_limit` and an optional
+`placement_interval` (see [Queue and schedule](#queue-and-schedule)). Each module
 declares `pass_criteria` in its own `module.md`, referring to shared criteria
 by id or defining its own with an `id` and a `rule`. A module is usable only
 when all five hold, checked before its actions:
@@ -110,11 +114,12 @@ when all five hold, checked before its actions:
 1. practice review is enabled (`practice_module_disabled`); a manifest missing these settings, such as one without `consumers`, fails every module with `invalid_practice_config`
 2. its consumer entry is enabled (`consumer_disabled`, or `consumer_not_registered` when absent)
 3. its own module is enabled (`domain_module_disabled`, `invalid_domain_module`)
-4. its entry and pass criteria are valid (`invalid_consumer_config`, `invalid_review_time_limit`, `invalid_pass_criteria` for none, an unknown shared id, a repeated id or a missing rule)
+4. its entry, pass criteria and own data are valid (`invalid_consumer_config`, `invalid_review_time_limit`, `invalid_placement_interval` for one that is not a schedule interval, `invalid_pass_criteria` for none, an unknown shared id, a repeated id or a missing rule; for SD Blocks, `block_map_missing` or `invalid_block_map` as described in [SD Blocks](#sd-blocks))
 5. its workflow was imported: `flow` matches the definition in this server's snapshot (`workflow_mapping_changed_refresh_required`)
 
 `practice` reports a module switched off by 2 or 3 as `disabled` and any other
-failure as `unavailable`, with the reason. A disabled Algorithm module
+failure as `unavailable`, with the reason and, where the check found several
+problems, each one in `errors`. A disabled Algorithm module
 does not block System Design, or vice versa. Entries for other domains in the
 shared manifest are ignored.
 A changed workflow mapping requires a reviewed source refresh,
@@ -129,11 +134,12 @@ practice write tools.
 | `practice` | With no domain, discover availability and return an overview or sole-domain workflow. With an explicit domain, return its guarded workflow. |
 | `practice_instruction` | Read a bounded chunk of one packaged instruction document. |
 | `practice_reviews` | Read one domain's complete review queue from the index. An explicit domain is required on every call. |
-| `practice_review` | Return a neutral prompt and revision; feedback phase may include history. |
-| `practice_read_note` | Read one complete bounded Algorithm or System Design note and its revision for a potential edit. |
+| `practice_review` | Return a neutral prompt and revision; feedback phase may include history. An SD Blocks item also returns its block, with points ordered for rotation. |
+| `practice_read_note` | Read one complete bounded Algorithm, System Design or SD Blocks note and its revision for a potential edit. |
 | `practice_design_outline` | Return in-scope follow-ups and canonical evidence; see [System Design evidence](#system-design-evidence). |
 | `practice_design_template` | Draft unsaved session progress, Excalidraw files and native `canvas.drawing` data for a new System Design topic. |
-| `practice_design_canvas` | Read the exact selected session canvas as native drawing data, with its source revision; supports plain JSON and legacy compressed-json without saving. |
+| `practice_design_canvas` | Read the exact selected session or block review canvas as native drawing data, with its source revision; supports plain JSON and legacy compressed-json without saving. |
+| `practice_block_template` | Draft an unsaved SD Blocks review canvas, showing the block and the scenario, at `Blocks/Reviews/<block>/<day>-<attempt>.excalidraw.md`. |
 | `practice_add_review` | Create an unstarted review object without overwriting an existing one. |
 | `practice_record_review` | Append an ended attempt/reflection and calculate scheduling deterministically. |
 | `practice_finish_round` | Close out a confirmed attempt with its criteria judgment, including System Design assessment and profile saves. |
@@ -242,6 +248,13 @@ Every module follows one schedule rule, read from the live manifest's
 - A fail drops `on_fail.step_back` stages, never below 0, and is retried after
   `on_fail.retry_days`.
 - Early attempts count like on-time ones.
+- A module whose consumer entry sets `placement_interval` can record an item's
+  first attempt as a placement (`placement: true`). A passed placement moves
+  straight to the stage that waits that interval, instead of stage 1; a failed
+  one is an ordinary fail. A placement on a later attempt is refused with
+  `placement_requires_first_attempt`, and one in another module with
+  `placement_not_supported`. The history entry's result line records
+  `Placement`, so a replay reaches the same stage.
 
 Every ended attempt is judged, including a first attempt at a new problem. The
 agent submits `criteria`: every criterion in the module's `pass_criteria`, once
@@ -256,7 +269,8 @@ Items recorded before this rule were migrated once with
 `bin/migrate-review-schedule.ts`, which replays each history from stage 0.
 Legacy outcomes convert as agreed: `independent` meets every criterion,
 `assisted` misses `no_substantive_help`, and `incomplete` misses the module's
-completion criterion (`tests_pass` or `all_steps_done`). `completed`, written
+completion criterion (`tests_pass` or `all_steps_done`). A placement replays at
+its module's placement stage. `completed`, written
 when a System Design attempt omitted its outcome, never recorded independence
 and misses `no_substantive_help`. Replay reads an attempt only at a full entry
 heading with its result line, and criteria only from that entry's own
@@ -417,6 +431,46 @@ chunked reads of larger notes; the write tools refuse to replace a partially
 read or oversized note. No history truncation, archive move or object deletion
 is implemented. Obsidian remains responsible for rendering Dataview views.
 ChatGPT does not gain a Python runner or an Obsidian UI from MCP.
+
+## SD Blocks
+
+SD Blocks reviews each building block article of System Design on its own
+schedule. Its data is `Learning/Practice/System-Design/Blocks.md`, which the
+learner maintains and the server only reads: one `## <block-id>` section per
+block with its `note` link, optional `cards` links and 4 to 8
+`- <point-id>: <text>` points, then a `## Problems` table with the columns
+`problem`, `note`, `core` and `uses`. Links resolve relative to the System Design
+folder.
+
+Every SD Blocks call loads and checks the map once per request: it must parse
+strictly, every block and point id must be well formed and unique within its
+scope, every problem must refer to defined blocks with at least one core block
+and none in both columns, and every linked note must exist, which costs one
+listing per linked folder. A missing map makes SD Blocks unavailable with
+`block_map_missing`; any other problem with `invalid_block_map`, listing every
+error with its line in the availability report. Other domains are unaffected.
+
+- Each block is one review item, `sdb-<block-id>`; adding an item for an id that
+  names no block is refused with `unknown_block`. `practice` with
+  `domain: sd-blocks` returns `blocks`, every block in map order with its item
+  state or `item: null`, using the index and reading only items it does not hold.
+- Every SD Blocks attempt carries `points`: one `{id, result, evidence}` per
+  examined point, with `result` `mastered`, `partial` or `weak`. They must be
+  points of the item's block, once each (`block_points_required`,
+  `block_points_mismatch`), checked before any write. They are stored in the
+  history entry as a `#### Points` section after the criteria. Other modules
+  refuse `points`.
+- `practice_review` returns the block's points in rotation order: never
+  examined, then last answered weak, partial and mastered, each least recently
+  examined first. Points are read only from each entry's own Points section,
+  before any learner text.
+- The consumer sets `placement_interval: 14`, so a familiar block's passed
+  placement review starts at stage 4.
+- Review canvases are written only to
+  `Learning/Practice/System-Design/Blocks/Reviews/*/*.excalidraw.md`, through
+  the same stage and save tools as session canvases. This is the module's only
+  write path, shared with IAM synthesis. `Blocks.md`, the articles, cards and
+  breakdowns are read-only; reading them is guarded by System Design.
 
 ## Activation procedure
 

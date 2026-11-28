@@ -9,7 +9,9 @@ const policy: MigrationPolicy = {
   criteria: {
     algorithm: [{ id: 'no_substantive_help', rule: 'r' }, { id: 'tests_pass', rule: 'r' }],
     'system-design': [{ id: 'no_substantive_help', rule: 'r' }, { id: 'within_time_limit', rule: 'r' }, { id: 'all_steps_done', rule: 'r' }, { id: 'core_blocks_partial', rule: 'r' }],
+    'sd-blocks': [{ id: 'no_substantive_help', rule: 'r' }, { id: 'points_answered', rule: 'r' }],
   },
+  placementStages: { 'sd-blocks': 4 },
 };
 const legacy = (round: number, date: string, outcome: string) => `\n### ${date} · Round ${round}\n\n**${outcome}** · Next review 2099-01-01\n\nMy notes.\n`;
 function note(metadata: Record<string, unknown>, history: string) {
@@ -59,6 +61,14 @@ describe('review schedule migration', () => {
     const { row } = migrateReview('sysd-dropbox', note({ review_count: 2 }, history), policy);
     expect(row.error).toBeUndefined();
     expect(row.entries.map(entry => entry.stage)).toEqual([1, 2]);
+  });
+
+  it('replays a placement at the stage its module places familiar items', () => {
+    const placed = renderEntry({ date: '2026-11-28', round: 1, passed: true, nextReview: '2026-12-12', placement: true, reflection: 'r',
+      criteria: policy.criteria['sd-blocks'].map(criterion => ({ id: criterion.id, met: true, evidence: 'e' })), details: '#### Points\n\n- mastered `occ`: e\n' });
+    const text = note({ id: 'sdb-caching', domain: 'sd-blocks', review_count: 1 }, placed);
+    expect(migrateReview('sdb-caching', text, policy).row.entries).toMatchObject([{ passed: true, unmet: [], stage: 4, next_review: '2026-12-12' }]);
+    expect(migrateReview('sdb-caching', text, { ...policy, placementStages: {} }).row.error).toBe('placement_not_supported');
   });
 
   it('leaves an unstarted item unstarted', () => {
