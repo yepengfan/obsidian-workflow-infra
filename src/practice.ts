@@ -193,6 +193,15 @@ export class Practice {
       session = { note, metadata, body, tags };
     }
     let details = recorded ? undefined : await check(concept_ids);
+    // Claim an unconfirmed session before registering anything: the conditional write is the session's lock,
+    // so of two finishes racing on it only one registers an item. A claim without confirmed_registration
+    // still accepts a corrected retry of the same round.
+    const unconfirmed = progress_path && session && session.tags.includes('system-design/wip') && !session.metadata.confirmed_registration ? session : undefined;
+    let claimed: { metadata: Record<string, unknown>; revision: string } | undefined;
+    if (progress_path && unconfirmed) {
+      const metadata = { ...unconfirmed.metadata, round_id: attempt.attempt_id, review_item_id: topic.id, round_completed_on: attempt.completed_on };
+      claimed = { metadata, revision: await this.notes.put(progress_path, serialize(metadata, unconfirmed.body), unconfirmed.note.revision) };
+    }
     await this.add(topic);
     let current = await this.items.note(topic.id);
     if (topic.domain === 'system-design' && !current.item.concept_ids.length && topic.concept_ids?.length) {
@@ -200,13 +209,12 @@ export class Practice {
       current = await this.items.note(topic.id);
     }
     // A concurrent first finish may have stored another concept list; judge against the stored one. This runs
-    // before the session is bound, so a refused judgment can be corrected and retried.
+    // before the registration is confirmed, so a refused judgment can be corrected and retried.
     if (!current.item.attempt_ids.includes(attempt.attempt_id) && !isDeepStrictEqual(current.item.concept_ids, concept_ids)) {
       details = await check(current.item.concept_ids);
     }
-    if (progress_path && session && session.tags.includes('system-design/wip') && !session.metadata.confirmed_registration) {
-      await this.notes.put(progress_path, serialize({ ...session.metadata, round_id: attempt.attempt_id, review_item_id: topic.id,
-        round_completed_on: attempt.completed_on, confirmed_registration: { topic, attempt } }, session.body), session.note.revision);
+    if (progress_path && unconfirmed && claimed) {
+      await this.notes.put(progress_path, serialize({ ...claimed.metadata, confirmed_registration: { topic, attempt } }, unconfirmed.body), claimed.revision);
     }
     if (!current.item.attempt_ids.includes(attempt.attempt_id)) {
       await this.recordChecked({ ...attempt, id: topic.id, revision: current.revision }, details);

@@ -594,8 +594,13 @@ through the SD Blocks module (`src/system-design-module.ts`, rules in
   (`duplicate_observation_id`). A standalone `practice_record_review` carries
   no evidence, so its `core_blocks_partial` judgment is not checked. When a
   concurrent first finish stored a different concept list, the attempt is
-  checked again against the stored list before the session is bound, so a
-  refused judgment can be corrected and finished.
+  checked again against the stored list before the registration is confirmed.
+- A finish first claims an unbound session with a conditional write of
+  `round_id`, `review_item_id` and `round_completed_on`, then registers the
+  item, rechecks, and only then writes `confirmed_registration`. The claim is
+  the session's lock: of two finishes racing on one session, the loser fails
+  with `revision_conflict` before registering anything. A claimed but
+  unconfirmed session still accepts a corrected retry of the same round.
 - After a round is recorded and verified, each block with a learner
   observation answered `partial` or `weak` is signalled through the core's
   `pullForward(item, domain, day, signalDate)`, with the day after the round.

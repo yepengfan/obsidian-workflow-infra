@@ -1820,6 +1820,26 @@ describe('block signals from System Design rounds', () => {
       concept_observations: [observe('lock', undefined, 'mastered')] } })).resolves.toMatchObject({ verified: true, review_count: 1 });
   });
 
+  it('lets only the finish that claims an unbound session register an item', async () => {
+    const { store, practice } = setup();
+    const progress = 'Learning/Practice/System-Design/Solutions/claim/progress.md';
+    await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+    const put = store.put.bind(store);
+    let raced = false;
+    // Another finish with another item id claims the session between this finish's read and its claim.
+    store.put = async (key, text, condition, signal) => {
+      if (!raced && key === root + progress) {
+        raced = true;
+        store.files.set(key, store.files.get(key)!.replace('tags:', 'round_id: other\nreview_item_id: sysd-other\ntags:'));
+      }
+      return put(key, text, condition, signal);
+    };
+    await expect(practice.finishRound({ topic: { ...designRequest, concept_ids: ['contention.lock'] }, progress_path: progress, attempt: {
+      criteria: criteria('system-design'), attempt_id: 'claim', reflection: 'r', completed_on: '2026-11-14', concept_observations: [observe('lock', undefined, 'mastered')] } }))
+      .rejects.toThrow('revision_conflict');
+    expect(store.files.has(items + designRequest.id + '.md')).toBe(false);
+  });
+
   it('keeps the problem to System Design', async () => {
     const { store, practice } = await seeded();
     await expect(practice.record(attempt(store.tag(items + item.id + '.md'), { problem: 'ticketmaster' }))).rejects.toThrow('unsupported_practice_domain');
