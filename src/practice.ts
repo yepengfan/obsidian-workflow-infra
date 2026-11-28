@@ -1,23 +1,25 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { stringify } from 'yaml';
 import { z } from 'zod';
 import { parseFrontmatter } from './frontmatter.js';
 import { PracticeWorkflow } from './practice-workflow.js';
-import { calendarDay, designHistory, designRound, nextSchedule } from './review-schedule.js';
+import { checkFinalSummary } from './design-review.js';
+import { practiceReviewConsumers } from './review-consumers.js';
+import { ReviewItems, serializeNote as serialize } from './srs/review-items.js';
+import { calendarDay } from './srs/schedule.js';
 import type { Settings } from './config.js';
 import { NoteError } from './paths.js';
 import type { NoteStore, NoteWriter } from './note-store.js';
 import { PracticeError } from './errors.js';
 import { CANVAS_REVIEW_PREFIX, DESIGN_PROFILE, type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
-import { conceptIdSchema, conceptObservationSchema, designOutline, parseObservations, renderProfile, summaryCitesExistingObservations, upsertObservations, type StoredObservation } from './design-profile.js';
+import { conceptObservationSchema, designOutline, parseObservations, renderProfile, upsertObservations, type StoredObservation } from './design-profile.js';
 import { readDesignCanvas, parseScene, writeDesignCanvas } from './design-canvas.js';
-import { dateSchema, REVIEW_ITEMS_PREFIX, reviewSummarySchema as summarySchema, slugSchema, type ReviewSummary } from './practice-schema.js';
+import { conceptIdSchema, dateSchema, reviewSummarySchema as summarySchema, slugSchema } from './practice-schema.js';
 import { parsePracticeNote, PracticeNotes } from './practice-note.js';
-import type { IndexedReview, ReviewIndex, SessionIndex } from './review-index.js';
+import type { ReviewIndex, SessionIndex } from './review-index.js';
 
-export { calendarDay, nextSchedule } from './review-schedule.js';
+export { calendarDay } from './srs/schedule.js';
 export { PracticeError } from './errors.js';
 export { domainSchema, validatePracticeWritePath } from './practice-domains.js';
 export { dateSchema, slugSchema } from './practice-schema.js';
@@ -36,31 +38,23 @@ export const finishRoundSchema = z.strictObject({
   progress_path: z.string().max(1024).optional(),
 });
 export const listReviewsSchema = z.strictObject({ domain: domainSchema });
-const itemSchema = summarySchema.extend({ prompt: requiredText, source: text.optional(), concept_ids: z.array(conceptIdSchema).max(50).default([]), attempt_ids: z.array(z.string()).max(5000).default([]) });
-function serialize(metadata: Record<string, unknown>, body: string) { return `---\n${stringify(metadata)}---\n${body}`; }
-function reviewQueue(rows: readonly ReviewSummary[], day: string) {
-  const queue: Record<'overdue' | 'today' | 'unstarted' | 'upcoming', ReviewSummary[]> = { overdue: [], today: [], unstarted: [], upcoming: [] };
-  const ordered = [...rows].sort((a, b) => (a.next_review ?? '').localeCompare(b.next_review ?? '') || a.id.localeCompare(b.id));
-  for (const row of ordered) {
-    const entry = { ...row, ...(row.domain === 'system-design' ? designRound(row.completed_design_rounds ?? 0) : {}) };
-    if (row.next_review === null) queue.unstarted.push(entry);
-    else if (row.next_review < day) queue.overdue.push(entry);
-    else if (row.next_review === day) queue.today.push(entry);
-    else queue.upcoming.push(entry);
-  }
-  return queue;
-}
-
-type ScheduleConfig = Pick<Awaited<ReturnType<PracticeWorkflow['config']>>, 'interval_days' | 'retry_days' | 'archive_after_final'>;
-
 export class Practice {
   private readonly notes: PracticeNotes;
   private readonly workflows: PracticeWorkflow;
+  private readonly items: ReviewItems<PracticeDomain>;
 
   constructor(private readonly store: NoteStore, private readonly index: ReviewIndex & SessionIndex, private readonly settings: Pick<Settings, 'prefix' | 'practice' | 'limits'>,
     private readonly signal: AbortSignal, private readonly dependencies: { writer?: NoteWriter; now?: () => Date } = {}) {
     this.notes = new PracticeNotes(store, settings.prefix, signal, settings.limits.practiceNoteBytes, settings.practice.writesEnabled ? dependencies.writer : undefined);
     this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal);
+    this.items = new ReviewItems({
+      notes: this.notes, index, signal, today: () => this.today(),
+      consumers: practiceReviewConsumers({ designObservations: () => this.assessmentObservations() }),
+      schedule: async domain => {
+        const config = await this.workflows.config(domainSchema.parse(domain));
+        return { intervals: config.interval_days, retryDays: config.retry_days, archiveAfterFinal: config.archive_after_final };
+      },
+    });
   }
   private today() { return calendarDay(this.settings.practice.timeZone, this.dependencies.now?.() ?? new Date()); }
   read(path: string) {
@@ -83,100 +77,22 @@ export class Practice {
     return this.workflows.instruction(path, offset);
   }
 
-  private async item(id: string, forQueue = false, config?: ScheduleConfig) {
-    const path = REVIEW_ITEMS_PREFIX + slugSchema.parse(id) + '.md';
-    const note = await this.read(path);
-    const parsed = parsePracticeNote(note.text);
-    const item = itemSchema.parse(parsed.metadata);
-    if (item.id !== id) throw new PracticeError('review_id_mismatch');
-    if (!forQueue && !domainSchema.safeParse(item.domain).success) throw new PracticeError('unsupported_practice_domain');
-    if (item.domain === 'system-design') {
-      const schedule = config ?? await this.workflows.config('system-design');
-      Object.assign(item, designHistory(item, parsed.body, schedule.interval_days, schedule.retry_days, schedule.archive_after_final));
-    }
-    return { ...note, ...parsed, item, path };
-  }
   async reviews(input: z.infer<typeof listReviewsSchema>) {
-    domainSchema.parse(input.domain);
-    const config = await this.workflows.config(input.domain);
-    const day = this.today();
-    const rows = await this.currentReviews(await this.indexedReviews(input.domain), day, config);
-    const queue = reviewQueue(rows.filter(row => row.domain === input.domain && row.status === 'active'), day);
-    return { date: day, time_zone: this.settings.practice.timeZone, domain: input.domain, ...queue, complete: true };
-  }
-  private async indexedReviews(domain: PracticeDomain) {
-    try { return await this.index.activeReviews(domain, this.signal); }
-    catch {
-      this.signal.throwIfAborted();
-      throw new PracticeError('review_index_unavailable');
-    }
-  }
-  private async currentReviews(indexed: IndexedReview[], day: string, config: ScheduleConfig) {
-    const summary = (row: ReviewSummary): ReviewSummary => summarySchema.parse(row);
-    const needsNote = (row: IndexedReview) => row.domain === 'system-design' || row.next_review === null || row.next_review <= day;
-    const rows = indexed.filter(row => !needsNote(row)).map(summary);
-    const unconfirmed = indexed.filter(needsNote);
-    for (let index = 0; index < unconfirmed.length; index += 4) {
-      rows.push(...await Promise.all(unconfirmed.slice(index, index + 4).map(async row => {
-        const note = await this.item(row.id, true, config);
-        return summary(note.item);
-      })));
-    }
-    return rows;
+    const { date, domain, ...queue } = await this.items.reviews(domainSchema.parse(input.domain));
+    return { date, time_zone: this.settings.practice.timeZone, domain, ...queue, complete: true };
   }
   async recalculateDesignReviews() {
-    const config = await this.workflows.config('system-design');
-    let updated = 0;
-    for (const row of await this.indexedReviews('system-design')) {
-      const note = await this.item(row.id, true, config);
-      const normalized = designHistory(itemSchema.parse(note.metadata), note.body,
-        config.interval_days, config.retry_days, config.archive_after_final);
-      if (Object.entries(normalized).every(([key, value]) => isDeepStrictEqual(note.metadata[key], value))) continue;
-      await this.notes.put(note.path, serialize({ ...note.metadata, ...normalized }, note.body), note.revision);
-      updated++;
-    }
-    return { updated };
+    return this.items.recalculate('system-design');
   }
   async review(id: string, includeHistory = false) {
-    const note = await this.item(id);
-    await this.workflows.config(domainSchema.parse(note.item.domain));
-    if (note.item.status !== 'active') throw new PracticeError('review_archived');
-    return { ...summarySchema.parse(note.item), ...(note.item.domain === 'system-design' ? designRound(note.item.completed_design_rounds!) : {}), prompt: note.item.prompt, concept_ids: note.item.concept_ids, source: note.item.source ?? null,
-      revision: note.revision, ...(includeHistory ? { history: note.body } : {}) };
+    return this.items.review(id, includeHistory);
   }
   async add(input: z.infer<typeof addReviewSchema>) {
-    domainSchema.parse(input.domain);
-    await this.workflows.config(input.domain);
-    const metadata = { id: input.id, domain: input.domain, title: input.title.trim(), status: 'active', prompt: input.prompt,
-      concept_ids: input.concept_ids ?? [], review_count: 0, stage: 0, ...(input.domain === 'system-design' ? { completed_design_rounds: 0 } : {}), last_review: null, next_review: null, attempt_ids: [], ...(input.source ? { source: input.source } : {}) };
-    const body = `# ${metadata.title.replace(/[\r\n]/gu, ' ')}\n\n${input.review_focus ? '## Review focus\n\n' + input.review_focus + '\n\n' : ''}## Practice history\n`;
-    try { await this.notes.put(REVIEW_ITEMS_PREFIX + input.id + '.md', serialize(metadata, body)); }
-    catch (error) {
-      if (!(error instanceof NoteError) || error.code !== 'revision_conflict') throw error;
-      const existing = await this.item(input.id);
-      if (existing.item.domain !== input.domain || existing.item.title !== metadata.title) throw new PracticeError('review_id_conflict');
-      return { ...summarySchema.parse(existing.item), concept_ids: existing.item.concept_ids, created: false, revision: existing.revision };
-    }
-    return { ...summarySchema.parse(metadata), concept_ids: metadata.concept_ids, created: true };
+    return this.items.add({ ...input, domain: domainSchema.parse(input.domain) });
   }
   async record(input: z.infer<typeof recordReviewSchema>) {
     if (input.concept_observations?.length) throw new PracticeError('use_practice_finish_round_for_evidence');
-    const note = await this.item(input.id);
-    const config = await this.workflows.config(domainSchema.parse(note.item.domain));
-    if (note.item.attempt_ids.includes(input.attempt_id)) return { ...summarySchema.parse(note.item), recorded: false };
-    if (note.item.status !== 'active') throw new PracticeError('review_archived');
-    if (input.completed_on > this.today()) throw new PracticeError('review_date_is_in_future');
-    if (input.revision !== note.revision) throw new PracticeError('revision_conflict');
-    const outcome = input.outcome ?? (note.item.domain === 'system-design' ? 'completed' : undefined);
-    if (!outcome) throw new PracticeError('invalid_review_outcome');
-    await this.assertFinalSummary(input.id, input);
-    const schedule = nextSchedule(note.item, outcome, input.completed_on, config.interval_days, config.retry_days, config.archive_after_final);
-    const metadata = { ...note.metadata, ...schedule, last_outcome: outcome, attempt_ids: [...note.item.attempt_ids, input.attempt_id] };
-    let entry = `\n\n### ${input.completed_on} · Round ${schedule.review_count}\n\n**${outcome}** · ${schedule.status === 'archived' ? 'Archived' : `Next review ${schedule.next_review}`}\n\n#### My reflection\n\n${input.reflection}\n`;
-    if (input.submission) entry += `\n#### Submission\n\n${input.submission}\n`;
-    if (input.observations) entry += `\n#### Feedback\n\n${input.observations}\n`;
-    await this.notes.put(note.path, serialize(metadata, note.body + entry), note.revision);
-    return { ...summarySchema.parse(metadata), recorded: true };
+    return this.items.record(input);
   }
   async finishRound({ topic, attempt, progress_path }: z.infer<typeof finishRoundSchema>) {
     if (topic.domain !== 'system-design' && attempt.concept_observations?.length) throw new PracticeError('unsupported_practice_domain');
@@ -206,17 +122,17 @@ export class Practice {
       }
     }
     await this.add(topic);
-    let current = await this.item(topic.id);
+    let current = await this.items.note(topic.id);
     if (topic.domain === 'system-design' && !current.item.concept_ids.length && topic.concept_ids?.length) {
       await this.notes.put(current.path, serialize({ ...current.metadata, concept_ids: topic.concept_ids }, current.body), current.revision);
-      current = await this.item(topic.id);
+      current = await this.items.note(topic.id);
     }
     if (!current.item.attempt_ids.includes(attempt.attempt_id)) {
       const registration = { ...attempt };
       delete registration.concept_observations;
       await this.record({ ...registration, id: topic.id, revision: current.revision });
     }
-    const verified = await this.item(topic.id);
+    const verified = await this.items.note(topic.id);
     if (!verified.item.attempt_ids.includes(attempt.attempt_id) ||
       (verified.item.status === 'active' && !verified.item.next_review)) throw new PracticeError('registration_verification_failed');
     if (topic.domain === 'system-design' && progress_path) {
@@ -237,16 +153,13 @@ export class Practice {
     return { ...summarySchema.parse(verified.item), attempt_id: attempt.attempt_id, verified: true };
   }
 
-  private async assertFinalSummary(id: string, attempt: { attempt_id: string; outcome?: string; submission?: string; concept_observations?: readonly unknown[] }, progress?: { progressPath: string; completedOn: string }) {
+  /** Checks a System Design closing round before its session is bound, while the topic may not exist yet. */
+  private async assertFinalSummary(id: string, attempt: z.infer<typeof finishRoundSchema>['attempt'], progress: { progressPath: string; completedOn: string }) {
     let current;
-    try { current = await this.item(id); }
+    try { current = await this.items.note(id); }
     catch (error) { if (error instanceof NoteError && error.code === 'note_unavailable') return; throw error; }
-    const outcome = attempt.outcome ?? (current.item.domain === 'system-design' ? 'completed' : undefined);
-    if (current.item.domain !== 'system-design' || current.item.status !== 'active' || outcome === 'incomplete' ||
-      (current.item.completed_design_rounds ?? 0) !== 5 || current.item.attempt_ids.includes(attempt.attempt_id)) return;
-    if (attempt.concept_observations?.length) throw new PracticeError('final_round_rejects_new_observations');
-    const existing = await this.assessmentObservations(progress);
-    if (!summaryCitesExistingObservations(attempt.submission, existing)) throw new PracticeError('final_summary_required');
+    if (current.item.domain !== 'system-design') return;
+    await checkFinalSummary(current.item, attempt, () => this.assessmentObservations(progress));
   }
 
   private async persistDesignProfile(progressPath: string, attemptId: string, date: string, observations: z.infer<typeof conceptObservationSchema>[]) {
@@ -309,7 +222,7 @@ export class Practice {
     if ((input.id === undefined) === (input.concept_ids === undefined)) throw new PracticeError('provide_review_or_concepts');
     let concepts = input.concept_ids ?? [];
     if (input.id) {
-      const note = await this.item(input.id);
+      const note = await this.items.note(input.id);
       if (note.item.domain !== 'system-design') throw new PracticeError('unsupported_practice_domain');
       concepts = note.item.concept_ids;
     }

@@ -1,8 +1,6 @@
 import { parse, stringify } from 'yaml';
 import { z } from 'zod';
-import { dateSchema } from './practice-schema.js';
-
-export const conceptIdSchema = z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u).max(80);
+import { conceptIdSchema, dateSchema } from './practice-schema.js';
 
 export const conceptObservationSchema = z.strictObject({
   observation_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u).max(80),

@@ -1,13 +1,19 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { ReviewSummary } from '../src/practice-schema.js';
-import { designHistory, designRound, nextSchedule } from '../src/review-schedule.js';
+import { designHistory as replayHistory, designRound, designSchedule } from '../src/design-review.js';
+import { nextSchedule as schedule } from '../src/srs/schedule.js';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/design-rounds.json', import.meta.url), 'utf8')) as {
   intervals: number[];
   retry_days: number;
   rounds: Array<{ date: string; outcome: string; attempt_id: string; completed_design_rounds: number; stage: number; next_review: string | null; status: 'active' | 'archived' }>;
 };
+
+const nextSchedule = (current: ReviewSummary, outcome: string, day: string, intervals: number[], retryDays: number, archiveAfterFinal = false) =>
+  schedule(current, outcome, day, { intervals, retryDays, archiveAfterFinal }, designSchedule);
+const designHistory = (current: ReviewSummary, body: string, intervals: number[], retryDays: number, archiveAfterFinal = false) =>
+  replayHistory(current, body, { intervals, retryDays, archiveAfterFinal });
 
 function item(overrides: Partial<ReviewSummary> = {}): ReviewSummary {
   return {

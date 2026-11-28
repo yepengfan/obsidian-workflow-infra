@@ -1,5 +1,6 @@
-import { dateSchema, type ReviewSummary } from './practice-schema.js';
-import { PracticeError } from './errors.js';
+/** The review schedule before the SRS core split, kept as the parity oracle for test/review-parity.test.ts. */
+import { dateSchema, type ReviewSummary } from '../../src/practice-schema.js';
+import { PracticeError } from '../../src/errors.js';
 
 export function calendarDay(timeZone: string, now: Date) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);

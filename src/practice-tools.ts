@@ -5,7 +5,7 @@ import { readToolSecurity, writeToolSecurity, type McpSkill, type SkillContext }
 import type { Settings } from './config.js';
 import { addReviewSchema, domainSchema, finishRoundSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
 import { canvasToolMetadata, registerCanvasWidget } from './practice-canvas-widget.js';
-import { conceptIdSchema } from './design-profile.js';
+import { conceptIdSchema } from './practice-schema.js';
 import { designSessionSchema } from './design-session.js';
 import type { ReviewIndex, SessionIndex } from './review-index.js';
 
