@@ -435,7 +435,12 @@ ChatGPT does not gain a Python runner or an Obsidian UI from MCP.
 ## SD Blocks
 
 SD Blocks reviews each building block article of System Design on its own
-schedule. Its data is `Learning/Practice/System-Design/Blocks.md`, which the
+schedule. Its rules sit behind the practice module contract
+(`src/practice-module.ts`): the service calls a module's hooks for its domain,
+after its configuration guard, for availability, the workflow and review
+results, adding items, attempt fields, reads of other domains' notes and canvas
+paths. `src/practice-modules.ts` wires the modules, so a new module adds hooks
+there instead of branches in the service. Its data is `Learning/Practice/System-Design/Blocks.md`, which the
 learner maintains and the server only reads: one `## <block-id>` section per
 block with its `note` link, optional `cards` links and 4 to 8
 `- <point-id>: <text>` points, then a `## Problems` table with the columns

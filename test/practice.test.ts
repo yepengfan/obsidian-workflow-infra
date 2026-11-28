@@ -1506,7 +1506,7 @@ describe('SD Blocks', () => {
   const blockAttempt = (extra: object = {}) => ({ attempt_id: 'block-1', criteria: criteria('sd-blocks'), reflection: 'I reached for a version column.',
     completed_on: '2026-11-14', points, ...extra });
   const rotation = async (practice: Practice) => {
-    const review = await practice.review(id) as { block: { points: { id: string; examined: number; last_result: string | null }[] } };
+    const review = await practice.review(id) as unknown as { block: { points: { id: string; examined: number; last_result: string | null }[] } };
     return review.block.points.map(point => [point.id, point.examined, point.last_result]);
   };
 
@@ -1536,7 +1536,7 @@ describe('SD Blocks', () => {
       points: [{ id: 'occ', result: 'weak', evidence: 'Forgot the retry.' }, { id: 'conditional-write', result: 'partial', evidence: 'Guard unclear.' }] }) }))
       .toMatchObject({ review_count: 2, stage: 3, next_review: '2026-11-15' });
     expect(await rotation(practice)).toEqual([['pessimistic-lock', 0, null], ['occ', 2, 'weak'], ['conditional-write', 1, 'partial'], ['high-contention', 1, 'mastered']]);
-    expect(((await practice.workflow('sd-blocks')) as { blocks: unknown }).blocks).toMatchObject([{ item: { id, status: 'active', stage: 3, next_review: '2026-11-15' } }, { item: null }]);
+    expect(((await practice.workflow('sd-blocks')) as unknown as { blocks: unknown }).blocks).toMatchObject([{ item: { id, status: 'active', stage: 3, next_review: '2026-11-15' } }, { item: null }]);
     await expect(practice.finishRound({ topic, attempt: blockAttempt({ attempt_id: 'block-3', placement: true }) })).rejects.toThrow('placement_requires_first_attempt');
   });
 
@@ -1566,7 +1566,7 @@ describe('SD Blocks', () => {
     expect(await practice.finishRound({ topic, attempt: blockAttempt({ criteria: criteria('sd-blocks', ['no_substantive_help']) }) }))
       .toMatchObject({ stage: 0, next_review: '2026-11-15' });
     store.files.set(items + id + '.md', store.files.get(items + id + '.md')!.replace('status: active', 'status: archived'));
-    expect(((await practice.workflow('sd-blocks')) as { blocks: unknown }).blocks).toMatchObject([{ item: { id, status: 'archived' } }, { item: null }]);
+    expect(((await practice.workflow('sd-blocks')) as unknown as { blocks: unknown }).blocks).toMatchObject([{ item: { id, status: 'archived' } }, { item: null }]);
   });
 
   it.each([

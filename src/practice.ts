@@ -4,23 +4,23 @@ import { z } from 'zod';
 import { parseFrontmatter } from './frontmatter.js';
 import { PracticeWorkflow } from './practice-workflow.js';
 import { ReviewItems, serializeNote as serialize } from './srs/review-items.js';
-import { criterionResultSchema, judge, type CriterionResult } from './srs/criteria.js';
+import { criterionResultSchema, judge } from './srs/criteria.js';
 import { calendarDay } from './srs/schedule.js';
 import type { Settings } from './config.js';
 import { NoteError } from './paths.js';
 import type { NoteStore, NoteWriter } from './note-store.js';
 import { PracticeError } from './errors.js';
-import { BLOCK_MAP, CANVAS_REVIEW_PREFIX, DESIGN_PROFILE, type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
+import { CANVAS_REVIEW_PREFIX, DESIGN_PROFILE, type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
 import { conceptObservationSchema, designOutline, parseObservations, renderProfile, upsertObservations, type StoredObservation } from './design-profile.js';
 import { readDesignCanvas, parseScene, writeDesignCanvas } from './design-canvas.js';
-import { attemptIdSchema, conceptIdSchema, dateSchema, REVIEW_ITEMS_PREFIX, reviewSummarySchema as summarySchema, slugSchema } from './practice-schema.js';
+import { attemptIdSchema, conceptIdSchema, dateSchema, reviewSummarySchema as summarySchema, slugSchema } from './practice-schema.js';
 import { parsePracticeNote, PracticeNotes } from './practice-note.js';
 import type { ReviewIndex, SessionIndex } from './review-index.js';
-import { loadBlockMap, type BlockMap } from './block-map.js';
-import { parseHistory } from './srs/history.js';
-import { blockItemId, blockPointResultSchema, blockReviewCanvas, blocksOverview, blockTemplateSchema, checkPoints, checkPointsAnswered, itemBlock, pointRotation,
-  renderPoints, type BlockItemState, type BlockPointResult } from './sd-blocks.js';
+import { blockPointResultSchema, blockTemplateSchema } from './sd-blocks.js';
+import type { ModuleAttempt, PracticeModule } from './practice-module.js';
+import { practiceModules } from './practice-modules.js';
+import type { SdBlocksModule } from './sd-blocks-module.js';
 
 export { PracticeError } from './errors.js';
 export { domainSchema, validatePracticeWritePath } from './practice-domains.js';
@@ -45,13 +45,17 @@ export class Practice {
   private readonly notes: PracticeNotes;
   private readonly workflows: PracticeWorkflow;
   private readonly items: ReviewItems<PracticeDomain>;
-  private blocks?: Promise<BlockMap>;
+  private readonly modules: Partial<Record<PracticeDomain, PracticeModule>>;
+  private readonly sdBlocks: SdBlocksModule;
 
   constructor(private readonly store: NoteStore, private readonly index: ReviewIndex & SessionIndex, private readonly settings: Pick<Settings, 'prefix' | 'practice' | 'limits'>,
     private readonly signal: AbortSignal, private readonly dependencies: { writer?: NoteWriter; now?: () => Date } = {}) {
     this.notes = new PracticeNotes(store, settings.prefix, signal, settings.limits.practiceNoteBytes, settings.practice.writesEnabled ? dependencies.writer : undefined);
-    this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal,
-      { 'sd-blocks': async () => { await this.blockMap(); } });
+    ({ modules: this.modules, sdBlocks: this.sdBlocks } = practiceModules({ read: path => this.read(path), notesIn: prefix => this.notesIn(prefix),
+      activeReviews: domain => this.index.activeReviews(domain, this.signal), item: async id => (await this.items.note(id, true)).item,
+      today: () => this.today(), signal }));
+    const checks = Object.fromEntries(Object.entries(this.modules).flatMap(([domain, module]) => module.check ? [[domain, () => module.check!()]] : []));
+    this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal, checks);
     this.items = new ReviewItems({
       notes: this.notes, index, signal, today: () => this.today(),
       registered: (domain): domain is PracticeDomain => domainSchema.safeParse(domain).success,
@@ -66,15 +70,6 @@ export class Practice {
   read(path: string) {
     return this.notes.read(path);
   }
-  /**
-   * The checked block map. A Practice instance serves one request, so a loaded
-   * map is reused for the request; a failed load is not kept.
-   */
-  private blockMap() {
-    this.blocks ??= loadBlockMap({ read: path => this.read(path), notesIn: folder => this.notesIn(folder) })
-      .catch((error: unknown) => { this.blocks = undefined; throw error; });
-    return this.blocks;
-  }
   /** Vault paths of the notes directly inside a folder, or starting with a name prefix. */
   private async notesIn(prefix: string) {
     const paths: string[] = [];
@@ -86,31 +81,18 @@ export class Practice {
     } while (cursor);
     return paths;
   }
-  /** Each block's item state. Items missing from the active index, archived or newly added, are read from their notes. */
-  private async blockItems(): Promise<Map<string, BlockItemState>> {
-    const [names, active] = await Promise.all([this.notesIn(REVIEW_ITEMS_PREFIX + blockItemId('')), this.index.activeReviews('sd-blocks', this.signal)]);
-    const states = new Map<string, BlockItemState>(active.map(row => [row.id, { id: row.id, status: row.status, stage: row.stage, next_review: row.next_review }]));
-    const unindexed = names.map(path => path.slice(REVIEW_ITEMS_PREFIX.length, -3)).filter(id => id.length && !states.has(id));
-    for (let index = 0; index < unindexed.length; index += 4) {
-      for (const note of await Promise.all(unindexed.slice(index, index + 4).map(id => this.items.note(id, true)))) {
-        if (note.item.domain === 'sd-blocks') states.set(note.item.id, { id: note.item.id, status: note.item.status, stage: note.item.stage, next_review: note.item.next_review });
-      }
-    }
-    return states;
-  }
   /**
-   * Checks an attempt's point results against its item's block and its
-   * `points_answered` judgment, for SD Blocks only. Returns the history section.
+   * Checks a new attempt's module fields with its module's hook, which returns
+   * the history section to record. A module without the hook refuses them.
    */
-  private async checkAttemptPoints(domain: string, itemId: string, attempt: { points?: readonly BlockPointResult[]; criteria: readonly CriterionResult[] }) {
-    if (domain !== 'sd-blocks') {
+  private async checkAttempt(domain: PracticeDomain, itemId: string, attempt: ModuleAttempt) {
+    const module = this.modules[domain];
+    if (!module?.attempt) {
       if (attempt.points?.length) throw new PracticeError('unsupported_practice_domain');
       return undefined;
     }
-    await this.workflows.config('sd-blocks');
-    checkPoints(itemBlock(await this.blockMap(), itemId), attempt.points);
-    checkPointsAnswered(attempt.criteria, attempt.points!);
-    return renderPoints(attempt.points!);
+    await this.workflows.config(domain);
+    return module.attempt(itemId, attempt);
   }
   /** The item's note, or null when it cannot be read, as before its creation. */
   private async existingItem(id: string) {
@@ -122,14 +104,8 @@ export class Practice {
 
   async workflow(domain?: PracticeDomain) {
     const workflow = await this.workflows.workflow(domain);
-    if (workflow.selected_domain === 'sd-blocks') {
-      try {
-        return { ...workflow, blocks: blocksOverview(await this.blockMap(), await this.blockItems()) };
-      } catch {
-        this.signal.throwIfAborted();
-        return { ...workflow, blocks: null };
-      }
-    }
+    const module = workflow.selected_domain ? this.modules[workflow.selected_domain] : undefined;
+    if (module?.workflow) return { ...workflow, ...await module.workflow() };
     if (!workflow.available_domains.some(item => item.domain === 'system-design')) return workflow;
     try {
       const [unfinished_sessions, pending_finalizations] = await Promise.all([this.index.unfinishedSessions(this.signal), this.index.pendingFinalizations(this.signal)]);
@@ -150,18 +126,17 @@ export class Practice {
   }
   async review(id: string, includeHistory = false) {
     const review = await this.items.review(id, includeHistory);
-    if (review.domain !== 'sd-blocks') return review;
-    const block = itemBlock(await this.blockMap(), id);
-    const note = await this.items.note(id);
-    return { ...review, block: { id: block.id, title: block.title, note: block.note, cards: block.cards,
-      points: pointRotation(block, parseHistory(note.body)) } };
+    const module = this.modules[domainSchema.parse(review.domain)];
+    if (!module?.review) return review;
+    return { ...review, ...await module.review(id, (await this.items.note(id)).body) };
   }
   async add(input: z.infer<typeof addReviewSchema>) {
     const domain = domainSchema.parse(input.domain);
-    // An existing item is returned as it is, even after its block left the map.
-    if (domain === 'sd-blocks' && !(await this.existingItem(input.id))) {
+    // An existing item is returned as it is, even after its module stopped accepting its id.
+    const module = this.modules[domain];
+    if (module?.add && !(await this.existingItem(input.id))) {
       await this.workflows.config(domain);
-      itemBlock(await this.blockMap(), input.id);
+      await module.add(input.id);
     }
     return this.items.add({ ...input, domain });
   }
@@ -170,7 +145,8 @@ export class Practice {
     const { points, ...attempt } = input;
     const current = await this.items.note(input.id);
     // A retry of a recorded attempt returns it unchanged, so only a new attempt is checked.
-    const details = current.item.attempt_ids.includes(input.attempt_id) ? undefined : await this.checkAttemptPoints(current.item.domain, input.id, { points, criteria: attempt.criteria });
+    const details = current.item.attempt_ids.includes(input.attempt_id) ? undefined
+      : await this.checkAttempt(domainSchema.parse(current.item.domain), input.id, { points, criteria: attempt.criteria });
     return this.items.record({ ...attempt, details });
   }
   async finishRound({ topic, attempt, progress_path }: z.infer<typeof finishRoundSchema>) {
@@ -180,8 +156,8 @@ export class Practice {
     // Judge before binding the session or creating the item, so a mismatched judgment writes nothing.
     judge((await this.workflows.config(topic.domain)).policy!.pass_criteria, attempt.criteria);
     // A retry of a recorded attempt re-verifies it without checking it against a map that may have changed.
-    const existing = topic.domain === 'sd-blocks' ? await this.existingItem(topic.id) : null;
-    if (!existing?.item.attempt_ids.includes(attempt.attempt_id)) await this.checkAttemptPoints(topic.domain, topic.id, attempt);
+    const existing = this.modules[topic.domain]?.attempt ? await this.existingItem(topic.id) : null;
+    if (!existing?.item.attempt_ids.includes(attempt.attempt_id)) await this.checkAttempt(topic.domain, topic.id, attempt);
     if (progress_path) {
       if (topic.domain !== 'system-design' || validatePracticeWritePath(progress_path) !== topic.domain ||
         !progress_path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !progress_path.endsWith('/progress.md')) throw new NoteError('invalid_path');
@@ -306,16 +282,23 @@ export class Practice {
   async readNote(path: string) {
     const domain = practiceNoteDomain(path);
     try { await this.workflows.config(domain); } catch (error) {
-      // SD Blocks reads its map and the notes it links even when System Design is off.
-      if (domain !== 'system-design' || !(await this.blockMapReads().catch(() => new Set<string>())).has(path)) throw error;
+      // A usable module may read notes of another domain it depends on, such as SD Blocks reading the notes its map links.
+      if (!(await this.moduleReads(domain, path))) throw error;
     }
     return { path, ...await this.read(path) };
   }
-  /** The System Design notes SD Blocks may read: its map and every note the map links. */
-  private async blockMapReads() {
-    await this.workflows.config('sd-blocks');
-    const map = await this.blockMap();
-    return new Set([BLOCK_MAP, ...map.blocks.flatMap(block => [block.note, ...block.cards]), ...map.problems.map(problem => problem.note)]);
+  /** Whether a usable module other than the note's own domain grants reading the note. */
+  private async moduleReads(noteDomain: PracticeDomain, path: string) {
+    for (const [domain, module] of Object.entries(this.modules) as [PracticeDomain, PracticeModule][]) {
+      if (domain === noteDomain || !module.reads) continue;
+      try {
+        await this.workflows.config(domain);
+        if ((await module.reads()).has(path)) return true;
+      } catch {
+        this.signal.throwIfAborted();
+      }
+    }
+    return false;
   }
   async designTemplate(input: z.infer<typeof designSessionSchema>) {
     await this.workflows.config('system-design');
@@ -325,12 +308,12 @@ export class Practice {
   private async checkCanvasPath(path: string) {
     const domain = validatePracticeWritePath(path);
     const session = domain === 'system-design' && path.startsWith(practiceDomains['system-design'].root + 'Solutions/');
-    if (!path.endsWith('.excalidraw.md') || (!session && domain !== 'sd-blocks')) throw new NoteError('invalid_path');
+    if (!path.endsWith('.excalidraw.md') || (!session && !this.modules[domain]?.canvas?.(path))) throw new NoteError('invalid_path');
     await this.workflows.config(domain);
   }
   async blockTemplate(input: z.infer<typeof blockTemplateSchema>) {
     await this.workflows.config('sd-blocks');
-    return blockReviewCanvas(itemBlock(await this.blockMap(), blockItemId(input.block)), input, this.today());
+    return this.sdBlocks.template(input);
   }
 
   async designCanvas(path: string) {
