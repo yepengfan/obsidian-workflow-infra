@@ -21,13 +21,18 @@ const items = root + 'Learning/Practice/Review/Items/';
 const configPath = root + 'system/modules/practice-review/module.md';
 const moduleText = bundle.documents['system/modules/practice-review/module.md'].text;
 const moduleNote = parseFrontmatter(moduleText)!;
-const configuredLimits = z.record(z.string(), z.number()).parse(moduleNote.metadata.review_time_limits);
+const configuredConsumers = z.record(z.string(), z.record(z.string(), z.unknown())).parse(moduleNote.metadata.consumers);
+const configuredLimits = Object.fromEntries(Object.entries(configuredConsumers).map(([domain, consumer]) => [domain, z.number().parse(consumer.time_limit)]));
 const mockMinutes = configuredLimits['system-design']!;
+/** The module note with the System Design consumer entry changed; null removes the entry. */
+function withDesignConsumer(change: Record<string, unknown> | null) {
+  const consumers: Record<string, unknown> = { ...configuredConsumers };
+  if (change === null) delete consumers['system-design'];
+  else consumers['system-design'] = { ...configuredConsumers['system-design'], ...change };
+  return `---\n${stringify({ ...moduleNote.metadata, consumers })}---\n${moduleNote.body}`;
+}
 function withMockMinutes(minutes?: number | string) {
-  const limits: Record<string, number | string> = { ...configuredLimits };
-  if (minutes === undefined) delete limits['system-design'];
-  else limits['system-design'] = minutes;
-  return `---\n${stringify({ ...moduleNote.metadata, review_time_limits: limits })}---\n${moduleNote.body}`;
+  return withDesignConsumer({ time_limit: minutes });
 }
 
 const nextSchedule = (current: ReviewSummary, outcome: string, day: string, intervals: number[], retryDays: number, archiveAfterFinal = false) =>
@@ -366,6 +371,16 @@ describe('practice storage behavior', () => {
       available_domains: [{ domain }], unavailable_domains: [{ domain: disabled, status: 'disabled', reason: 'domain_module_disabled' }] });
     expect(store.lists).toEqual([]); expect(store.writes).toEqual([]);
   });
+  it('treats a disabled consumer entry as switched off without reading that module', async () => {
+    const { store, practice } = setup();
+    store.files.set(configPath, withDesignConsumer({ enabled: false }));
+    expect(await practice.workflow()).toMatchObject({ status: 'ready', availability: 'complete', selected_domain: 'algorithm',
+      unavailable_domains: [{ domain: 'system-design', status: 'disabled', reason: 'consumer_disabled' }] });
+    expect(store.reads).toEqual([configPath, root + 'system/modules/algorithm/module.md']);
+    await expect(practice.workflow('system-design')).rejects.toThrow('consumer_disabled');
+    await expect(practice.reviews({ domain: 'system-design' })).rejects.toThrow('consumer_disabled');
+    expect(store.writes).toEqual([]);
+  });
   it.each([
     { guard: undefined, reason: 'note_unavailable' },
     { guard: '# Missing frontmatter', reason: 'invalid_practice_note' },
@@ -382,6 +397,10 @@ describe('practice storage behavior', () => {
   it.each([
     { config: moduleText.replace('.agents/skills/sysd-solve/SKILL.md', 'unexpected.md'), reason: 'workflow_mapping_changed_refresh_required' },
     { config: withMockMinutes(), reason: 'invalid_review_time_limit' },
+    { config: withDesignConsumer(null), reason: 'consumer_not_registered' },
+    { config: withDesignConsumer({ module: 'algorithm' }), reason: 'invalid_consumer_config' },
+    { config: withDesignConsumer({ enabled: 'yes' }), reason: 'invalid_consumer_config' },
+    { config: withDesignConsumer({ extra: true }), reason: 'invalid_consumer_config' },
   ])('reports invalid mappings and limits as partial: $reason', async ({ config, reason }) => {
     const { store, practice } = setup(); store.files.set(configPath, config);
     expect(await practice.workflow()).toMatchObject({ status: 'overview', availability: 'partial', selected_domain: null,

@@ -5,7 +5,7 @@ ChatGPT connection. It supports Algorithm and System Design. Generic practice
 shows a combined due overview and waits for an item or domain choice; an explicit
 domain starts directly. When only one domain is conclusively enabled, it starts
 automatically. Complete the chosen domain's due reviews before new practice.
-Behavioral Interview is outside this rollout.
+The MCP server is the only scheduler: local sessions call the same tools.
 ChatGPT guides and assesses the conversation; Lambda performs typed data
 operations. Lambda does not host an LLM, execute arbitrary code or run a local
 Python process.
@@ -80,8 +80,8 @@ includes them in the snapshot. The service fills domain-entry placeholders and
 returns a shared catalog for generic entry or a domain-specific catalog for
 ready results. The shared catalog now includes the canonical top-level practice
 skill. The MCP adapter explicitly overrides its module-menu and new-problem
-handoff rules with the entry policy described below. Shared upstream review
-guides retain their original domain references, but Behavioral is unsupported.
+handoff rules with the entry policy described below. The canonical guides call
+the practice tools by name, so no tool mapping is needed.
 The snapshot contains no private review items, submissions, notes, credentials
 or environment files.
 The manifest records the upstream commit and each source file's SHA-256.
@@ -100,11 +100,21 @@ fetch code, execute upstream scripts, upload to S3 or deploy anything.
 CI and Lambda use the committed snapshot. Runtime ZIP builds from the same
 committed snapshot remain deterministic.
 
-The live S3 practice-review manifest controls `enabled`, intervals, retry days,
-final-interval archiving, time limits and domain mapping. The selected domain's module guard and exact
-workflow mapping are checked before its actions. A disabled Algorithm module
-does not block System Design, or vice versa. Other domain settings in the shared
-manifest are ignored.
+The live S3 practice-review manifest controls `enabled`, intervals, retry days
+and final-interval archiving. Its `consumers` table registers each module that
+uses spaced review: `enabled`, `module`, `flow` and `time_limit`. A module is
+usable only when all five hold, checked before its actions:
+
+1. practice review is enabled (`practice_module_disabled`)
+2. its consumer entry is enabled (`consumer_disabled`, or `consumer_not_registered` when absent)
+3. its own module is enabled (`domain_module_disabled`, `invalid_domain_module`)
+4. its entry is valid (`invalid_consumer_config`, `invalid_review_time_limit`)
+5. its workflow was imported: `flow` matches the definition in this server's snapshot (`workflow_mapping_changed_refresh_required`)
+
+`practice` reports a module switched off by 2 or 3 as `disabled` and any other
+failure as `unavailable`, with the reason. A disabled Algorithm module
+does not block System Design, or vice versa. Entries for other domains in the
+shared manifest are ignored.
 A changed workflow mapping requires a reviewed source refresh,
 rather than loading arbitrary executable code. Missing/invalid configuration
 fails closed. Module configuration and guide files cannot be saved through the
@@ -199,8 +209,8 @@ added by this entry change.
 
 The queue reads one domain's active rows from the
 [practice review index](practice-index.md) in a single call, with no pages or
-cursors. Behavioral records are indexed but never listed, and are rejected by
-selected-review and record operations.
+cursors. Records of a domain without a registered consumer are indexed but never
+listed, and are rejected by selected-review and record operations.
 
 The index trails note saves by seconds. Before returning, every due or unstarted
 row is confirmed against its note's current revision, at most four reads at a

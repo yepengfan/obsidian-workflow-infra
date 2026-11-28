@@ -4,22 +4,22 @@ import { PracticeError } from './errors.js';
 import { NoteError } from './paths.js';
 import { parsePracticeNote } from './practice-note.js';
 import { domainSchema, practiceDocuments, practiceDomains, sharedPracticeDocuments, type PracticeDomain } from './practice-domains.js';
+import { slugSchema } from './practice-schema.js';
 import type { PracticeOptions } from './practice-options.js';
 import { calendarDay } from './srs/schedule.js';
 
 const moduleSchema = z.object({ enabled: z.boolean(), interval_days: z.array(z.number().int().min(1).max(3650)).min(1).max(20),
   retry_days: z.number().int().min(1).max(3650), archive_after_final: z.boolean().default(false),
-  practice_flows: z.record(z.string(), z.unknown()),
-  review_time_limits: z.record(z.string(), z.unknown()) });
+  consumers: z.record(z.string(), z.unknown()) });
+/** One module's registration in the practice-review `consumers` table. */
+const consumerSchema = z.strictObject({ enabled: z.boolean(), module: slugSchema, flow: z.string(), time_limit: z.unknown().optional() });
 type ModuleConfig = z.infer<typeof moduleSchema>;
 type DomainAvailability = { domain: PracticeDomain; label: string } & (
   { status: 'enabled'; time_limit: number } | { status: 'disabled' | 'unavailable'; reason: string });
-function mcpInstruction(text: string) {
-  return text.replaceAll('`python3 scripts/practice-review/review.py outline <id>`', '`practice_design_outline` with `id`')
-    .replaceAll('`python3 scripts/practice-review/review.py outline --concept-ids <concept-id> ...`', '`practice_design_outline` with `concept_ids`');
-}
 
 const documents: Record<string, { text: string; sha256: string }> = bundle.documents;
+/** Switched off on purpose, as opposed to broken or misconfigured. */
+const disabledReasons = new Set(['consumer_disabled', 'domain_module_disabled']);
 
 export class PracticeWorkflow {
   constructor(
@@ -36,15 +36,26 @@ export class PracticeWorkflow {
     if (!config.enabled) throw new PracticeError('practice_module_disabled');
     return { ...config, time_limit: domain === undefined ? undefined : await this.checkDomain(config, domain) };
   }
+  /**
+   * A module can be reviewed only when all five hold: practice review is
+   * enabled (checked by `config`), its consumer entry is enabled, its own
+   * module is enabled, the entry is valid, and its workflow was imported.
+   * Returns the review time limit.
+   */
   private async checkDomain(config: ModuleConfig, domain: PracticeDomain) {
     const definition = practiceDomains[domainSchema.parse(domain)];
-    if (config.practice_flows[domain] !== definition.flow) throw new PracticeError('workflow_mapping_changed_refresh_required');
-    const limit = z.number().positive().max(240).safeParse(config.review_time_limits[domain]);
-    if (!limit.success) throw new PracticeError('invalid_review_time_limit');
+    if (!Object.hasOwn(config.consumers, domain)) throw new PracticeError('consumer_not_registered');
+    const consumer = consumerSchema.safeParse(config.consumers[domain]);
+    if (!consumer.success || `system/modules/${consumer.data.module}/module.md` !== definition.module) throw new PracticeError('invalid_consumer_config');
+    if (!consumer.data.enabled) throw new PracticeError('consumer_disabled');
     const guard = await this.read(definition.module);
     const enabled = parsePracticeNote(guard.text).metadata.enabled;
     if (typeof enabled !== 'boolean') throw new PracticeError('invalid_domain_module');
     if (!enabled) throw new PracticeError('domain_module_disabled');
+    const limit = z.number().positive().max(240).safeParse(consumer.data.time_limit);
+    if (!limit.success) throw new PracticeError('invalid_review_time_limit');
+    // The snapshot always holds the server's definition, so a different flow is one this server has not imported.
+    if (consumer.data.flow !== definition.flow) throw new PracticeError('workflow_mapping_changed_refresh_required');
     return limit.data;
   }
   private async domainAvailability(config: ModuleConfig, domain: PracticeDomain): Promise<DomainAvailability> {
@@ -54,7 +65,7 @@ export class PracticeWorkflow {
     } catch (error) {
       this.signal.throwIfAborted();
       if (!(error instanceof PracticeError || error instanceof NoteError)) throw error;
-      return { ...definition, status: error.code === 'domain_module_disabled' ? 'disabled' : 'unavailable', reason: error.code };
+      return { ...definition, status: disabledReasons.has(error.code) ? 'disabled' : 'unavailable', reason: error.code };
     }
   }
   private workflowMetadata(config: ModuleConfig) {
@@ -90,13 +101,12 @@ export class PracticeWorkflow {
   }
   async instruction(path: string, offset: number) {
     const doc = documents[path];
-    if (!doc || !path.endsWith('.md') || offset > mcpInstruction(doc.text).length) throw new PracticeError('unknown_practice_instruction');
+    if (!doc || !path.endsWith('.md') || offset > doc.text.length) throw new PracticeError('unknown_practice_instruction');
     const domain = domainSchema.options.find(domain => practiceDocuments(domain).includes(path));
     if (!domain) throw new PracticeError('unknown_practice_instruction');
     await this.config(sharedPracticeDocuments.includes(path) ? undefined : domain);
-    const adapted = mcpInstruction(doc.text);
-    const text = adapted.slice(offset, offset + 12000);
-    return { path, text, source_commit: bundle.sourceCommit, source_sha256: doc.sha256, offset, complete: offset + text.length >= adapted.length,
-      ...(offset + text.length < adapted.length ? { next_offset: offset + text.length } : {}) };
+    const text = doc.text.slice(offset, offset + 12000);
+    return { path, text, source_commit: bundle.sourceCommit, source_sha256: doc.sha256, offset, complete: offset + text.length >= doc.text.length,
+      ...(offset + text.length < doc.text.length ? { next_offset: offset + text.length } : {}) };
   }
 }

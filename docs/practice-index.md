@@ -2,8 +2,8 @@
 
 The MCP practice queue reads a DynamoDB index in one query instead of scanning
 S3. Notes stay the source of truth. Each table row is a
-rebuildable projection of one note. Local tools (`review.py`, the
-vault Dashboard) keep reading the files directly.
+rebuildable projection of one note. The vault Dashboard keeps
+reading the files directly.
 
 This guide covers the indexer, its deployment order and its operation. How
 `practice_reviews` uses the index, including read-your-writes for due items, is in
