@@ -62,6 +62,7 @@ describe('the block map', () => {
     { name: 'a map without a problem table', text: `## caching\nnote: [[Core Concepts/Caching]]\n${points('c')}\n`, error: 'the map has no Problems section' },
     { name: 'a table without its separator', text: `## caching\nnote: [[Core Concepts/Caching]]\n${points('c')}\n## Problems\n| problem | note | core | uses |\n`, error: 'the Problems section has no table' },
     { name: 'a block with too many points', text: `## caching\nnote: [[Core Concepts/Caching]]\n${points('c', 9)}\n` + problems(''), error: 'line 1: block "caching" has 9 points; it needs 4 to 8' },
+    { name: 'a point without text', text: `## caching\nnote: [[Core Concepts/Caching]]\n${points('c')}\n- blank:    \n` + problems(''), error: 'line 7: point "blank" has no text' },
     { name: 'a block without a note', text: `## caching\n${points('c')}\n` + problems(''), error: 'line 1: block "caching" has no note' },
     { name: 'a link leaving the folder', text: `## caching\nnote: [[../Secrets]]\n${points('c')}\n` + problems(''), error: 'line 2: note must be a single [[link]] in block "caching"' },
     { name: 'a wrong table header', text: `## caching\nnote: [[Core Concepts/Caching]]\n${points('c')}\n## Problems\n| problem | core | uses |\n| --- | --- | --- |\n`,

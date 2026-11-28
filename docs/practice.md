@@ -458,8 +458,11 @@ error with its line in the availability report. Other domains are unaffected.
   examined point, with `result` `mastered`, `partial` or `weak`. They must be
   points of the item's block, once each (`block_points_required`,
   `block_points_mismatch`), checked before any write. They are stored in the
-  history entry as a `#### Points` section after the criteria. Other modules
-  refuse `points`.
+  history entry as a `#### Points` section after the criteria. When the module
+  judges `points_answered`, it must be met exactly when every examined point is
+  `mastered` (`points_answered_mismatch`). Other modules refuse `points`. A
+  retried attempt that is already recorded is returned without these checks,
+  so a later edit of the map cannot make its retry fail.
 - `practice_review` returns the block's points in rotation order: never
   examined, then last answered weak, partial and mastered, each least recently
   examined first. Points are read only from each entry's own Points section,

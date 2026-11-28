@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { parseFrontmatter } from './frontmatter.js';
 import { PracticeWorkflow } from './practice-workflow.js';
 import { ReviewItems, serializeNote as serialize } from './srs/review-items.js';
-import { criterionResultSchema, judge } from './srs/criteria.js';
+import { criterionResultSchema, judge, type CriterionResult } from './srs/criteria.js';
 import { calendarDay } from './srs/schedule.js';
 import type { Settings } from './config.js';
 import { NoteError } from './paths.js';
@@ -19,7 +19,7 @@ import { parsePracticeNote, PracticeNotes } from './practice-note.js';
 import type { ReviewIndex, SessionIndex } from './review-index.js';
 import { loadBlockMap, type BlockMap } from './block-map.js';
 import { parseHistory } from './srs/history.js';
-import { blockItemId, blockPointResultSchema, blockReviewCanvas, blocksOverview, blockTemplateSchema, checkPoints, itemBlock, pointRotation,
+import { blockItemId, blockPointResultSchema, blockReviewCanvas, blocksOverview, blockTemplateSchema, checkPoints, checkPointsAnswered, itemBlock, pointRotation,
   renderPoints, type BlockItemState, type BlockPointResult } from './sd-blocks.js';
 
 export { PracticeError } from './errors.js';
@@ -98,15 +98,26 @@ export class Practice {
     }
     return states;
   }
-  /** Checks an attempt's point results against its item's block, for SD Blocks only. */
-  private async checkAttemptPoints(domain: string, itemId: string, points: readonly BlockPointResult[] | undefined) {
+  /**
+   * Checks an attempt's point results against its item's block and its
+   * `points_answered` judgment, for SD Blocks only. Returns the history section.
+   */
+  private async checkAttemptPoints(domain: string, itemId: string, attempt: { points?: readonly BlockPointResult[]; criteria: readonly CriterionResult[] }) {
     if (domain !== 'sd-blocks') {
-      if (points?.length) throw new PracticeError('unsupported_practice_domain');
+      if (attempt.points?.length) throw new PracticeError('unsupported_practice_domain');
       return undefined;
     }
     await this.workflows.config('sd-blocks');
-    checkPoints(itemBlock(await this.blockMap(), itemId), points);
-    return renderPoints(points!);
+    checkPoints(itemBlock(await this.blockMap(), itemId), attempt.points);
+    checkPointsAnswered(attempt.criteria, attempt.points!);
+    return renderPoints(attempt.points!);
+  }
+  /** The item's note, or null when it cannot be read, as before its creation. */
+  private async existingItem(id: string) {
+    try { return await this.items.note(id); } catch (error) {
+      if (error instanceof NoteError && error.code === 'note_unavailable') return null;
+      throw error;
+    }
   }
 
   async workflow(domain?: PracticeDomain) {
@@ -147,7 +158,8 @@ export class Practice {
   }
   async add(input: z.infer<typeof addReviewSchema>) {
     const domain = domainSchema.parse(input.domain);
-    if (domain === 'sd-blocks') {
+    // An existing item is returned as it is, even after its block left the map.
+    if (domain === 'sd-blocks' && !(await this.existingItem(input.id))) {
       await this.workflows.config(domain);
       itemBlock(await this.blockMap(), input.id);
     }
@@ -157,7 +169,8 @@ export class Practice {
     if (input.concept_observations?.length) throw new PracticeError('use_practice_finish_round_for_evidence');
     const { points, ...attempt } = input;
     const current = await this.items.note(input.id);
-    const details = await this.checkAttemptPoints(current.item.domain, input.id, points);
+    // A retry of a recorded attempt returns it unchanged, so only a new attempt is checked.
+    const details = current.item.attempt_ids.includes(input.attempt_id) ? undefined : await this.checkAttemptPoints(current.item.domain, input.id, { points, criteria: attempt.criteria });
     return this.items.record({ ...attempt, details });
   }
   async finishRound({ topic, attempt, progress_path }: z.infer<typeof finishRoundSchema>) {
@@ -166,7 +179,9 @@ export class Practice {
     if (topic.domain === 'system-design' && !progress_path) throw new PracticeError('session_progress_required');
     // Judge before binding the session or creating the item, so a mismatched judgment writes nothing.
     judge((await this.workflows.config(topic.domain)).policy!.pass_criteria, attempt.criteria);
-    await this.checkAttemptPoints(topic.domain, topic.id, attempt.points);
+    // A retry of a recorded attempt re-verifies it without checking it against a map that may have changed.
+    const existing = topic.domain === 'sd-blocks' ? await this.existingItem(topic.id) : null;
+    if (!existing?.item.attempt_ids.includes(attempt.attempt_id)) await this.checkAttemptPoints(topic.domain, topic.id, attempt);
     if (progress_path) {
       if (topic.domain !== 'system-design' || validatePracticeWritePath(progress_path) !== topic.domain ||
         !progress_path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !progress_path.endsWith('/progress.md')) throw new NoteError('invalid_path');

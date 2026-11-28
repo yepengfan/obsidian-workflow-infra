@@ -39,6 +39,12 @@ export function checkPoints(block: Block, points: readonly BlockPointResult[] | 
   if (new Set(ids).size !== ids.length || ids.some(id => !block.points.some(point => point.id === id))) throw new PracticeError('block_points_mismatch');
 }
 
+/** `points_answered`, when the module judges it, must be met exactly when every examined point was mastered. */
+export function checkPointsAnswered(criteria: readonly { id: string; met: boolean }[], points: readonly BlockPointResult[]) {
+  const answered = criteria.find(criterion => criterion.id === 'points_answered');
+  if (answered && answered.met !== points.every(point => point.result === 'mastered')) throw new PracticeError('points_answered_mismatch');
+}
+
 const HEADING = '#### Points';
 const oneLine = (text: string) => text.replace(/\s+/gu, ' ').trim();
 

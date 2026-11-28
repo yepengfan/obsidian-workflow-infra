@@ -1558,6 +1558,27 @@ describe('SD Blocks', () => {
     expect(store.writes).toEqual([]);
   });
 
+  it.each([
+    { name: 'met with a partial point', criteria: criteria('sd-blocks'), points: [{ id: 'occ', result: 'mastered' as const, evidence: 'e' }, { id: 'conditional-write', result: 'partial' as const, evidence: 'e' }] },
+    { name: 'unmet with every point mastered', criteria: criteria('sd-blocks', ['points_answered']), points },
+  ])('refuses points_answered $name before creating its item', async ({ criteria: judged, points: results }) => {
+    const { store, practice } = setup();
+    const attempt = blockAttempt({ criteria: judged, points: results });
+    await expect(practice.finishRound({ topic, attempt })).rejects.toThrow('points_answered_mismatch');
+    expect(store.writes).toEqual([]);
+  });
+
+  it('returns a recorded attempt on retry even after its block changed in the map', async () => {
+    const { store, practice } = setup();
+    const first = await practice.finishRound({ topic, attempt: blockAttempt({ placement: true }) });
+    const writes = store.writes.length;
+    store.files.set(blockMapPath, blockMapText.replace('- occ: ', '- version-check: '));
+    expect(await practice.finishRound({ topic, attempt: blockAttempt({ placement: true }) })).toMatchObject({ verified: true, review_count: 1, stage: first.stage });
+    const note = await practice.review(id) as { revision: string };
+    expect(await practice.record({ ...blockAttempt({ placement: true }), id, revision: note.revision })).toMatchObject({ recorded: false, review_count: 1 });
+    expect(store.writes.length).toBe(writes);
+  });
+
   it('keeps points and placements to the modules that declare them, and items to blocks of the map', async () => {
     const { store, practice } = await seeded();
     await expect(practice.record(attempt(store.tag(items + item.id + '.md'), { points }))).rejects.toThrow('unsupported_practice_domain');

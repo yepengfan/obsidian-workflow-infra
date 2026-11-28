@@ -93,6 +93,7 @@ export function parseBlockMap(text: string): { map: BlockMap; errors: readonly [
         const [, id, value] = point;
         if (!ID.test(id!) || id!.length > 64) fail(index, `invalid point id "${id}" in block "${block.id}"`);
         else if (block.points.some(item => item.id === id)) fail(index, `duplicate point "${id}" in block "${block.id}"`);
+        else if (!value!.trim()) fail(index, `point "${id}" has no text`);
         else if (value!.trim().length > 300) fail(index, `point "${id}" is longer than 300 characters`);
         block.points.push({ id: id!, text: value!.trim() });
       } else fail(index, `unexpected line in block "${block.id}"`);
