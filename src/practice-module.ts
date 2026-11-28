@@ -66,8 +66,10 @@ export interface PracticeModulePorts {
   notesIn(prefix: string): Promise<readonly string[]>;
   /** The domain's rows in the active review index. */
   activeReviews(domain: PracticeDomain): Promise<readonly ItemState[]>;
-  /** One review item's state, read from its note even when the item is archived. */
-  item(id: string): Promise<ItemState & { domain: string }>;
+  /** One review item's state, read from its note even when the item is archived, with whether its latest attempt passed. */
+  item(id: string): Promise<ItemState & { domain: string; last_passed: boolean | null }>;
+  /** The topics of System Design sessions whose round has ended. */
+  finishedSessions(): Promise<readonly { topic: string }[]>;
   /** Today in the configured vault calendar. */
   today(): string;
   readonly signal: AbortSignal;

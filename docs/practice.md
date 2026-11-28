@@ -137,6 +137,7 @@ practice write tools.
 | `practice_review` | Return a neutral prompt and revision; feedback phase may include history. An SD Blocks item also returns its block, with points ordered for rotation. |
 | `practice_read_note` | Read one complete bounded Algorithm, System Design or SD Blocks note and its revision for a potential edit. |
 | `practice_design_outline` | Return in-scope follow-ups and canonical evidence; see [System Design evidence](#system-design-evidence). |
+| `practice_design_preflight` | Return a problem's blocks with their SD Blocks reviews and gaps; see [Pre-problem check and roadmap](#pre-problem-check-and-roadmap). |
 | `practice_design_template` | Draft unsaved session progress, Excalidraw files and native `canvas.drawing` data for a new System Design topic. |
 | `practice_design_canvas` | Read the exact selected session or block review canvas as native drawing data, with its source revision; supports plain JSON and legacy compressed-json without saving. |
 | `practice_block_template` | Draft an unsaved SD Blocks review canvas, showing the block and the scenario, at `Blocks/Reviews/<block>/<day>-<attempt>.excalidraw.md`. |
@@ -629,3 +630,45 @@ only the System Design module receives; the shared module ports stay read-only.
 - Once any observation is tagged, `Profile.md` groups concepts under
   `## Block: <id>` by their latest tagged observation, with untagged concepts
   under `## Other concepts`. Without tags it keeps the flat layout.
+
+## Pre-problem check and roadmap
+
+The System Design module prepares new practice from the block map and the
+learner's plan. It reads SD Blocks items only through the core's read port and
+never calls the SD Blocks module.
+
+- `practice_design_preflight` names a problem by its Blocks.md id (`problem`) or
+  its breakdown note's title or path (`breakdown`), exactly one of them. It
+  returns the row's `core` and `uses` blocks, each with its `item_id`, its
+  `review` and its `gap`:
+  - `review` is the SD Blocks item's status, stage, next review and whether its
+    latest attempt passed.
+  - `review` is null when no SD Blocks item exists under the id, including an id
+    held by another domain.
+  - `gap` is `not_enrolled` for a block without a review and `last_failed` for
+    an active one whose latest attempt failed. An archived block has no gap.
+
+  `core_gaps` counts the core blocks with a gap. A problem without a row returns
+  `problem: null` and no blocks. While SD Blocks is unusable, `sd_blocks` is
+  `unavailable` and every review, gap and count is null, without reading items.
+  The tool needs System Design to be usable, and the block map to load.
+- `practice` with domain `system-design` adds `roadmap` once the module's
+  `module.md` sets `roadmap` to a plan note path. The plan's frontmatter
+  `roadmap` lists the problems in order, each with a `title` and optional
+  `phase`, `focus` and `aliases`.
+  - A problem is done once a finished session's topic contains one of its
+    aliases, or its title when it lists none. That is the same rule the plan's
+    dashboard uses. Finished sessions come from the session index's `done`
+    partition, which also holds ended rounds still tagged WIP.
+  - The result reports `completed`, `total` and `next`, the first problem not
+    done, with that problem's pre-problem check as `preflight`, found by its
+    title as a breakdown. A check that cannot run gives its `error`, such as
+    `invalid_block_map`.
+  - Without the setting `roadmap` is null. An unreadable plan, an invalid
+    setting or an invalid list gives `status: unavailable` with its `reason`
+    (`note_unavailable` or `invalid_roadmap`) instead of failing the workflow.
+- The workflow decides what a gap means for the learner. The sysd-solve skill
+  triages not-enrolled core blocks before new practice when two or more core
+  blocks have gaps, and probes the rest in Deep Dives. Blocks.md stays read-only
+  to the server: the skill drafts a missing row for the learner to confirm and
+  add.

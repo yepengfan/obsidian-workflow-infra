@@ -29,6 +29,22 @@ export class DynamoReviewIndex implements ReviewIndex, SessionIndex {
     } while (start);
     return sessions;
   }
+  async finishedSessions(signal: AbortSignal) {
+    const sessions = [];
+    let start: Record<string, AttributeValue> | undefined;
+    do {
+      // The done partition holds every ended round, including legacy and still-WIP ones.
+      const page = await this.client.send(new QueryCommand({ TableName: indexTableName(practiceSessionIndex.id), IndexName: 'status',
+        KeyConditionExpression: 'status_pk = :done', ExpressionAttributeValues: { ':done': { S: 'done' } }, ExclusiveStartKey: start }), { abortSignal: signal });
+      for (const row of page.Items ?? []) {
+        const id = row.item_id?.S;
+        if (!id || practiceSessionIndex.matches(id + '/progress.md') !== id || !row.topic?.S) throw Error('Invalid ended session');
+        sessions.push({ folder: solutions + id + '/', topic: row.topic.S });
+      }
+      start = page.LastEvaluatedKey;
+    } while (start);
+    return sessions;
+  }
   async pendingFinalizations(signal: AbortSignal) {
     const sessions = [];
     let start: Record<string, AttributeValue> | undefined;

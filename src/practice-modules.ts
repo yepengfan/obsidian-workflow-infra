@@ -13,6 +13,7 @@ export function practiceModules(ports: PracticeModulePorts, signals: ReviewSigna
     return map;
   };
   const sdBlocks = new SdBlocksModule(ports, blockMap);
-  const modules: Partial<Record<PracticeDomain, PracticeModule>> = { 'sd-blocks': sdBlocks, 'system-design': new SystemDesignModule(signals, blockMap) };
-  return { modules, sdBlocks };
+  const systemDesign = new SystemDesignModule(ports, signals, blockMap);
+  const modules: Partial<Record<PracticeDomain, PracticeModule>> = { 'sd-blocks': sdBlocks, 'system-design': systemDesign };
+  return { modules, sdBlocks, systemDesign };
 }

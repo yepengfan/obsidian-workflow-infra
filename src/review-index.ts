@@ -16,4 +16,6 @@ export interface ReviewIndex {
 export interface SessionIndex {
   pendingFinalizations(signal: AbortSignal): Promise<{ folder: string; topic: string; round_completed_on: string }[]>;
   unfinishedSessions(signal: AbortSignal): Promise<{ folder: string; topic: string; current_step: string | null }[]>;
+  /** Every session whose round has ended, tagged done or still awaiting its finish. */
+  finishedSessions(signal: AbortSignal): Promise<{ folder: string; topic: string }[]>;
 }

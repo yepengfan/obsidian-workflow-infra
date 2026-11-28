@@ -83,6 +83,12 @@ shell/file/script steps and automatic writes in the upstream skill.
   Multiple files are independent writes, not a transaction. Never invent a
   reflection, elapsed time, save result, canvas rendering or local script run.
 
+- For new practice, follow sysd-solve **Choose a new problem** and
+  **Pre-problem check**. The returned `roadmap.next` already carries the next
+  problem's check; call `practice_design_preflight` for any other problem. A
+  drafted Blocks.md row is never written through MCP: give it to the learner to
+  add.
+
 ### System Design attempts
 
 Identify the topic by its stable review item ID. A first attempt at a new topic

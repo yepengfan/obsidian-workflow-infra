@@ -21,6 +21,8 @@ import { blockPointResultSchema, blockTemplateSchema } from './sd-blocks.js';
 import type { ModuleAttempt, PracticeModule } from './practice-module.js';
 import { practiceModules } from './practice-modules.js';
 import type { SdBlocksModule } from './sd-blocks-module.js';
+import { parseHistory } from './srs/history.js';
+import type { SystemDesignModule } from './system-design-module.js';
 
 export { PracticeError } from './errors.js';
 export { domainSchema, validatePracticeWritePath } from './practice-domains.js';
@@ -41,6 +43,9 @@ export const finishRoundSchema = z.strictObject({
   progress_path: z.string().max(1024).optional(),
 });
 export const listReviewsSchema = z.strictObject({ domain: domainSchema });
+/** A System Design problem, by its block map id or its breakdown note's title. */
+export const designPreflightSchema = z.strictObject({ problem: slugSchema.optional(), breakdown: z.string().trim().min(1).max(200).optional() })
+  .refine(input => (input.problem === undefined) !== (input.breakdown === undefined), 'Provide either problem or breakdown');
 /** The session key of an attempt recorded by a standalone review rather than finished from a session note. */
 const STANDALONE_SESSION = 'standalone';
 
@@ -50,13 +55,18 @@ export class Practice {
   private readonly items: ReviewItems<PracticeDomain>;
   private readonly modules: Partial<Record<PracticeDomain, PracticeModule>>;
   private readonly sdBlocks: SdBlocksModule;
+  private readonly systemDesign: SystemDesignModule;
 
   constructor(private readonly store: NoteStore, private readonly index: ReviewIndex & SessionIndex, private readonly settings: Pick<Settings, 'prefix' | 'practice' | 'limits'>,
     private readonly signal: AbortSignal, private readonly dependencies: { writer?: NoteWriter; now?: () => Date } = {}) {
     this.notes = new PracticeNotes(store, settings.prefix, signal, settings.limits.practiceNoteBytes, settings.practice.writesEnabled ? dependencies.writer : undefined);
-    ({ modules: this.modules, sdBlocks: this.sdBlocks } = practiceModules({ read: path => this.read(path), notesIn: prefix => this.notesIn(prefix),
-      activeReviews: domain => this.index.activeReviews(domain, this.signal), item: async id => (await this.items.note(id, true)).item,
-      today: () => this.today(), signal }, {
+    ({ modules: this.modules, sdBlocks: this.sdBlocks, systemDesign: this.systemDesign } = practiceModules({ read: path => this.read(path),
+      notesIn: prefix => this.notesIn(prefix), activeReviews: domain => this.index.activeReviews(domain, this.signal),
+      item: async id => {
+        const note = await this.items.note(id, true);
+        return { ...note.item, last_passed: parseHistory(note.body).at(-1)?.passed ?? null };
+      },
+      finishedSessions: () => this.index.finishedSessions(this.signal), today: () => this.today(), signal }, {
       pullForward: (id, domain, day, signalDate) => this.items.pullForward(id, domain, day, signalDate),
       available: async domain => {
         try { await this.workflows.config(domain); return true; } catch { this.signal.throwIfAborted(); return false; }
@@ -111,16 +121,24 @@ export class Practice {
 
   async workflow(domain?: PracticeDomain) {
     const workflow = await this.workflows.workflow(domain);
-    const module = workflow.selected_domain ? this.modules[workflow.selected_domain] : undefined;
-    if (module?.workflow) return { ...workflow, ...await module.workflow() };
-    if (!workflow.available_domains.some(item => item.domain === 'system-design')) return workflow;
+    const selected = workflow.selected_domain;
+    const module = selected ? this.modules[selected] : undefined;
+    const extra = module?.workflow ? await module.workflow() : {};
+    // Saved System Design sessions belong to the combined overview and to System Design itself.
+    if ((selected && selected !== 'system-design') || !workflow.available_domains.some(item => item.domain === 'system-design')) return { ...workflow, ...extra };
     try {
       const [unfinished_sessions, pending_finalizations] = await Promise.all([this.index.unfinishedSessions(this.signal), this.index.pendingFinalizations(this.signal)]);
-      return { ...workflow, unfinished_sessions, pending_finalizations };
+      return { ...workflow, ...extra, unfinished_sessions, pending_finalizations };
     } catch {
       this.signal.throwIfAborted();
-      return { ...workflow, unfinished_sessions: null, pending_finalizations: null };
+      return { ...workflow, ...extra, unfinished_sessions: null, pending_finalizations: null };
     }
+  }
+
+  /** The review state of a System Design problem's blocks, before the problem starts. */
+  async designPreflight(input: z.infer<typeof designPreflightSchema>) {
+    await this.workflows.config('system-design');
+    return this.systemDesign.preflight(designPreflightSchema.parse(input));
   }
 
   instruction(path: string, offset: number) {
