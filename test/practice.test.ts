@@ -137,8 +137,9 @@ describe('practice storage behavior', () => {
     expect(workflow.entry).toContain('# System Design practice'); expect(workflow.entry).not.toContain('{{');
     expect(workflow.documents).toContain('.agents/skills/sysd-solve/SKILL.md');
     expect(workflow.documents).not.toContain('.agents/skills/algo-solve/SKILL.md');
-    // The guard reads both module notes; the System Design module then reads its own for its roadmap setting.
-    expect(store.reads).toEqual([configPath, root + 'system/modules/system-design/module.md', root + 'system/modules/system-design/module.md']);
+    // The guard reads both module notes; the System Design module then reads its own for its roadmap setting, and the plan it names.
+    expect(store.reads).toEqual([configPath, root + 'system/modules/system-design/module.md', root + 'system/modules/system-design/module.md',
+      root + 'Learning/Plans/SYSD/00_plan.md']);
     const overrideMinutes = mockMinutes > 1 ? mockMinutes - 1 : mockMinutes + 1;
     store.files.set(configPath, withMockMinutes(overrideMinutes));
     await expect(practice.workflow('system-design')).resolves.toMatchObject({ time_limits: { 'system-design': overrideMinutes } });
@@ -2022,6 +2023,7 @@ describe('the pre-problem check and the roadmap', () => {
 
   it('reports a missing or invalid roadmap without failing the workflow', async () => {
     const { store, practice } = setup();
+    withRoadmap(store, undefined);
     expect(await practice.workflow('system-design')).toMatchObject({ roadmap: null });
     withRoadmap(store, plan);
     expect(await practice.workflow('system-design')).toMatchObject({ selected_domain: 'system-design', roadmap: { status: 'unavailable', plan, reason: 'note_unavailable' } });
