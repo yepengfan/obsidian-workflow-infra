@@ -1789,6 +1789,18 @@ describe('block signals from System Design rounds', () => {
     await expect(finish([])).resolves.toMatchObject({ verified: true, review_count: 1 });
   });
 
+  it('judges core coverage on the saved evidence that survives a repeated id', async () => {
+    const { practice } = setup();
+    const progress = 'Learning/Practice/System-Design/Solutions/repeated/progress.md';
+    // The later copy of a repeated id wins when the assessment is stored, and it belongs to another attempt.
+    const saved = '```practice-observations\n' + stringify([{ ...observe('lock', undefined, 'mastered'), attempt_id: 'repeated' },
+      { ...observe('lock', undefined, 'weak'), attempt_id: 'other' }]) + '```\n';
+    await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n\n' + saved);
+    await expect(practice.finishRound({ topic: { ...designRequest, concept_ids: ['contention.lock'] }, progress_path: progress, attempt: {
+      criteria: criteria('system-design'), attempt_id: 'repeated', reflection: 'r', completed_on: '2026-11-14', concept_observations: [] } }))
+      .rejects.toThrow('core_blocks_mismatch');
+  });
+
   it('rechecks against the concept list a concurrent first finish stored', async () => {
     const { store, practice } = setup();
     const progress = 'Learning/Practice/System-Design/Solutions/race/progress.md';

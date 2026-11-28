@@ -36,10 +36,11 @@ export function parseObservations(body: string, completionDate?: string, options
 }
 
 /**
- * The observations an attempt stores in its assessment: each submitted one
- * merged over the saved one with its id, then the attempt's saved ones it
- * leaves out. `stored` is what the finish writes; `attempt` is the round's
- * canonical evidence. A submission may not repeat an id.
+ * The observations an attempt stores in its assessment: each submitted one is
+ * merged over the saved one with its id. `stored` is what the finish writes;
+ * `attempt` is the round's canonical evidence, read back from the assessment
+ * as that write leaves it, so it matches what is stored even when the saved
+ * assessment repeats an id. A submission may not repeat an id.
  */
 export function mergeAttemptObservations(assessment: string, submitted: readonly ConceptObservation[], attemptId: string, date: string) {
   const ids = submitted.map(item => item.observation_id);
@@ -51,8 +52,8 @@ export function mergeAttemptObservations(assessment: string, submitted: readonly
     const existing = prior.get(observation.observation_id);
     return { ...existing, ...observation, attempt_id: attemptId, date: observation.date ?? existing?.date ?? date };
   });
-  const kept = saved.filter(item => item.attempt_id === attemptId && !ids.includes(item.observation_id));
-  return { stored, attempt: [...kept, ...stored] };
+  const attempt = parseObservations(upsertObservations(assessment, stored, date), date).filter(item => item.attempt_id === attemptId);
+  return { stored, attempt };
 }
 
 export function upsertObservations(body: string, incoming: readonly StoredObservation[], completionDate?: string): string {
