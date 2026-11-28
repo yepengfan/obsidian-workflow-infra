@@ -32,6 +32,14 @@ const manifest = () => ({ schemaVersion: 1, sourceSha: source, repositoryId: '12
   { name: storage, operation: 'update', arn: arn(storage, 'update'), hasChanges: true },
   { name: cognito, operation: 'update', arn: arn(cognito, 'update'), hasChanges: true },
 ] });
+// A stand-in for the synthesized IAM foundation that the Plan compares with the deployed one.
+const foundation = { Parameters: { BootstrapVersion: { Type: 'AWS::SSM::Parameter::Value<String>' } }, Resources: {
+  PlanRole: { Type: 'AWS::IAM::Role', Properties: { RoleName: 'obsidian-plan' } },
+  PlanRolePolicy: { Type: 'AWS::IAM::Policy', Properties: { PolicyDocument: { Statement: [
+    { Action: 'cloudformation:GetTemplate', Effect: 'Allow', Resource: 'arn:aws:cloudformation:us-east-1:111111111111:stack/ObsidianGitHubTrust/*' },
+    { Action: 's3:PutObject', Effect: 'Allow', Resource: 'arn:aws:s3:::vault/System-Design/Profile.md' },
+  ] } } },
+} };
 type StackState = { Stacks: { StackStatus: string; EnableTerminationProtection?: boolean }[] } | { error: string };
 const defaults = () => ({
   storage: { stack: { Stacks: [{ StackStatus: 'UPDATE_COMPLETE', EnableTerminationProtection: true }] } as StackState, resources: { StackResources: structuredClone(resources.storage) }, plan: nativePlan(storage, 'update'), waitExit: 0 },
@@ -66,6 +74,7 @@ function execute(script: string, fixture: Record<string, unknown> = {}, plan = m
       } : {}),
     } };
     fs.writeFileSync(path.join(dir, 'cdk.out/ObsidianMcp.template.json'), JSON.stringify(template));
+    fs.writeFileSync(path.join(dir, 'cdk.out/ObsidianGitHubTrust.template.json'), JSON.stringify(foundation));
     if (stage === 'runtime') fs.writeFileSync(path.join(dir, 'cdk.out/CodeBundle.json'), JSON.stringify(code));
     else { plan.mcpStage = String(stage); delete (plan as { code?: unknown }).code; }
     if (fixture.manifestStage) plan.mcpStage = String(fixture.manifestStage);
@@ -93,7 +102,15 @@ if('${tool}'==='gh') {
 const target = (value('--stack-name') ?? value('--change-set-name') ?? '').includes('ObsidianMcp') || args.join(' ').includes('obsidian-mcp-') ? 'cognito' : 'storage';
 const item=fixture[target];
 switch(args[1]) {
-  case 'get-template': { const model=JSON.parse(fs.readFileSync('cdk.out/ObsidianMcp.template.json','utf8')); if(fixture.wrongNativeTemplate) model.Metadata.McpDeploymentStage='tampered'; console.log(JSON.stringify(fixture.stringTemplate?JSON.stringify(model):model));break;}
+  case 'get-template': if(value('--stack-name')==='ObsidianGitHubTrust') {
+    if(fixture.foundationError) { console.error(fixture.foundationError); process.exit(254); }
+    const live=JSON.parse(fs.readFileSync('cdk.out/ObsidianGitHubTrust.template.json','utf8'));
+    if(fixture.foundationUnapplied) live.Resources.PlanRolePolicy.Properties.PolicyDocument.Statement.pop();
+    if(fixture.foundationParameters) delete live.Parameters;
+    // CloudFormation returns its own key order; a stored text template comes back as a string.
+    const reordered=Object.fromEntries(Object.entries(live).reverse().map(([k,v])=>[k,k==='Resources'?Object.fromEntries(Object.entries(v).reverse()):v]));
+    console.log(JSON.stringify(fixture.foundationAsText?JSON.stringify(reordered):reordered)); break;
+  } else { const model=JSON.parse(fs.readFileSync('cdk.out/ObsidianMcp.template.json','utf8')); if(fixture.wrongNativeTemplate) model.Metadata.McpDeploymentStage='tampered'; console.log(JSON.stringify(fixture.stringTemplate?JSON.stringify(model):model));break;}
   case 'get-function-configuration':respond({CodeSha256:fixture.wrongLambdaHash?'wrong':${JSON.stringify(code.sha256Base64)},State:'Active',LastUpdateStatus:'Successful'});break;
   case 'describe-stacks': {
     const executed=calls.some(c=>c.tool==='aws' && c.args[1]==='execute-change-set' && c.args.join(' ').includes(target==='cognito'?'obsidian-mcp-':'obsidian-storage-'));
@@ -128,6 +145,42 @@ switch(args[1]) {
 const planScript = `bash ${JSON.stringify(path.resolve('bin/plan-infrastructure.sh'))}`;
 const applyScript = `bash ${JSON.stringify(path.resolve('bin/apply-infrastructure.sh'))}`;
 const executions = (calls: Call[]) => calls.filter(c => c.tool === 'aws' && c.args[1] === 'execute-change-set');
+const foundationScript = `bash ${JSON.stringify(path.resolve('bin/check-foundation.sh'))}`;
+
+describe('the IAM foundation check before the Plan', { timeout: 30_000 }, () => {
+  const changeSets = (calls: Call[]) => calls.filter(c => c.args[1] === 'create-change-set' || c.args[1] === 'execute-change-set');
+  it('runs after synthesis and before any change set is created', () => {
+    const names = workflow.jobs.plan!.steps.map(s => s.name);
+    const check = names.indexOf('Require the reviewed IAM foundation to be applied');
+    expect(step('plan', 'Require the reviewed IAM foundation to be applied')).toBe('bash bin/check-foundation.sh');
+    expect(names.indexOf('Synthesize the entire infrastructure')).toBeLessThan(check);
+    expect(check).toBeLessThan(names.indexOf('Plan the entire infrastructure'));
+    expect(workflow.jobs.apply!.steps.map(s => s.name)).not.toContain('Require the reviewed IAM foundation to be applied');
+  });
+  it.each([{}, { foundationAsText: true }])('passes when the deployed foundation matches, in any key order or encoding (%o)', fixture => {
+    const result = execute(foundationScript, fixture);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.summary).toContain('the deployed ObsidianGitHubTrust matches this commit');
+    expect(result.calls.filter(c => c.tool === 'aws').map(c => c.args)).toEqual([[
+      'cloudformation', 'get-template', '--stack-name', 'ObsidianGitHubTrust', '--template-stage', 'Original', '--query', 'TemplateBody', '--output', 'json']]);
+  });
+  it.each([
+    { name: 'an unapplied policy change', fixture: { foundationUnapplied: true }, named: 'PlanRolePolicy' },
+    { name: 'a change outside the resources', fixture: { foundationParameters: true }, named: 'template parameters, metadata or outputs' },
+  ])('fails on $name, naming what differs, before any change set', ({ fixture, named }) => {
+    const result = execute(foundationScript, fixture);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain(named); expect(result.summary).toContain('## IAM foundation not applied');
+    expect(result.summary).not.toContain(account);
+    expect(changeSets(result.calls)).toEqual([]);
+  });
+  it('fails closed when the deployed foundation cannot be read', () => {
+    const result = execute(foundationScript, { foundationError: 'An error occurred (AccessDenied) when calling the GetTemplate operation' });
+    expect(result.status).not.toBe(0);
+    expect(result.summary).not.toContain('matches this commit');
+    expect(changeSets(result.calls)).toEqual([]);
+  });
+});
 
 describe('one infrastructure plan and approval', { timeout: 30_000 }, () => {
   it('has one shared Plan and one native approval/apply for the whole infrastructure', () => {

@@ -56,6 +56,12 @@ foundation into `cdk.out`. Native stack IDs and scoped CloudFormation service
 roles remain stable, so no existing resources need to move between stacks.
 The foundation is part of the shared review preview; its permissions remain
 outside CI deployment and require the approved local SSO procedure.
+Before Plan creates any change set, `bin/check-foundation.sh` compares the
+deployed foundation template with this commit's synthesized one and fails the
+run if they differ, naming the differing resources. An application change
+therefore never reaches production ahead of the IAM it needs. After a
+foundation change merges, apply it with the procedure below, then re-run the
+failed `plan and apply` run.
 See [Cognito preflight](cognito-preflight.md) for discovery and authentication checks.
 
 Follow the [staged rollout](mcp-rollout.md#review-and-deployment-order) for
@@ -134,6 +140,10 @@ aws cloudformation update-termination-protection --enable-termination-protection
 aws cloudformation describe-stacks --stack-name ObsidianGitHubTrust \
   --query 'Stacks[0].Outputs' --profile obsidian-admin
 ```
+
+Then re-run the `plan and apply` run for that commit if its foundation check
+failed. The check passes once the executed template matches the commit's
+synthesis.
 
 Set the repository Actions secrets `AWS_ACCOUNT_ID` and `AWS_REGION` to the
 production account number and region before enabling this revision. The jobs

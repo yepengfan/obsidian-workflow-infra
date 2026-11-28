@@ -73,6 +73,8 @@ jobs:
         run: bash bin/production-config.sh
       - name: Synthesize the entire infrastructure
         run: npm run synth
+      - name: Require the reviewed IAM foundation to be applied
+        run: bash bin/check-foundation.sh
       - name: Plan the entire infrastructure
         id: plan
         env:

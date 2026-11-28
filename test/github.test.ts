@@ -124,6 +124,19 @@ describe('GitHub OIDC foundation', () => {
     );
   });
 
+  it('lets only the Plan read the foundation\'s own deployed template', () => {
+    const stack = new GitHubTrustStack(new App(), 'Trust', storage, github);
+    const template = Template.fromStack(stack);
+    const roles = template.findResources('AWS::IAM::Role') as Record<string, Role>;
+    const policies = Object.values(template.findResources('AWS::IAM::Policy')) as Policy[];
+    const own = stack.resolve(`arn:${stack.partition}:cloudformation:${storage.region}:${storage.account}:stack/Trust/*`);
+    const readers = Object.entries(roles).filter(([id]) => policies.some(p => p.Properties.Roles.some(r => r.Ref === id)
+      && p.Properties.PolicyDocument.Statement.some(s => JSON.stringify(s.Resource) === JSON.stringify(own))));
+    expect(readers.map(([, role]) => role.Properties.RoleName)).toEqual([github.planRoleName]);
+    const statement = policies.flatMap(p => p.Properties.PolicyDocument.Statement).find(s => JSON.stringify(s.Resource) === JSON.stringify(own))!;
+    expect(statement.Action).toBe('cloudformation:GetTemplate');
+  });
+
   it('fits the minified foundation inside the inline CloudFormation template limit', () => {
     // The local SSO procedure uploads the minified template as --template-body.
     // Synthesize the production configuration, as bin/github.ts does.
