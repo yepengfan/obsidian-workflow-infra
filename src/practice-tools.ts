@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { writeScope } from './auth.js';
 import { readToolSecurity, writeToolSecurity, type McpSkill, type SkillContext } from './skill.js';
 import type { Settings } from './config.js';
-import { addReviewSchema, domainSchema, finishRoundSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
+import { addReviewSchema, designPreflightSchema, domainSchema, finishRoundSchema, listReviewsSchema, Practice, recordReviewSchema, revisionSchema, slugSchema } from './practice.js';
 import { canvasToolMetadata, registerCanvasWidget } from './practice-canvas-widget.js';
 import { conceptIdSchema } from './practice-schema.js';
 import { designSessionSchema } from './design-session.js';
@@ -17,7 +17,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   const readSecurity = readToolSecurity(settings);
   const outputSchema = z.looseObject({});
   server.registerTool('practice', { ...readSecurity, outputSchema,
-    description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm, System Design and SD Blocks modules, and saved unfinished sessions. Offer Finish registration for pending_finalizations, preserving the saved round date and ID. Offer to resume one match, or ask which session to resume when several match; wait for the learner. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability with any configuration errors, the schedule rule, each module time limit, pass criteria and placement interval, workflow and instruction catalog; for SD Blocks also every block with its review item. Never an assessment or saved attempt.',
+    description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm, System Design and SD Blocks modules, and saved unfinished sessions. Offer Finish registration for pending_finalizations, preserving the saved round date and ID. Offer to resume one match, or ask which session to resume when several match; wait for the learner. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability with any configuration errors, the schedule rule, each module time limit, pass criteria and placement interval, workflow and instruction catalog; for SD Blocks also every block with its review item; for System Design also its learning roadmap with the next problem and that problem\'s pre-problem check. Never an assessment or saved attempt.',
     inputSchema: z.strictObject({ domain: domainSchema.optional() }) }, input => result(() => practice.workflow(input.domain)));
   server.registerTool('practice_instruction', { ...readSecurity, outputSchema,
     description: 'Read one chunk of a versioned practice instruction document listed by practice. Use for skill definitions and their shared guides; private learner records remain in S3.',
@@ -34,6 +34,9 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   server.registerTool('practice_design_outline', { ...readSecurity, outputSchema,
     description: 'Build in-scope System Design follow-ups from the registered question concept IDs or explicit concepts for a new question. Returns problem concepts first, weak or uncovered probes, then mastered variants with canonical assessment evidence.',
     inputSchema: z.strictObject({ id: slugSchema.optional(), concept_ids: z.array(conceptIdSchema).max(50).optional() }) }, input => result(() => practice.outline(input)));
+  server.registerTool('practice_design_preflight', { ...readSecurity, outputSchema,
+    description: 'Check a System Design problem before it starts. Name it by its Blocks.md problem id or its breakdown note title. Returns its core and supporting blocks with each SD Blocks review (stage, next review, whether the latest attempt passed) and gap: not_enrolled or last_failed, plus the count of core gaps. A problem missing from Blocks.md returns problem null and no blocks; while SD Blocks is unavailable, reviews and gaps are null. Read only.',
+    inputSchema: designPreflightSchema }, input => result(() => practice.designPreflight(input)));
   registerCanvasWidget(server, settings.practice.writesEnabled);
   const canvasSecurity = { ...readSecurity, _meta: { ...readSecurity._meta, ...canvasToolMetadata } };
   server.registerTool('practice_design_template', { ...canvasSecurity, outputSchema,

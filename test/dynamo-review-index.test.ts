@@ -37,6 +37,22 @@ describe('DynamoReviewIndex', () => {
       [{ input: { ExclusiveStartKey: cursor } }, {}],
     ]);
   });
+  it('lists every ended session from the done partition across pages', async () => {
+    const cursor = { item_id: { S: 'Bitly-2026-11-21' } };
+    const row = (id: string, topic: string) => ({ item_id: { S: id }, topic: { S: topic } });
+    const { index, send } = fixture([{ Items: [row('Bitly-2026-11-21', 'Design Bitly')], LastEvaluatedKey: cursor }, { Items: [row('LeetCode-2026-08-10', 'Design LeetCode')] }]);
+    expect(await index.finishedSessions(AbortSignal.timeout(1000))).toEqual([
+      { folder: 'Learning/Practice/System-Design/Solutions/Bitly-2026-11-21/', topic: 'Design Bitly' },
+      { folder: 'Learning/Practice/System-Design/Solutions/LeetCode-2026-08-10/', topic: 'Design LeetCode' },
+    ]);
+    expect(send.mock.calls).toMatchObject([
+      [{ input: { IndexName: 'status', KeyConditionExpression: 'status_pk = :done', ExpressionAttributeValues: { ':done': { S: 'done' } } } }, {}],
+      [{ input: { ExclusiveStartKey: cursor } }, {}],
+    ]);
+    expect(JSON.stringify(send.mock.calls[0])).not.toContain('FilterExpression');
+    await expect(fixture([{ Items: [{ item_id: { S: 'nested/x' }, topic: { S: 'T' } }] }]).index.finishedSessions(AbortSignal.timeout(1000))).rejects.toThrow('Invalid ended session');
+  });
+
   it('discovers legacy ended WIP after an empty filtered page', async () => {
     const cursor = { item_id: { S: 'older' } };
     const { index, send } = fixture([{ Items: [], LastEvaluatedKey: cursor }, { Items: [

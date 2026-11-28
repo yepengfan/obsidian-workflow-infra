@@ -95,6 +95,8 @@ class FileIndex implements ReviewIndex {
   sessions: Awaited<ReturnType<SessionIndex['unfinishedSessions']>> = [];
   async pendingFinalizations() { return []; }
   async unfinishedSessions() { return this.sessions; }
+  finished: { folder: string; topic: string }[] = [];
+  async finishedSessions() { return this.finished; }
   current() {
     return [...this.store.files].filter(([key]) => key.startsWith(items) && !key.slice(items.length).includes('/')).flatMap(([key, text]) => {
       const row = reviewSummarySchema.safeParse(parseFrontmatter(text)?.metadata);
@@ -135,7 +137,9 @@ describe('practice storage behavior', () => {
     expect(workflow.entry).toContain('# System Design practice'); expect(workflow.entry).not.toContain('{{');
     expect(workflow.documents).toContain('.agents/skills/sysd-solve/SKILL.md');
     expect(workflow.documents).not.toContain('.agents/skills/algo-solve/SKILL.md');
-    expect(store.reads).toEqual([configPath, root + 'system/modules/system-design/module.md']);
+    // The guard reads both module notes; the System Design module then reads its own for its roadmap setting, and the plan it names.
+    expect(store.reads).toEqual([configPath, root + 'system/modules/system-design/module.md', root + 'system/modules/system-design/module.md',
+      root + 'Learning/Plans/SYSD/00_plan.md']);
     const overrideMinutes = mockMinutes > 1 ? mockMinutes - 1 : mockMinutes + 1;
     store.files.set(configPath, withMockMinutes(overrideMinutes));
     await expect(practice.workflow('system-design')).resolves.toMatchObject({ time_limits: { 'system-design': overrideMinutes } });
@@ -812,7 +816,7 @@ it('keeps write tools out of the read-only practice catalog', async () => {
     const tools = (await client.listTools()).tools;
     expect(tools.map(tool => tool.name)).toContain('practice_review');
     expect(tools.map(tool => tool.name)).not.toContain('practice_complete_design_round');
-    expect(tools).toHaveLength(12); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
+    expect(tools).toHaveLength(13); expect(tools.every(tool => tool.annotations?.readOnlyHint)).toBe(true);
     expect((await client.callTool({ name: 'practice_design_template', arguments: { topic: 'Design Dropbox', short_topic: 'Dropbox' } })).structuredContent).toMatchObject({ saved: false });
     expect((await client.callTool({ name: 'practice_add_review', arguments: request })).isError).toBe(true); expect(store.writes).toHaveLength(0);
   } finally { await client.close(); }
@@ -1913,5 +1917,132 @@ describe('block signals from System Design rounds', () => {
     await expect(practice.record(attempt(store.tag(items + item.id + '.md'), { problem: 'ticketmaster' }))).rejects.toThrow('unsupported_practice_domain');
     await expect(practice.finishRound({ topic: { id: block, domain: 'sd-blocks', title: 'Dealing with Contention', prompt: 'p' }, attempt: { attempt_id: 'b', criteria: criteria('sd-blocks'),
       reflection: 'r', completed_on: '2026-11-14', problem: 'ticketmaster', points: [{ id: 'occ', result: 'mastered', evidence: 'e' }] } })).rejects.toThrow('unsupported_practice_domain');
+  });
+});
+
+describe('the pre-problem check and the roadmap', () => {
+  const contention = 'sdb-dealing-with-contention';
+  const blockReview = (practice: Practice, attempt_id: string, completed_on: string, passed: boolean, placement = false) =>
+    practice.finishRound({ topic: { id: contention, domain: 'sd-blocks', title: 'Dealing with Contention',
+      prompt: 'Review the Dealing with Contention building block in a fresh scenario.' }, attempt: { attempt_id, reflection: 'Version column.', completed_on,
+      criteria: criteria('sd-blocks', passed ? [] : ['points_answered']), ...(placement ? { placement: true } : {}),
+      points: [{ id: 'occ', result: passed ? 'mastered' : 'weak', evidence: 'e' }] } });
+  const sdModule = root + 'system/modules/system-design/module.md';
+  const plan = 'Learning/Plans/SYSD/00_plan.md';
+  const withRoadmap = (store: PracticeStore, setting: unknown, roadmap?: unknown) => {
+    const note = parseFrontmatter(domainModule('system-design'))!;
+    store.files.set(sdModule, `---\n${stringify({ ...note.metadata, roadmap: setting })}---\n${note.body}`);
+    if (roadmap !== undefined) store.files.set(root + plan, `---\n${stringify({ plan: 'SYSD', roadmap })}---\n# Plan\n`);
+  };
+  const roadmap = [{ phase: 'Baseline', title: 'Bitly', focus: 'Scaling Reads', aliases: ['bitly', 'url shortener'] },
+    { phase: 'Patterns', title: 'Ticketmaster', focus: 'Dealing with Contention', aliases: ['ticketmaster'] }];
+
+  it('reports each block of a problem with its review and gap, by id or breakdown title', async () => {
+    const { practice } = setup();
+    const before = await practice.designPreflight({ breakdown: 'Ticketmaster' });
+    expect(before).toEqual({ problem: 'ticketmaster', note: 'Learning/Practice/System-Design/Question Breakdowns/Ticketmaster.md', sd_blocks: 'available', core_gaps: 1, blocks: [
+      { id: 'dealing-with-contention', title: 'Dealing with Contention', role: 'core', item_id: contention, review: null, gap: 'not_enrolled' },
+      { id: 'redis', title: 'Redis', role: 'uses', item_id: 'sdb-redis', review: null, gap: 'not_enrolled' }] });
+    await blockReview(practice, 'placed', '2026-11-13', true, true);
+    expect(await practice.designPreflight({ problem: 'ticketmaster' })).toMatchObject({ core_gaps: 0, blocks: [
+      { id: 'dealing-with-contention', review: { status: 'active', stage: 4, next_review: '2026-11-27', last_passed: true }, gap: null }, { id: 'redis', gap: 'not_enrolled' }] });
+    expect(await practice.designPreflight({ breakdown: 'Question Breakdowns/ticketmaster.md' })).toMatchObject({ problem: 'ticketmaster' });
+  });
+
+  it('counts a block whose latest review failed, but not an archived one', async () => {
+    const { store, practice } = setup();
+    await blockReview(practice, 'placed', '2026-11-13', true, true);
+    await blockReview(practice, 'failed', '2026-11-14', false);
+    expect(await practice.designPreflight({ problem: 'ticketmaster' })).toMatchObject({ core_gaps: 1, blocks: [
+      { id: 'dealing-with-contention', review: { status: 'active', last_passed: false }, gap: 'last_failed' }, { gap: 'not_enrolled' }] });
+    const key = items + contention + '.md';
+    store.files.set(key, store.files.get(key)!.replace('status: active', 'status: archived'));
+    expect(await practice.designPreflight({ problem: 'ticketmaster' })).toMatchObject({ core_gaps: 0, blocks: [{ review: { status: 'archived' }, gap: null }, {}] });
+  });
+
+  it('treats an item id held by another domain as no review', async () => {
+    const { store, practice } = setup();
+    await practice.finishRound({ topic: { id: contention, domain: 'algorithm', title: 'Contention', prompt: 'Solve it.' }, attempt: { attempt_id: 'algo-1',
+      criteria: criteria('algorithm'), reflection: 'r', completed_on: '2026-11-13' } });
+    expect(store.files.get(items + contention + '.md')).toContain('domain: algorithm');
+    expect(await practice.designPreflight({ problem: 'ticketmaster' })).toMatchObject({ core_gaps: 1, blocks: [{ review: null, gap: 'not_enrolled' }, {}] });
+  });
+
+  it('returns no blocks for a problem without a row, and no reviews while SD Blocks is unusable', async () => {
+    const { store, practice } = setup();
+    expect(await practice.designPreflight({ breakdown: 'Design Twitter' })).toEqual({ problem: null, note: null, sd_blocks: null, blocks: [], core_gaps: null });
+    expect(await practice.designPreflight({ problem: 'twitter' })).toMatchObject({ problem: null, blocks: [] });
+    disable(store, 'sd-blocks');
+    expect(await practice.designPreflight({ problem: 'ticketmaster' })).toEqual({ problem: 'ticketmaster', note: expect.any(String), sd_blocks: 'unavailable', core_gaps: null, blocks: [
+      { id: 'dealing-with-contention', title: 'Dealing with Contention', role: 'core', item_id: contention, review: null, gap: null },
+      { id: 'redis', title: 'Redis', role: 'uses', item_id: 'sdb-redis', review: null, gap: null }] });
+    expect(store.reads.filter(key => key.startsWith(items))).toEqual([]);
+  });
+
+  it('refuses a check without exactly one name, or while System Design is off', async () => {
+    const { store, practice } = setup();
+    await expect(practice.designPreflight({})).rejects.toThrow('Provide either problem or breakdown');
+    await expect(practice.designPreflight({ problem: 'ticketmaster', breakdown: 'Ticketmaster' })).rejects.toThrow('Provide either problem or breakdown');
+    disable(store, 'system-design');
+    await expect(practice.designPreflight({ problem: 'ticketmaster' })).rejects.toThrow();
+  });
+
+  it('offers the first roadmap problem without a finished session, with its check', async () => {
+    const { store, practice, index } = setup();
+    withRoadmap(store, plan, roadmap);
+    index.finished = [{ folder: 'f/', topic: 'Design a URL Shortener (Bitly)' }];
+    index.sessions = [{ folder: 'w/', topic: 'Ticketmaster', current_step: null }];
+    const workflow = await practice.workflow('system-design');
+    expect(workflow).toMatchObject({ unfinished_sessions: index.sessions, roadmap: { status: 'ready', plan, completed: 1, total: 2, next: {
+      phase: 'Patterns', title: 'Ticketmaster', focus: 'Dealing with Contention', preflight: { problem: 'ticketmaster', core_gaps: 1 } } } });
+    index.finished.push({ folder: 'g/', topic: 'Design Ticketmaster' });
+    expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { completed: 2, next: null } });
+    // A problem matches its title when it lists no aliases.
+    withRoadmap(store, plan, [{ title: 'Payment System' }]);
+    index.finished = [{ folder: 'h/', topic: 'Design a Payment System' }];
+    expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { completed: 1, total: 1, next: null } });
+    expect(await practice.workflow()).not.toHaveProperty('roadmap');
+    // Saved sessions come only with the combined overview and System Design, and the roadmap only with System Design.
+    expect(await practice.workflow()).toMatchObject({ unfinished_sessions: index.sessions });
+    for (const other of ['algorithm', 'sd-blocks'] as const) {
+      const entry = await practice.workflow(other);
+      expect(entry).not.toHaveProperty('roadmap'); expect(entry).not.toHaveProperty('unfinished_sessions');
+    }
+  });
+
+  it('reports the next problem without a row, or with an unusable map, instead of failing', async () => {
+    const { store, practice } = setup();
+    withRoadmap(store, plan, [{ title: 'Payment System' }]);
+    expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { next: { title: 'Payment System', preflight: { problem: null, blocks: [] } } } });
+    // The map is loaded once per request, so the broken one is read by a new request.
+    const broken = setup();
+    withRoadmap(broken.store, plan, roadmap.slice(1));
+    broken.store.files.set(blockMapPath, '## broken\n');
+    expect(await broken.practice.workflow('system-design')).toMatchObject({ roadmap: { status: 'ready', next: { title: 'Ticketmaster', preflight: { error: 'invalid_block_map' } } } });
+  });
+
+  it('reports a missing or invalid roadmap without failing the workflow', async () => {
+    const { store, practice } = setup();
+    withRoadmap(store, undefined);
+    expect(await practice.workflow('system-design')).toMatchObject({ roadmap: null });
+    withRoadmap(store, plan);
+    expect(await practice.workflow('system-design')).toMatchObject({ selected_domain: 'system-design', roadmap: { status: 'unavailable', plan, reason: 'note_unavailable' } });
+    for (const invalid of [[], [{ phase: 'No title' }], 'Bitly']) {
+      withRoadmap(store, plan, invalid);
+      expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { status: 'unavailable', plan, reason: 'invalid_roadmap' } });
+    }
+    withRoadmap(store, plan);
+    const read = store.read.bind(store);
+    store.read = async (...args) => args[0] === root + plan ? { bytes: Buffer.from([255]), total: 1, etag: 'revision' } : read(...args);
+    expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { status: 'unavailable', plan, reason: 'invalid_utf8' } });
+    store.read = read;
+    for (const text of ['# Plan without frontmatter\n', '---\nroadmap: [unclosed\n---\n# Plan\n']) {
+      store.files.set(root + plan, text);
+      expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { status: 'unavailable', plan, reason: 'invalid_roadmap' } });
+    }
+    for (const setting of [42, 'Learning/Plans/SYSD/00_plan', '../outside.md', '/absolute.md']) {
+      withRoadmap(store, setting, roadmap);
+      expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { status: 'unavailable', plan: null, reason: 'invalid_roadmap' } });
+    }
   });
 });
