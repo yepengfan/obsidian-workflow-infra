@@ -45,6 +45,13 @@ describe('the global schedule rule', () => {
     expect(nextSchedule(recovered, true, '2027-05-27', rule)).toMatchObject({ status: 'archived', archived_on: '2027-05-27' });
   });
 
+  it('moves a passed placement straight to its stage and fails a placement like any attempt', () => {
+    expect(nextSchedule(item, true, '2026-11-14', rule, 4)).toEqual({ stage: 4, next_review: '2026-11-28', last_review: '2026-11-14', review_count: 1, status: 'active' });
+    expect(nextSchedule(item, false, '2026-11-14', rule, 4)).toEqual({ stage: 0, next_review: '2026-11-15', last_review: '2026-11-14', review_count: 1, status: 'active' });
+    expect(() => nextSchedule({ ...item, review_count: 1, last_review: '2026-11-13' }, true, '2026-11-14', rule, 4)).toThrow('placement_requires_first_attempt');
+    for (const stage of [0, 7, 1.5]) expect(() => nextSchedule(item, true, '2026-11-14', rule, stage)).toThrow('invalid_placement_stage');
+  });
+
   it('refuses an earlier date than the last review and a stage above the top', () => {
     expect(() => nextSchedule({ ...item, last_review: '2026-11-15' }, true, '2026-11-14', rule)).toThrow('review_date_precedes_last_review');
     expect(() => nextSchedule({ ...item, stage: 7 }, true, '2026-11-14', rule)).toThrow('invalid_review_stage');
@@ -84,10 +91,11 @@ describe('practice history', () => {
   it('reads back rendered entries with their unmet criteria', () => {
     const body = '# Title\n\n## Practice history\n' + entry(1, '2026-11-14', false) + entry(2, '2026-11-15', true);
     expect(body).toContain('- Not met `no_substantive_help`: Asked for the approach.');
-    expect(parseHistory(body)).toEqual([
-      { date: '2026-11-14', round: 1, passed: false, result: 'Failed', unmet: ['no_substantive_help'] },
-      { date: '2026-11-15', round: 2, passed: true, result: 'Passed', unmet: [] },
+    expect(parseHistory(body).map(entry => ({ ...entry, text: undefined }))).toEqual([
+      { date: '2026-11-14', round: 1, passed: false, result: 'Failed', unmet: ['no_substantive_help'], placement: false },
+      { date: '2026-11-15', round: 2, passed: true, result: 'Passed', unmet: [], placement: false },
     ]);
+    expect(parseHistory(body).map(row => row.text.trim())).toEqual([entry(1, '2026-11-14', false).trim(), entry(2, '2026-11-15', true).trim()]);
   });
 
   it('reads legacy outcomes, in English and Chinese, as passed or failed', () => {
@@ -104,10 +112,21 @@ describe('practice history', () => {
       criteria: [{ id: 'no_substantive_help', met: true, evidence: 'None.' }, { id: 'tests_pass', met: true, evidence: 'Accepted.' }] });
     const failed = renderEntry({ date: '2026-11-15', round: 2, passed: false, nextReview: '2026-11-16', reflection: tricky,
       criteria: [{ id: 'no_substantive_help', met: false, evidence: 'Hint.' }, { id: 'tests_pass', met: true, evidence: 'Accepted.' }] });
-    expect(parseHistory('## Practice history\n' + passed + failed)).toEqual([
-      { date: '2026-11-14', round: 1, passed: true, result: 'Passed', unmet: [] },
-      { date: '2026-11-15', round: 2, passed: false, result: 'Failed', unmet: ['no_substantive_help'] },
+    expect(parseHistory('## Practice history\n' + passed + failed).map(entry => ({ ...entry, text: undefined }))).toEqual([
+      { date: '2026-11-14', round: 1, passed: true, result: 'Passed', unmet: [], placement: false },
+      { date: '2026-11-15', round: 2, passed: false, result: 'Failed', unmet: ['no_substantive_help'], placement: false },
     ]);
+  });
+
+  it('renders a module section after the criteria and reads a placement back', () => {
+    const placed = renderEntry({ date: '2026-11-14', round: 1, passed: true, nextReview: '2026-11-28', placement: true, reflection: 'Mine.',
+      criteria: [{ id: 'no_substantive_help', met: true, evidence: 'None.' }], details: '#### Points\n\n- mastered `occ`: Drew it.\n' });
+    expect(placed).toContain('**Passed** · Placement · Next review 2026-11-28\n\n#### Pass criteria\n\n- Met `no_substantive_help`: None.\n\n#### Points\n\n- mastered `occ`: Drew it.\n\n#### My reflection');
+    const [entry] = parseHistory(placed);
+    expect(entry).toMatchObject({ round: 1, passed: true, unmet: [], placement: true });
+    expect(() => renderEntry({ date: '2026-11-14', round: 1, passed: true, nextReview: null, reflection: 'r', criteria: [], details: 'no heading' }))
+      .toThrow('invalid_history_details');
+    expect(() => parseHistory(entry!.text + placed.replace('Round 1', 'Round 2'))).toThrow('invalid_practice_history');
   });
 
   it.each([

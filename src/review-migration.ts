@@ -14,7 +14,7 @@ import { nextSchedule, type ScheduleConfig } from './srs/schedule.js';
  */
 
 /** The criteria a legacy outcome leaves unmet, per the agreed conversion. */
-const COMPLETION_CRITERIA: Record<PracticeDomain, string> = { algorithm: 'tests_pass', 'system-design': 'all_steps_done' };
+const COMPLETION_CRITERIA: Partial<Record<PracticeDomain, string>> = { algorithm: 'tests_pass', 'system-design': 'all_steps_done' };
 /** Legacy outcomes that ended without proven independence; `incomplete` misses the completion criterion instead. */
 const HELP_OUTCOMES = new Set(['assisted', '提示后完成', 'completed', '已完成']);
 const SCHEDULE_FIELDS = ['stage', 'next_review', 'last_review', 'review_count', 'status', 'archived_on', 'last_result', 'unmet_criteria'] as const;
@@ -24,6 +24,8 @@ const RETIRED_FIELDS = ['last_outcome', 'completed_design_rounds'] as const;
 export interface MigrationPolicy {
   readonly schedule: ScheduleConfig;
   readonly criteria: Readonly<Record<PracticeDomain, readonly PassCriterion[]>>;
+  /** The stage a passed placement moves to, for modules that record placements. */
+  readonly placementStages?: Readonly<Partial<Record<PracticeDomain, number>>>;
 }
 
 export interface MigratedEntry {
@@ -45,7 +47,7 @@ function unmetCriteria(entry: HistoryEntry, domain: PracticeDomain, declared: re
   if (entry.unmet) return entry.unmet;
   if (entry.passed) return [];
   const missing = HELP_OUTCOMES.has(entry.result) ? 'no_substantive_help' : COMPLETION_CRITERIA[domain];
-  if (!declared.some(criterion => criterion.id === missing)) throw new PracticeError('invalid_pass_criteria');
+  if (!missing || !declared.some(criterion => criterion.id === missing)) throw new PracticeError('invalid_pass_criteria');
   return [missing];
 }
 
@@ -65,7 +67,9 @@ export function migrateReview(id: string, text: string, policy: MigrationPolicy)
     let state = { stage: 0, review_count: 0, last_review: null as string | null };
     let schedule: ReturnType<typeof nextSchedule> | undefined;
     for (const entry of history) {
-      schedule = nextSchedule(state, entry.passed, entry.date, policy.schedule);
+      const placementStage = entry.placement ? policy.placementStages?.[domain] : undefined;
+      if (entry.placement && placementStage === undefined) throw new PracticeError('placement_not_supported');
+      schedule = nextSchedule(state, entry.passed, entry.date, policy.schedule, placementStage);
       state = schedule;
       row.entries.push({ date: entry.date, round: entry.round, result: entry.result, passed: entry.passed,
         unmet: unmetCriteria(entry, domain, policy.criteria[domain]), stage: schedule.stage, next_review: schedule.next_review });

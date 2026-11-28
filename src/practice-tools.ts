@@ -7,6 +7,7 @@ import { addReviewSchema, domainSchema, finishRoundSchema, listReviewsSchema, Pr
 import { canvasToolMetadata, registerCanvasWidget } from './practice-canvas-widget.js';
 import { conceptIdSchema } from './practice-schema.js';
 import { designSessionSchema } from './design-session.js';
+import { blockTemplateSchema } from './sd-blocks.js';
 import type { ReviewIndex, SessionIndex } from './review-index.js';
 
 export function registerPracticeTools(server: McpServer, practice: Practice, settings: Settings,
@@ -16,7 +17,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   const readSecurity = readToolSecurity(settings);
   const outputSchema = z.looseObject({});
   server.registerTool('practice', { ...readSecurity, outputSchema,
-    description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm and System Design modules, and saved unfinished sessions. Offer Finish registration for pending_finalizations, preserving the saved round date and ID. Offer to resume one match, or ask which session to resume when several match; wait for the learner. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability, the schedule rule, each module time limit and pass criteria, workflow and instruction catalog; never an assessment or saved attempt.',
+    description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm, System Design and SD Blocks modules, and saved unfinished sessions. Offer Finish registration for pending_finalizations, preserving the saved round date and ID. Offer to resume one match, or ask which session to resume when several match; wait for the learner. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability with any configuration errors, the schedule rule, each module time limit, pass criteria and placement interval, workflow and instruction catalog; for SD Blocks also every block with its review item. Never an assessment or saved attempt.',
     inputSchema: z.strictObject({ domain: domainSchema.optional() }) }, input => result(() => practice.workflow(input.domain)));
   server.registerTool('practice_instruction', { ...readSecurity, outputSchema,
     description: 'Read one chunk of a versioned practice instruction document listed by practice. Use for skill definitions and their shared guides; private learner records remain in S3.',
@@ -25,10 +26,10 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     description: 'List the complete review queue of one domain: overdue, today, unstarted and upcoming, each ordered by next review date then ID. Always supply domain explicitly, including each domain of a combined overview. Due and unstarted entries reflect the latest saved notes; a newly added review can take a few seconds to appear. Never expose old solutions before an independent attempt.',
     inputSchema: listReviewsSchema }, input => result(() => practice.reviews(input)));
   server.registerTool('practice_review', { ...readSecurity, outputSchema,
-    description: 'Read an active review prompt, source and revision. Prompt phase excludes prior attempts and review focus. Request feedback phase only after the learner submits or ends the independent attempt.',
+    description: 'Read an active review prompt, source and revision. Prompt phase excludes prior attempts and review focus. Request feedback phase only after the learner submits or ends the independent attempt. An SD Blocks item also returns its block, with points ordered for the next review: never examined, then last answered weak, partial and mastered.',
     inputSchema: z.strictObject({ id: slugSchema, phase: z.enum(['prompt', 'feedback']).default('prompt') }) }, input => result(() => practice.review(input.id, input.phase === 'feedback')));
   server.registerTool('practice_read_note', { ...readSecurity, outputSchema,
-    description: 'Read one bounded Algorithm or System Design practice note with its revision for a later conditional update. Larger notes must use read_note chunks; no partial overwrite is allowed.',
+    description: 'Read one bounded Algorithm, System Design or SD Blocks practice note with its revision for a later conditional update. Larger notes must use read_note chunks; no partial overwrite is allowed.',
     inputSchema: z.strictObject({ path: z.string().max(1024) }) }, input => result(() => practice.readNote(input.path)));
   server.registerTool('practice_design_outline', { ...readSecurity, outputSchema,
     description: 'Build in-scope System Design follow-ups from the registered question concept IDs or explicit concepts for a new question. Returns problem concepts first, weak or uncovered probes, then mastered variants with canonical assessment evidence.',
@@ -39,8 +40,11 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     description: 'Draft a new System Design session: six-step progress.md, an uncompressed Excalidraw file and an interactive practice canvas. Use Review canvas to share edits before coaching. Does not save or check existing sessions. List the Solutions catalog first and resume a matching WIP/planned session. Confirm any save separately.',
     inputSchema: designSessionSchema }, input => result(() => practice.designTemplate(input)));
   server.registerTool('practice_design_canvas', { ...canvasSecurity, outputSchema,
-    description: 'Read a selected saved System Design session canvas as native Excalidraw drawing data, including legacy compressed-json files. Select the exact path from the session catalog. Opens an interactive practice canvas with the saved elements and bindings. Does not save, assess, or read unsaved chat-widget edits; use Review canvas inside the editor for those. Never open prior solutions during an independent review.',
+    description: 'Read a selected saved System Design session canvas or SD Blocks review canvas as native Excalidraw drawing data, including legacy compressed-json files. Select the exact path from the session catalog. Opens an interactive practice canvas with the saved elements and bindings. Does not save, assess, or read unsaved chat-widget edits; use Review canvas inside the editor for those. Never open prior solutions during an independent review.',
     inputSchema: z.strictObject({ path: z.string().max(1024) }) }, input => result(() => practice.designCanvas(input.path)));
+  server.registerTool('practice_block_template', { ...canvasSecurity, outputSchema,
+    description: 'Draft a fresh SD Blocks review canvas for one attempt, showing the block and the neutral scenario, and open it as an interactive practice canvas. Use Review canvas to share edits. Does not save: save with practice_save_canvas at the returned path with a null revision after confirmation. Never open earlier review canvases of the block before the attempt ends.',
+    inputSchema: blockTemplateSchema }, input => result(() => practice.blockTemplate(input)));
   if (!settings.practice.writesEnabled) return;
   const writeSecurity = writeToolSecurity(settings);
   const write = (work: () => Promise<object>) => result(async () => { await authorizeWrite(); return work(); });
@@ -58,13 +62,13 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     inputSchema: z.strictObject({ path: canvasPath, snapshot: revisionSchema.optional(), scene: z.record(z.string(), z.unknown()).optional(), revision: revisionSchema.nullable() }) },
   input => write(() => practice.saveCanvas(input.path, input, input.revision)));
   server.registerTool('practice_finish_round', { ...writeSecurity, outputSchema,
-    description: 'Shared closeout for every enrolled module. After reflection and save confirmation, submit the neutral topic and observed attempt together, judging every pass criterion the module declares with its evidence; the server computes pass or fail. System Design requires the matching session progress_path. For its first binding the saved session topic must match the review title. Retry using identical topic and round IDs. Returns verified schedule or archive status.',
+    description: 'Shared closeout for every enrolled module. After reflection and save confirmation, submit the neutral topic and observed attempt together, judging every pass criterion the module declares with its evidence; the server computes pass or fail. System Design requires the matching session progress_path. For its first binding the saved session topic must match the review title. SD Blocks attempts require points: one result per examined point. Set placement only on a placement review, the item\'s first attempt. Retry using identical topic and round IDs. Returns verified schedule or archive status.',
     inputSchema: finishRoundSchema }, input => write(() => practice.finishRound(input)));
   server.registerTool('practice_add_review', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit user confirmation, register a neutral review object without overwriting an existing one. Never invent an attempt or reflection. New entries have no scheduled date until a round is recorded.',
     inputSchema: addReviewSchema }, input => write(() => practice.add(input)));
   server.registerTool('practice_record_review', { ...writeSecurity, outputSchema,
-    description: 'After an actually ended round, learner reflection and explicit save confirmation, judge every pass criterion the module declares, with evidence, and append the judgment and original reflection. The server computes pass or fail and the next date: a pass moves up one stage, a fail steps back one stage and retries the next day. Preserve attempt_id across retries. Paused or multi-day WIP checkpoints are not ended rounds; save progress with note tools. completed_on is the actual local completion date, never a checkpoint or later save date. A stale revision is rejected.',
+    description: 'After an actually ended round, learner reflection and explicit save confirmation, judge every pass criterion the module declares, with evidence, and append the judgment and original reflection. The server computes pass or fail and the next date: a pass moves up one stage, a fail steps back one stage and retries the next day; a passed placement starts at the module placement interval. SD Blocks attempts require points. Preserve attempt_id across retries. Paused or multi-day WIP checkpoints are not ended rounds; save progress with note tools. completed_on is the actual local completion date, never a checkpoint or later save date. A stale revision is rejected.',
     inputSchema: recordReviewSchema }, input => write(() => practice.record(input)));
   server.registerTool('practice_create_note', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit save confirmation, create an approved Algorithm Pattern/Atom/Log or System Design Pattern/Insight/Log/session progress/canvas file. Create-if-absent only; files save independently. No configuration, guide, template or arbitrary vault writes.',

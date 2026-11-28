@@ -10,6 +10,10 @@ export interface HistoryEntry {
   readonly result: string;
   /** Criteria judged unmet; null for a legacy entry recorded as an outcome. */
   readonly unmet: readonly string[] | null;
+  /** Whether the attempt was recorded as a placement. */
+  readonly placement: boolean;
+  /** The entry's full text, from its heading to the next entry. */
+  readonly text: string;
 }
 
 /**
@@ -25,12 +29,21 @@ export const LEGACY_OUTCOMES: Readonly<Record<string, boolean>> = Object.freeze(
 });
 
 const oneLine = (text: string) => text.replace(/\s+/gu, ' ').trim();
+const PLACEMENT = 'Placement · ';
 
-/** Renders one recorded attempt. `parseHistory` reads it back. */
+/**
+ * Renders one recorded attempt. `parseHistory` reads it back. `details` is a
+ * module's own section, a level-4 heading and its lines, placed after the
+ * criteria and before any learner text.
+ */
 export function renderEntry(input: { date: string; round: number; passed: boolean; nextReview: string | null; criteria: readonly CriterionResult[];
-  reflection: string; submission?: string; observations?: string }) {
-  let entry = `\n\n### ${input.date} · Round ${input.round}\n\n**${input.passed ? 'Passed' : 'Failed'}** · ${input.nextReview === null ? 'Archived' : `Next review ${input.nextReview}`}\n\n`;
+  reflection: string; submission?: string; observations?: string; placement?: boolean; details?: string }) {
+  let entry = `\n\n### ${input.date} · Round ${input.round}\n\n**${input.passed ? 'Passed' : 'Failed'}** · ${input.placement ? PLACEMENT : ''}${input.nextReview === null ? 'Archived' : `Next review ${input.nextReview}`}\n\n`;
   entry += '#### Pass criteria\n\n' + input.criteria.map(item => `- ${item.met ? 'Met' : 'Not met'} \`${item.id}\`: ${oneLine(item.evidence)}`).join('\n') + '\n';
+  if (input.details) {
+    if (!/^#### [^\n]+\n/u.test(input.details)) throw new PracticeError('invalid_history_details');
+    entry += `\n${input.details.trimEnd()}\n`;
+  }
   entry += `\n#### My reflection\n\n${input.reflection}\n`;
   if (input.submission) entry += `\n#### Submission\n\n${input.submission}\n`;
   if (input.observations) entry += `\n#### Feedback\n\n${input.observations}\n`;
@@ -63,13 +76,15 @@ export function parseHistory(body: string): HistoryEntry[] {
     const round = Number(match[2] ?? match[3]), result = match[4]!;
     const date = match[1]!, previous = matches[index - 1]?.[1];
     if (round !== index + 1 || (previous !== undefined && date < previous)) throw new PracticeError('invalid_practice_history');
+    const text = body.slice(match.index, matches[index + 1]?.index ?? body.length);
     if (result === 'Passed' || result === 'Failed') {
-      const section = body.slice(match.index, matches[index + 1]?.index ?? body.length);
-      const unmet = [...criteriaBlock(section).matchAll(CRITERION)].filter(line => line[1] === 'Not met').map(line => line[2]!);
+      const unmet = [...criteriaBlock(text).matchAll(CRITERION)].filter(line => line[1] === 'Not met').map(line => line[2]!);
       if ((result === 'Passed') !== (unmet.length === 0)) throw new PracticeError('invalid_practice_history');
-      return { date, round, passed: result === 'Passed', result, unmet };
+      const placement = body.startsWith(PLACEMENT, match.index + match[0].length);
+      if (placement && round !== 1) throw new PracticeError('invalid_practice_history');
+      return { date, round, passed: result === 'Passed', result, unmet, placement, text };
     }
     if (!Object.hasOwn(LEGACY_OUTCOMES, result)) throw new PracticeError('invalid_practice_history');
-    return { date, round, passed: LEGACY_OUTCOMES[result]!, result, unmet: null };
+    return { date, round, passed: LEGACY_OUTCOMES[result]!, result, unmet: null, placement: false, text };
   });
 }

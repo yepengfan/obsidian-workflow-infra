@@ -2,8 +2,8 @@
 
 These MCP entry rules override the module menu and new-problem handoff in
 `.agents/skills/practice/SKILL.md`. Apply the shared English conversation and
-clarification rules in `Learning/Practice/Review/AGENTS.md`. Only Algorithm and
-System Design are supported; never offer Behavioral Interview or a
+clarification rules in `Learning/Practice/Review/AGENTS.md`. Only Algorithm,
+System Design and SD Blocks are supported; never offer Behavioral Interview or a
 practice/review mode menu.
 
 ## Resolve availability and intent

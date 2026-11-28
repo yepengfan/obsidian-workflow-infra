@@ -35,12 +35,21 @@ export function addDays(day: string, days: number) {
  * Schedules one ended attempt from the day it was completed. Passing moves up
  * one stage, and passing at the top stage archives the item. Failing drops
  * `stepBack` stages and retries after `retryDays`. Early attempts count.
+ *
+ * A placement is an item's first attempt recorded for a module that places
+ * familiar items: passing it moves straight to `placementStage`, and failing
+ * it is an ordinary fail.
  */
-export function nextSchedule(item: Pick<ReviewSummary, 'stage' | 'last_review' | 'review_count'>, passed: boolean, day: string, config: ScheduleConfig): ScheduleChange {
+export function nextSchedule(item: Pick<ReviewSummary, 'stage' | 'last_review' | 'review_count'>, passed: boolean, day: string, config: ScheduleConfig,
+  placementStage?: number): ScheduleChange {
   dateSchema.parse(day);
   const top = config.intervals.length;
   if (item.last_review && day < item.last_review) throw new PracticeError('review_date_precedes_last_review');
   if (item.stage > top) throw new PracticeError('invalid_review_stage');
+  if (placementStage !== undefined) {
+    if (item.review_count !== 0) throw new PracticeError('placement_requires_first_attempt');
+    if (!Number.isInteger(placementStage) || placementStage < 1 || placementStage > top) throw new PracticeError('invalid_placement_stage');
+  }
   const active = { last_review: day, review_count: item.review_count + 1, status: 'active' as const };
   if (!passed) {
     return { ...active, stage: Math.max(0, item.stage - config.stepBack), next_review: addDays(day, config.retryDays) };
@@ -48,6 +57,6 @@ export function nextSchedule(item: Pick<ReviewSummary, 'stage' | 'last_review' |
   if (item.stage === top && config.archiveAfterFinal) {
     return { ...active, stage: top, next_review: null, status: 'archived' as const, archived_on: day };
   }
-  const stage = Math.min(item.stage + 1, top);
+  const stage = placementStage ?? Math.min(item.stage + 1, top);
   return { ...active, stage, next_review: addDays(day, config.intervals[stage - 1]!) };
 }

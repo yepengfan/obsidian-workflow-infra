@@ -14,9 +14,13 @@ import { CANVAS_REVIEW_PREFIX, DESIGN_PROFILE, type PracticeDomain, domainSchema
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
 import { conceptObservationSchema, designOutline, parseObservations, renderProfile, upsertObservations, type StoredObservation } from './design-profile.js';
 import { readDesignCanvas, parseScene, writeDesignCanvas } from './design-canvas.js';
-import { conceptIdSchema, dateSchema, reviewSummarySchema as summarySchema, slugSchema } from './practice-schema.js';
+import { attemptIdSchema, conceptIdSchema, dateSchema, reviewSummarySchema as summarySchema, slugSchema } from './practice-schema.js';
 import { parsePracticeNote, PracticeNotes } from './practice-note.js';
 import type { ReviewIndex, SessionIndex } from './review-index.js';
+import { blockPointResultSchema, blockTemplateSchema } from './sd-blocks.js';
+import type { ModuleAttempt, PracticeModule } from './practice-module.js';
+import { practiceModules } from './practice-modules.js';
+import type { SdBlocksModule } from './sd-blocks-module.js';
 
 export { PracticeError } from './errors.js';
 export { domainSchema, validatePracticeWritePath } from './practice-domains.js';
@@ -27,10 +31,11 @@ const requiredText = text.refine(value => value.trim().length > 0);
 export const addReviewSchema = z.strictObject({ id: slugSchema, domain: domainSchema, title: requiredText.max(200), prompt: requiredText,
   source: text.optional(), review_focus: text.optional(), concept_ids: z.array(conceptIdSchema).max(50).optional() });
 export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: revisionSchema,
-  attempt_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u).max(128),
+  attempt_id: attemptIdSchema,
   criteria: z.array(criterionResultSchema).min(1).max(20), reflection: requiredText,
   completed_on: dateSchema, submission: text.optional(), observations: text.optional(),
-  concept_observations: z.array(conceptObservationSchema).max(20).optional() });
+  concept_observations: z.array(conceptObservationSchema).max(20).optional(),
+  points: z.array(blockPointResultSchema).min(1).max(8).optional(), placement: z.boolean().optional() });
 export const finishRoundSchema = z.strictObject({
   topic: addReviewSchema, attempt: recordReviewSchema.omit({ id: true, revision: true }),
   progress_path: z.string().max(1024).optional(),
@@ -40,18 +45,24 @@ export class Practice {
   private readonly notes: PracticeNotes;
   private readonly workflows: PracticeWorkflow;
   private readonly items: ReviewItems<PracticeDomain>;
+  private readonly modules: Partial<Record<PracticeDomain, PracticeModule>>;
+  private readonly sdBlocks: SdBlocksModule;
 
   constructor(private readonly store: NoteStore, private readonly index: ReviewIndex & SessionIndex, private readonly settings: Pick<Settings, 'prefix' | 'practice' | 'limits'>,
     private readonly signal: AbortSignal, private readonly dependencies: { writer?: NoteWriter; now?: () => Date } = {}) {
     this.notes = new PracticeNotes(store, settings.prefix, signal, settings.limits.practiceNoteBytes, settings.practice.writesEnabled ? dependencies.writer : undefined);
-    this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal);
+    ({ modules: this.modules, sdBlocks: this.sdBlocks } = practiceModules({ read: path => this.read(path), notesIn: prefix => this.notesIn(prefix),
+      activeReviews: domain => this.index.activeReviews(domain, this.signal), item: async id => (await this.items.note(id, true)).item,
+      today: () => this.today(), signal }));
+    const checks = Object.fromEntries(Object.entries(this.modules).flatMap(([domain, module]) => module.check ? [[domain, () => module.check!()]] : []));
+    this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal, checks);
     this.items = new ReviewItems({
       notes: this.notes, index, signal, today: () => this.today(),
       registered: (domain): domain is PracticeDomain => domainSchema.safeParse(domain).success,
       policy: async domain => {
         const { schedule, policy } = await this.workflows.config(domainSchema.parse(domain));
-        return { criteria: policy!.pass_criteria, schedule: { intervals: schedule.intervals, stepBack: schedule.on_fail.step_back,
-          retryDays: schedule.on_fail.retry_days, archiveAfterFinal: schedule.archive_after_final } };
+        return { criteria: policy!.pass_criteria, placementStage: policy!.placement_stage, schedule: { intervals: schedule.intervals,
+          stepBack: schedule.on_fail.step_back, retryDays: schedule.on_fail.retry_days, archiveAfterFinal: schedule.archive_after_final } };
       },
     });
   }
@@ -59,9 +70,42 @@ export class Practice {
   read(path: string) {
     return this.notes.read(path);
   }
+  /** Vault paths of the notes directly inside a folder, or starting with a name prefix. */
+  private async notesIn(prefix: string) {
+    const paths: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await this.store.list(this.settings.prefix + prefix, 100, cursor, this.signal);
+      paths.push(...page.notes.map(note => note.key.slice(this.settings.prefix.length)));
+      cursor = page.next;
+    } while (cursor);
+    return paths;
+  }
+  /**
+   * Checks a new attempt's module fields with its module's hook, which returns
+   * the history section to record. A module without the hook refuses them.
+   */
+  private async checkAttempt(domain: PracticeDomain, itemId: string, attempt: ModuleAttempt) {
+    const module = this.modules[domain];
+    if (!module?.attempt) {
+      if (attempt.points?.length) throw new PracticeError('unsupported_practice_domain');
+      return undefined;
+    }
+    await this.workflows.config(domain);
+    return module.attempt(itemId, attempt);
+  }
+  /** The item's note, or null when it cannot be read, as before its creation. */
+  private async existingItem(id: string) {
+    try { return await this.items.note(id); } catch (error) {
+      if (error instanceof NoteError && error.code === 'note_unavailable') return null;
+      throw error;
+    }
+  }
 
   async workflow(domain?: PracticeDomain) {
     const workflow = await this.workflows.workflow(domain);
+    const module = workflow.selected_domain ? this.modules[workflow.selected_domain] : undefined;
+    if (module?.workflow) return { ...workflow, ...await module.workflow() };
     if (!workflow.available_domains.some(item => item.domain === 'system-design')) return workflow;
     try {
       const [unfinished_sessions, pending_finalizations] = await Promise.all([this.index.unfinishedSessions(this.signal), this.index.pendingFinalizations(this.signal)]);
@@ -81,14 +125,29 @@ export class Practice {
     return { date, time_zone: this.settings.practice.timeZone, domain, ...queue, complete: true };
   }
   async review(id: string, includeHistory = false) {
-    return this.items.review(id, includeHistory);
+    const review = await this.items.review(id, includeHistory);
+    const module = this.modules[domainSchema.parse(review.domain)];
+    if (!module?.review) return review;
+    return { ...review, ...await module.review(id, (await this.items.note(id)).body) };
   }
   async add(input: z.infer<typeof addReviewSchema>) {
-    return this.items.add({ ...input, domain: domainSchema.parse(input.domain) });
+    const domain = domainSchema.parse(input.domain);
+    // An existing item is returned as it is, even after its module stopped accepting its id.
+    const module = this.modules[domain];
+    if (module?.add && !(await this.existingItem(input.id))) {
+      await this.workflows.config(domain);
+      await module.add(input.id);
+    }
+    return this.items.add({ ...input, domain });
   }
   async record(input: z.infer<typeof recordReviewSchema>) {
     if (input.concept_observations?.length) throw new PracticeError('use_practice_finish_round_for_evidence');
-    return this.items.record(input);
+    const { points, ...attempt } = input;
+    const current = await this.items.note(input.id);
+    // A retry of a recorded attempt returns it unchanged, so only a new attempt is checked.
+    const details = current.item.attempt_ids.includes(input.attempt_id) ? undefined
+      : await this.checkAttempt(domainSchema.parse(current.item.domain), input.id, { points, criteria: attempt.criteria });
+    return this.items.record({ ...attempt, details });
   }
   async finishRound({ topic, attempt, progress_path }: z.infer<typeof finishRoundSchema>) {
     if (topic.domain !== 'system-design' && attempt.concept_observations?.length) throw new PracticeError('unsupported_practice_domain');
@@ -96,6 +155,9 @@ export class Practice {
     if (topic.domain === 'system-design' && !progress_path) throw new PracticeError('session_progress_required');
     // Judge before binding the session or creating the item, so a mismatched judgment writes nothing.
     judge((await this.workflows.config(topic.domain)).policy!.pass_criteria, attempt.criteria);
+    // A retry of a recorded attempt re-verifies it without checking it against a map that may have changed.
+    const existing = this.modules[topic.domain]?.attempt ? await this.existingItem(topic.id) : null;
+    if (!existing?.item.attempt_ids.includes(attempt.attempt_id)) await this.checkAttempt(topic.domain, topic.id, attempt);
     if (progress_path) {
       if (topic.domain !== 'system-design' || validatePracticeWritePath(progress_path) !== topic.domain ||
         !progress_path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !progress_path.endsWith('/progress.md')) throw new NoteError('invalid_path');
@@ -218,17 +280,40 @@ export class Practice {
   }
 
   async readNote(path: string) {
-    await this.workflows.config(practiceNoteDomain(path));
+    const domain = practiceNoteDomain(path);
+    try { await this.workflows.config(domain); } catch (error) {
+      // A usable module may read notes of another domain it depends on, such as SD Blocks reading the notes its map links.
+      if (!(await this.moduleReads(domain, path))) throw error;
+    }
     return { path, ...await this.read(path) };
+  }
+  /** Whether a usable module other than the note's own domain grants reading the note. */
+  private async moduleReads(noteDomain: PracticeDomain, path: string) {
+    for (const [domain, module] of Object.entries(this.modules) as [PracticeDomain, PracticeModule][]) {
+      if (domain === noteDomain || !module.reads) continue;
+      try {
+        await this.workflows.config(domain);
+        if ((await module.reads()).has(path)) return true;
+      } catch {
+        this.signal.throwIfAborted();
+      }
+    }
+    return false;
   }
   async designTemplate(input: z.infer<typeof designSessionSchema>) {
     await this.workflows.config('system-design');
     return designSessionTemplate(input, this.today());
   }
+  /** A canvas is a System Design session drawing or an SD Blocks review drawing. */
   private async checkCanvasPath(path: string) {
-    if (validatePracticeWritePath(path) !== 'system-design' ||
-      !path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !path.endsWith('.excalidraw.md')) throw new NoteError('invalid_path');
-    await this.workflows.config('system-design');
+    const domain = validatePracticeWritePath(path);
+    const session = domain === 'system-design' && path.startsWith(practiceDomains['system-design'].root + 'Solutions/');
+    if (!path.endsWith('.excalidraw.md') || (!session && !this.modules[domain]?.canvas?.(path))) throw new NoteError('invalid_path');
+    await this.workflows.config(domain);
+  }
+  async blockTemplate(input: z.infer<typeof blockTemplateSchema>) {
+    await this.workflows.config('sd-blocks');
+    return this.sdBlocks.template(input);
   }
 
   async designCanvas(path: string) {

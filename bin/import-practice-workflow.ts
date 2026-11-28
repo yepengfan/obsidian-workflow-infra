@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFile, writeFile, realpath } from 'node:fs/promises';
+import { access, readFile, writeFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { domainSchema, practiceDocuments } from '../src/practice-domains.js';
@@ -22,8 +22,15 @@ for (const name of paths) {
   if (bytes.length > 200000) throw Error('Workflow source is too large');
   documents[name] = { sha256: createHash('sha256').update(bytes).digest('hex'), text: bytes.toString('utf8').replaceAll('\u2014', '-') };
 }
+// A domain's own MCP adaptations, appended to the shared entry only for that domain.
+const adaptations: Record<string, string> = {};
+for (const domain of domainSchema.options) {
+  const file = new URL(`../workflows/practice-entry-${domain}.md`, import.meta.url);
+  if (await access(file).then(() => true, () => false)) adaptations[domain] = await readFile(file, 'utf8');
+}
 await writeFile(fileURLToPath(new URL('../workflows/practice.json', import.meta.url)), JSON.stringify({
-  schemaVersion: 2, generatedBy: 'bin/import-practice-workflow.ts - do not edit manually', entry: await readFile(new URL('../workflows/practice-entry.md', import.meta.url), 'utf8'),
+  schemaVersion: 3, generatedBy: 'bin/import-practice-workflow.ts - do not edit manually', entry: await readFile(new URL('../workflows/practice-entry.md', import.meta.url), 'utf8'),
+  adaptations,
   adapter: await readFile(new URL('../workflows/practice-adapter.md', import.meta.url), 'utf8'),
   overview: await readFile(new URL('../workflows/practice-overview.md', import.meta.url), 'utf8'), repository: 'https://github.com/yepengfan/obsidian-workflow', sourceCommit: git('rev-parse', 'HEAD'), documents,
 }, null, 2) + '\n');
