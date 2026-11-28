@@ -193,19 +193,22 @@ export class Practice {
       session = { note, metadata, body, tags };
     }
     let details = recorded ? undefined : await check(concept_ids);
-    if (progress_path && session && session.tags.includes('system-design/wip') && !session.metadata.confirmed_registration) {
-      await this.notes.put(progress_path, serialize({ ...session.metadata, round_id: attempt.attempt_id, review_item_id: topic.id,
-        round_completed_on: attempt.completed_on, confirmed_registration: { topic, attempt } }, session.body), session.note.revision);
-    }
     await this.add(topic);
     let current = await this.items.note(topic.id);
     if (topic.domain === 'system-design' && !current.item.concept_ids.length && topic.concept_ids?.length) {
       await this.notes.put(current.path, serialize({ ...current.metadata, concept_ids: topic.concept_ids }, current.body), current.revision);
       current = await this.items.note(topic.id);
     }
+    // A concurrent first finish may have stored another concept list; judge against the stored one. This runs
+    // before the session is bound, so a refused judgment can be corrected and retried.
+    if (!current.item.attempt_ids.includes(attempt.attempt_id) && !isDeepStrictEqual(current.item.concept_ids, concept_ids)) {
+      details = await check(current.item.concept_ids);
+    }
+    if (progress_path && session && session.tags.includes('system-design/wip') && !session.metadata.confirmed_registration) {
+      await this.notes.put(progress_path, serialize({ ...session.metadata, round_id: attempt.attempt_id, review_item_id: topic.id,
+        round_completed_on: attempt.completed_on, confirmed_registration: { topic, attempt } }, session.body), session.note.revision);
+    }
     if (!current.item.attempt_ids.includes(attempt.attempt_id)) {
-      // A concurrent first finish may have stored another concept list; judge against the stored one.
-      if (!isDeepStrictEqual(current.item.concept_ids, concept_ids)) details = await check(current.item.concept_ids);
       await this.recordChecked({ ...attempt, id: topic.id, revision: current.revision }, details);
     }
     const verified = await this.items.note(topic.id);

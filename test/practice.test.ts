@@ -1800,6 +1800,12 @@ describe('block signals from System Design rounds', () => {
       criteria: criteria('system-design'), attempt_id: 'race', reflection: 'r', completed_on: '2026-11-14', concept_observations: [observe('lock', undefined, 'mastered')] } }))
       .rejects.toThrow('core_blocks_mismatch');
     expect(store.files.get(items + designRequest.id + '.md')).not.toContain('race');
+    // The session is not bound yet, so the corrected judgment can be finished.
+    expect(parseFrontmatter(store.files.get(root + progress)!)!.metadata).not.toHaveProperty('confirmed_registration');
+    practice.add = add;
+    await expect(practice.finishRound({ topic: { ...designRequest, concept_ids: ['contention.queue'] }, progress_path: progress, attempt: {
+      criteria: criteria('system-design', ['core_blocks_partial']), attempt_id: 'race', reflection: 'r', completed_on: '2026-11-14',
+      concept_observations: [observe('lock', undefined, 'mastered')] } })).resolves.toMatchObject({ verified: true, review_count: 1 });
   });
 
   it('keeps the problem to System Design', async () => {

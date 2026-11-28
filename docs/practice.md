@@ -594,7 +594,8 @@ through the SD Blocks module (`src/system-design-module.ts`, rules in
   (`duplicate_observation_id`). A standalone `practice_record_review` carries
   no evidence, so its `core_blocks_partial` judgment is not checked. When a
   concurrent first finish stored a different concept list, the attempt is
-  checked again against the stored list before it is recorded.
+  checked again against the stored list before the session is bound, so a
+  refused judgment can be corrected and finished.
 - After a round is recorded and verified, each block with a learner
   observation answered `partial` or `weak` is signalled through the core's
   `pullForward(item, domain, day, signalDate)`, with the day after the round.
