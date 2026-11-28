@@ -53,7 +53,7 @@ export class Practice {
     this.notes = new PracticeNotes(store, settings.prefix, signal, settings.limits.practiceNoteBytes, settings.practice.writesEnabled ? dependencies.writer : undefined);
     ({ modules: this.modules, sdBlocks: this.sdBlocks } = practiceModules({ read: path => this.read(path), notesIn: prefix => this.notesIn(prefix),
       activeReviews: domain => this.index.activeReviews(domain, this.signal), item: async id => (await this.items.note(id, true)).item,
-      today: () => this.today(), signal, pullForward: (id, day, signalDate) => this.items.pullForward(id, day, signalDate),
+      today: () => this.today(), signal, pullForward: (id, domain, day, signalDate) => this.items.pullForward(id, domain, day, signalDate),
       available: async domain => {
         try { await this.workflows.config(domain); return true; } catch { this.signal.throwIfAborted(); return false; }
       } }));
@@ -202,9 +202,12 @@ export class Practice {
     if (topic.domain === 'system-design' && progress_path) {
       await this.persistDesignProfile(progress_path, attempt.attempt_id, attempt.completed_on, attempt.concept_observations ?? []);
     }
+    // A module's finish hook sees the observations stored for the recorded round; without a session none are stored.
+    let recorded: StoredObservation[] = [];
     if (progress_path) {
       const note = await this.read(progress_path);
       const { metadata, body } = parsePracticeNote(note.text);
+      recorded = parseObservations(body, attempt.completed_on).filter(item => item.attempt_id === attempt.attempt_id);
       if (metadata.round_id !== attempt.attempt_id || metadata.review_item_id !== topic.id ||
         metadata.round_completed_on !== attempt.completed_on) throw new PracticeError('session_round_mismatch');
       const tags = Array.isArray(metadata.tags) ? metadata.tags : [metadata.tags];
@@ -215,7 +218,7 @@ export class Practice {
       } else if (!tags.includes('system-design/done')) throw new PracticeError('session_round_mismatch');
     }
     const finish = this.modules[topic.domain];
-    const extra = finish?.finish ? await finish.finish(topic.id, attempt) : {};
+    const extra = finish?.finish ? await finish.finish(topic.id, { ...attempt, concept_observations: recorded }) : {};
     return { ...summarySchema.parse(verified.item), attempt_id: attempt.attempt_id, verified: true, ...extra };
   }
 

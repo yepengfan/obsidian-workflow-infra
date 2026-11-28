@@ -29,7 +29,9 @@ export interface PracticeModule {
   attempt?(itemId: string, attempt: ModuleAttempt): Promise<string | undefined>;
   /**
    * Runs after a finished round is recorded and verified, including on a
-   * retry, so it must be idempotent. Returns extra fields for the result.
+   * retry, so it must be idempotent. Its `concept_observations` are the ones
+   * stored for the recorded round, not a retry's payload. Returns extra fields
+   * for the result.
    */
   finish?(itemId: string, attempt: ModuleAttempt & { completed_on: string }): Promise<Record<string, unknown>>;
   /** Notes outside the module's own root that it may read while their own domain is unavailable. */
@@ -64,6 +66,6 @@ export interface PracticeModulePorts {
   /** Whether a domain is usable now: its configuration guard passes. */
   available(domain: PracticeDomain): Promise<boolean>;
   /** The core's cross-module signal; see `ReviewItems.pullForward`. */
-  pullForward(id: string, day: string, signalDate: string): Promise<PullForwardResult>;
+  pullForward(id: string, domain: PracticeDomain, day: string, signalDate: string): Promise<PullForwardResult>;
   readonly signal: AbortSignal;
 }

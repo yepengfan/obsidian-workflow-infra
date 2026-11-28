@@ -29,9 +29,13 @@ export class SystemDesignModule implements PracticeModule {
     return undefined;
   }
 
-  /** Brings each weakly answered block's review forward to the day after the round, reactivating an archived one. */
+  /**
+   * Brings each block the recorded round answered weakly forward to the day
+   * after the round, reactivating an archived one.
+   */
   async finish(_itemId: string, attempt: ModuleAttempt & { completed_on: string }) {
-    const blocks = weakBlocks((attempt.concept_observations ?? []).map(item => conceptObservationSchema.parse(item)));
+    // The service passes the round's stored observations, already parsed.
+    const blocks = weakBlocks(attempt.concept_observations ?? []);
     if (!blocks.length) return {};
     const usable = await this.ports.available('sd-blocks');
     const block_signals: BlockSignal[] = [];
@@ -39,9 +43,12 @@ export class SystemDesignModule implements PracticeModule {
       const item_id = blockItemId(block);
       if (!usable) { block_signals.push({ block, item_id, result: 'sd_blocks_unavailable' }); continue; }
       try {
-        block_signals.push({ block, item_id, result: await this.ports.pullForward(item_id, addDays(attempt.completed_on, 1), attempt.completed_on) });
+        block_signals.push({ block, item_id, result: await this.ports.pullForward(item_id, 'sd-blocks', addDays(attempt.completed_on, 1), attempt.completed_on) });
       } catch (error) {
-        if (!(error instanceof NoteError) || error.code !== 'note_unavailable') throw error;
+        // An item id held by another domain cannot be the block's item.
+        const missing = (error instanceof NoteError && error.code === 'note_unavailable') ||
+          (error instanceof PracticeError && error.code === 'review_domain_mismatch');
+        if (!missing) throw error;
         block_signals.push({ block, item_id, result: 'not_enrolled' });
       }
     }

@@ -586,7 +586,10 @@ through the SD Blocks module (`src/system-design-module.ts`, rules in
   `partial` (`core_blocks_mismatch`). Other modules refuse `problem`.
 - After a round is recorded and verified, each block with a learner
   observation answered `partial` or `weak` is signalled through the core's
-  `pullForward(item, day, signalDate)`, with the day after the round. An active
+  `pullForward(item, domain, day, signalDate)`, with the day after the round.
+  The signal reads the observations stored in the session for that attempt, so
+  a retry whose payload differs cannot signal other blocks. The core refuses an
+  item of another domain (`review_domain_mismatch`), reported as `not_enrolled`. An active
   item due later moves to that day; an archived item is reactivated at the
   stage it reached and due that day. An item with no attempt yet, one already
   due by then, or one reviewed after the round is unchanged, so a finish retry

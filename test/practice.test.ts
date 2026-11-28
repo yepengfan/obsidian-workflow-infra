@@ -1698,6 +1698,26 @@ describe('block signals from System Design rounds', () => {
     expect(store.files.get(items + block + '.md')).toContain('review_count: 0');
   });
 
+  it('never moves an item of another domain that holds the block item id', async () => {
+    const { store, practice } = setup();
+    await practice.finishRound({ topic: { id: block, domain: 'algorithm', title: 'Contention', prompt: 'Solve it.' }, attempt: { attempt_id: 'algo-1',
+      criteria: criteria('algorithm'), reflection: 'r', completed_on: '2026-11-14' } });
+    const before = store.files.get(items + block + '.md');
+    expect(await round(practice, 'collision', weakRound)).toMatchObject({ block_signals: [{ block: 'dealing-with-contention', result: 'not_enrolled' }, { result: 'not_enrolled' }] });
+    expect(store.files.get(items + block + '.md')).toBe(before);
+  });
+
+  it('signals a retry from the recorded round, not from its payload', async () => {
+    const { store, practice } = setup();
+    await enroll(practice);
+    const mastered = { problem: 'ticketmaster', concept_observations: [observe('lock', 'dealing-with-contention', 'mastered')] };
+    expect(await round(practice, 'retry', mastered)).not.toHaveProperty('block_signals');
+    expect(await round(practice, 'retry', { ...weakRound, concept_observations: [observe('lock2', 'dealing-with-contention', 'weak'), observe('queue', 'kafka', 'weak')] }))
+      .toMatchObject({ verified: true, review_count: 1 });
+    expect(await round(practice, 'retry', mastered)).not.toHaveProperty('block_signals');
+    expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-28' });
+  });
+
   it('sends no signal while SD Blocks is off, and none for mastered or untagged answers', async () => {
     const { store, practice } = setup();
     await enroll(practice);
