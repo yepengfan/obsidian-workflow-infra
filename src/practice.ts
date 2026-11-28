@@ -66,11 +66,11 @@ export class Practice {
         const note = await this.items.note(id, true);
         return { ...note.item, last_passed: parseHistory(note.body).at(-1)?.passed ?? null };
       },
-      finishedSessions: () => this.index.finishedSessions(this.signal), today: () => this.today(), signal }, {
+      today: () => this.today(), signal }, {
       pullForward: (id, domain, day, signalDate) => this.items.pullForward(id, domain, day, signalDate),
       available: async domain => {
         try { await this.workflows.config(domain); return true; } catch { this.signal.throwIfAborted(); return false; }
-      } }));
+      } }, { finishedSessions: () => this.index.finishedSessions(this.signal) }));
     const checks = Object.fromEntries(Object.entries(this.modules).flatMap(([domain, module]) => module.check ? [[domain, () => module.check!()]] : []));
     this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal, checks);
     this.items = new ReviewItems({

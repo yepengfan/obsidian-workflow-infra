@@ -17,6 +17,12 @@ function roadmapPath(setting: unknown) {
   try { return validPath(setting); } catch { throw new PracticeError('invalid_roadmap'); }
 }
 
+/** Read access to saved System Design sessions, given only to this module. */
+export interface SessionHistory {
+  /** The topics of System Design sessions whose round has ended. */
+  finishedSessions(): Promise<readonly { topic: string }[]>;
+}
+
 /** What a round's weak block did to its SD Blocks review. */
 export interface BlockSignal { block: string; item_id: string; result: 'pulled_forward' | 'reactivated' | 'unchanged' | 'not_enrolled' | 'sd_blocks_unavailable' }
 
@@ -29,7 +35,8 @@ export interface BlockSignal { block: string; item_id: string; result: 'pulled_f
  * this module never calls SD Blocks.
  */
 export class SystemDesignModule implements PracticeModule {
-  constructor(private readonly ports: PracticeModulePorts, private readonly signals: ReviewSignals, private readonly blockMap: () => Promise<BlockMap>) {}
+  constructor(private readonly ports: PracticeModulePorts, private readonly signals: ReviewSignals, private readonly history: SessionHistory,
+    private readonly blockMap: () => Promise<BlockMap>) {}
 
   /** The roadmap's next problem with its pre-problem check, for choosing new practice. */
   async workflow() { return { roadmap: await this.roadmap() }; }
@@ -82,7 +89,7 @@ export class SystemDesignModule implements PracticeModule {
       if (setting === undefined || setting === null) return null;
       plan = roadmapPath(setting);
       const entries = parseRoadmap((await this.ports.read(plan)).text);
-      const { completed, total, next } = roadmapProgress(entries, (await this.ports.finishedSessions()).map(session => session.topic));
+      const { completed, total, next } = roadmapProgress(entries, (await this.history.finishedSessions()).map(session => session.topic));
       return { status: 'ready' as const, plan, completed, total, next: next && { ...next, preflight: await this.nextPreflight(next.title) } };
     } catch (error) {
       this.ports.signal.throwIfAborted();
