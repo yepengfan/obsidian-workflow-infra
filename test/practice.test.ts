@@ -1653,7 +1653,7 @@ describe('block signals from System Design rounds', () => {
     ({ observation_id: id, concept_id: 'contention.' + id, ...(blockId ? { block: blockId } : {}), performance, learner, summary: `Answered ${performance}.`, anchor: 'Assessment' });
   const enroll = (practice: Practice) => practice.finishRound({ topic: { id: block, domain: 'sd-blocks', title: 'Dealing with Contention',
     prompt: 'Review the Dealing with Contention building block in a fresh scenario.' }, attempt: { attempt_id: 'block-1', criteria: criteria('sd-blocks'),
-    reflection: 'Version column.', completed_on: '2026-11-14', placement: true, points: [{ id: 'occ', result: 'mastered', evidence: 'e' }] } });
+    reflection: 'Version column.', completed_on: '2026-11-13', placement: true, points: [{ id: 'occ', result: 'mastered', evidence: 'e' }] } });
   const round = async (practice: Practice, folder: string, attempt: object) => {
     const progress = `Learning/Practice/System-Design/Solutions/${folder}/progress.md`;
     try { await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n'); }
@@ -1666,7 +1666,7 @@ describe('block signals from System Design rounds', () => {
 
   it('brings a weakly answered block forward, reports blocks without items and is idempotent on retry', async () => {
     const { store, practice } = setup();
-    expect(await enroll(practice)).toMatchObject({ stage: 4, next_review: '2026-11-28' });
+    expect(await enroll(practice)).toMatchObject({ stage: 4, next_review: '2026-11-27' });
     expect(await round(practice, 'contention-r1', weakRound)).toMatchObject({ verified: true, block_signals: [
       { block: 'dealing-with-contention', item_id: block, result: 'pulled_forward' }, { block: 'redis', item_id: 'sdb-redis', result: 'not_enrolled' }] });
     expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ status: 'active', stage: 4, next_review: '2026-11-15' });
@@ -1680,7 +1680,7 @@ describe('block signals from System Design rounds', () => {
     const { store, practice } = setup();
     await enroll(practice);
     const path = items + block + '.md';
-    store.files.set(path, store.files.get(path)!.replace('status: active', 'status: archived\narchived_on: 2026-11-14').replace('next_review: 2026-11-28', 'next_review: null'));
+    store.files.set(path, store.files.get(path)!.replace('status: active', 'status: archived\narchived_on: 2026-11-13').replace('next_review: 2026-11-27', 'next_review: null'));
     expect(await round(practice, 'contention-r2', weakRound)).toMatchObject({ block_signals: [{ block: 'dealing-with-contention', result: 'reactivated' }, { result: 'not_enrolled' }] });
     const metadata = parseFrontmatter(store.files.get(path)!)!.metadata;
     expect(metadata).toMatchObject({ status: 'active', stage: 4, next_review: '2026-11-15' });
@@ -1693,9 +1693,17 @@ describe('block signals from System Design rounds', () => {
     expect(await round(practice, 'unstarted', weakRound)).toMatchObject({ block_signals: [{ result: 'unchanged' }, { result: 'not_enrolled' }] });
     const later = setup();
     await enroll(later.practice);
-    expect(await round(later.practice, 'earlier', { ...weakRound, completed_on: '2026-11-13' })).toMatchObject({ block_signals: [{ result: 'unchanged' }, { result: 'not_enrolled' }] });
-    expect(parseFrontmatter(later.store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-28' });
+    expect(await round(later.practice, 'earlier', { ...weakRound, completed_on: '2026-11-12' })).toMatchObject({ block_signals: [{ result: 'unchanged' }, { result: 'not_enrolled' }] });
+    expect(parseFrontmatter(later.store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-27' });
     expect(store.files.get(items + block + '.md')).toContain('review_count: 0');
+  });
+
+  it('keeps a block reviewed on the round\'s day, since dates cannot order the two', async () => {
+    const { store, practice } = setup();
+    await practice.finishRound({ topic: { id: block, domain: 'sd-blocks', title: 'Dealing with Contention', prompt: 'p' }, attempt: { attempt_id: 'same-day',
+      criteria: criteria('sd-blocks'), reflection: 'r', completed_on: '2026-11-14', placement: true, points: [{ id: 'occ', result: 'mastered', evidence: 'e' }] } });
+    expect(await round(practice, 'same-day-round', weakRound)).toMatchObject({ block_signals: [{ block: 'dealing-with-contention', result: 'unchanged' }, { result: 'not_enrolled' }] });
+    expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-28' });
   });
 
   it('never moves an item of another domain that holds the block item id', async () => {
@@ -1715,7 +1723,7 @@ describe('block signals from System Design rounds', () => {
     expect(await round(practice, 'retry', { ...weakRound, concept_observations: [observe('lock2', 'dealing-with-contention', 'weak'), observe('queue', 'kafka', 'weak')] }))
       .toMatchObject({ verified: true, review_count: 1 });
     expect(await round(practice, 'retry', mastered)).not.toHaveProperty('block_signals');
-    expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-28' });
+    expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-27' });
   });
 
   it('sends no signal while SD Blocks is off, and none for mastered or untagged answers', async () => {
@@ -1725,7 +1733,7 @@ describe('block signals from System Design rounds', () => {
       .not.toHaveProperty('block_signals');
     disable(store, 'sd-blocks');
     expect(await round(practice, 'off', weakRound)).toMatchObject({ block_signals: [{ block: 'dealing-with-contention', result: 'sd_blocks_unavailable' }, { result: 'sd_blocks_unavailable' }] });
-    expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-28' });
+    expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-27' });
   });
 
   it.each([

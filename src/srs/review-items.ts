@@ -176,14 +176,15 @@ export class ReviewItems<Domain extends string> {
    * which must belong to `domain` (`review_domain_mismatch`), is reviewed by
    * `day` at the latest. An archived item is reactivated at the
    * stage it reached. An unstarted item, or one already due by then, is left
-   * alone, and so is one reviewed after the signal's attempt, which makes a
-   * repeated signal harmless.
+   * alone, and so is one reviewed on or after the signal's day: dates cannot
+   * order two attempts of one day, so a same-day review is kept. This also
+   * makes a repeated signal harmless.
    */
   async pullForward(id: string, domain: Domain, day: string, signalDate: string): Promise<PullForwardResult> {
     const note = await this.note(id);
     const { item } = note;
     if (item.domain !== domain) throw new PracticeError('review_domain_mismatch');
-    if (!item.review_count || (item.last_review !== null && item.last_review > signalDate)) return 'unchanged';
+    if (!item.review_count || (item.last_review !== null && item.last_review >= signalDate)) return 'unchanged';
     const archived = item.status !== 'active';
     if (!archived && item.next_review !== null && item.next_review <= day) return 'unchanged';
     const metadata: Record<string, unknown> = { ...note.metadata, status: 'active', next_review: day };

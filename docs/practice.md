@@ -592,7 +592,8 @@ through the SD Blocks module (`src/system-design-module.ts`, rules in
   item of another domain (`review_domain_mismatch`), reported as `not_enrolled`. An active
   item due later moves to that day; an archived item is reactivated at the
   stage it reached and due that day. An item with no attempt yet, one already
-  due by then, or one reviewed after the round is unchanged, so a finish retry
+  due by then, or one reviewed on or after the round's day is unchanged, since
+  dates cannot order two attempts of one day, so a finish retry
   sends harmless repeats. The finish result lists `block_signals`: one
   `{block, item_id, result}` with `pulled_forward`, `reactivated`, `unchanged`,
   `not_enrolled` for a block without an item, or `sd_blocks_unavailable` while
