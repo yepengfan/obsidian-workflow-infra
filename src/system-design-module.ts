@@ -11,6 +11,12 @@ import { addDays } from './srs/schedule.js';
 
 const MODULE = practiceDomains['system-design'].module;
 
+/** The `roadmap` setting as a vault note path; anything else is `invalid_roadmap`. */
+function roadmapPath(setting: unknown) {
+  if (typeof setting !== 'string' || !setting.endsWith('.md')) throw new PracticeError('invalid_roadmap');
+  try { return validPath(setting); } catch { throw new PracticeError('invalid_roadmap'); }
+}
+
 /** What a round's weak block did to its SD Blocks review. */
 export interface BlockSignal { block: string; item_id: string; result: 'pulled_forward' | 'reactivated' | 'unchanged' | 'not_enrolled' | 'sd_blocks_unavailable' }
 
@@ -74,8 +80,7 @@ export class SystemDesignModule implements PracticeModule {
     try {
       const setting = parsePracticeNote((await this.ports.read(MODULE)).text).metadata.roadmap;
       if (setting === undefined || setting === null) return null;
-      if (typeof setting !== 'string' || !setting.endsWith('.md')) throw new PracticeError('invalid_roadmap');
-      plan = validPath(setting);
+      plan = roadmapPath(setting);
       const entries = parseRoadmap((await this.ports.read(plan)).text);
       const { completed, total, next } = roadmapProgress(entries, (await this.ports.finishedSessions()).map(session => session.topic));
       return { status: 'ready' as const, plan, completed, total, next: next && { ...next, preflight: await this.nextPreflight(next.title) } };
