@@ -5,12 +5,13 @@ import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 import bundle from '../workflows/practice.json' with { type: 'json' };
 import designRounds from './fixtures/design-rounds.json' with { type: 'json' };
-import { calendarDay, nextSchedule, Practice, finishRoundSchema, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
+import { calendarDay, Practice, finishRoundSchema, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
+import { nextSchedule as schedule } from '../src/srs/schedule.js';
 import { parseObservations, renderProfile, type StoredObservation } from '../src/design-profile.js';
 import { NoteError } from '../src/paths.js';
 import type { NoteStore, NoteWriter, WriteCondition } from '../src/note-store.js';
 import { parseFrontmatter } from '../src/frontmatter.js';
-import { reviewSummarySchema } from '../src/practice-schema.js';
+import { reviewSummarySchema, type ReviewSummary } from '../src/practice-schema.js';
 import { practiceSkill, registerPracticeTools } from '../src/practice-tools.js';
 import type { IndexedReview, ReviewIndex, SessionIndex } from '../src/review-index.js';
 import { owner, runtimeSettings } from './runtime-fixtures.js';
@@ -29,6 +30,8 @@ function withMockMinutes(minutes?: number | string) {
   return `---\n${stringify({ ...moduleNote.metadata, review_time_limits: limits })}---\n${moduleNote.body}`;
 }
 
+const nextSchedule = (current: ReviewSummary, outcome: string, day: string, intervals: number[], retryDays: number, archiveAfterFinal = false) =>
+  schedule(current, outcome, day, { intervals, retryDays, archiveAfterFinal });
 const now = () => new Date('2026-11-14T02:00:00Z');
 const settings = (writesEnabled = true) => runtimeSettings({ practice: { enabled: true, writesEnabled, timeZone: 'Australia/Brisbane' } });
 const item = { id: 'lc-1071', domain: 'algorithm' as const, title: 'GCD of strings', status: 'active' as const,

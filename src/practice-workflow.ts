@@ -5,7 +5,7 @@ import { NoteError } from './paths.js';
 import { parsePracticeNote } from './practice-note.js';
 import { domainSchema, practiceDocuments, practiceDomains, sharedPracticeDocuments, type PracticeDomain } from './practice-domains.js';
 import type { PracticeOptions } from './practice-options.js';
-import { calendarDay } from './review-schedule.js';
+import { calendarDay } from './srs/schedule.js';
 
 const moduleSchema = z.object({ enabled: z.boolean(), interval_days: z.array(z.number().int().min(1).max(3650)).min(1).max(20),
   retry_days: z.number().int().min(1).max(3650), archive_after_final: z.boolean().default(false),
