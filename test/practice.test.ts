@@ -1768,6 +1768,40 @@ describe('block signals from System Design rounds', () => {
     else await expect(finish).resolves.toMatchObject({ verified: true, review_count: 1 });
   });
 
+  it('records a standalone review of a concept-bearing item without checking evidence it cannot carry', async () => {
+    const { store, practice } = setup();
+    await practice.add({ ...designRequest, concept_ids: ['contention.lock'] });
+    const recorded = await practice.record({ id: designRequest.id, revision: store.tag(items + designRequest.id + '.md'), attempt_id: 'standalone',
+      criteria: criteria('system-design'), reflection: 'r', completed_on: '2026-11-14' });
+    expect(recorded).toMatchObject({ recorded: true, passed: true });
+  });
+
+  it('judges core coverage on the evidence as stored: saved observations count and repeated ids are refused', async () => {
+    const { store, practice } = setup();
+    const progress = 'Learning/Practice/System-Design/Solutions/stored/progress.md';
+    const saved = '```practice-observations\n' + stringify([{ ...observe('lock', undefined, 'mastered'), attempt_id: 'stored' }]) + '```\n';
+    await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n\n' + saved);
+    const finish = (observations: object[]) => practice.finishRound({ topic: { ...designRequest, concept_ids: ['contention.lock'] }, progress_path: progress, attempt: {
+      criteria: criteria('system-design'), attempt_id: 'stored', reflection: 'r', completed_on: '2026-11-14', concept_observations: observations as never } });
+    const writes = store.writes.length;
+    await expect(finish([observe('cache', 'redis', 'partial'), observe('cache', 'redis', 'weak')])).rejects.toThrow('duplicate_observation_id');
+    expect(store.writes.length).toBe(writes);
+    await expect(finish([])).resolves.toMatchObject({ verified: true, review_count: 1 });
+  });
+
+  it('rechecks against the concept list a concurrent first finish stored', async () => {
+    const { store, practice } = setup();
+    const progress = 'Learning/Practice/System-Design/Solutions/race/progress.md';
+    await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+    const add = practice.add.bind(practice);
+    // Another finish registers the item with its own concepts between this finish's preflight and its registration.
+    practice.add = async topic => { await add({ ...topic, concept_ids: ['contention.queue'] }); return add(topic); };
+    await expect(practice.finishRound({ topic: { ...designRequest, concept_ids: ['contention.lock'] }, progress_path: progress, attempt: {
+      criteria: criteria('system-design'), attempt_id: 'race', reflection: 'r', completed_on: '2026-11-14', concept_observations: [observe('lock', undefined, 'mastered')] } }))
+      .rejects.toThrow('core_blocks_mismatch');
+    expect(store.files.get(items + designRequest.id + '.md')).not.toContain('race');
+  });
+
   it('keeps the problem to System Design', async () => {
     const { store, practice } = await seeded();
     await expect(practice.record(attempt(store.tag(items + item.id + '.md'), { problem: 'ticketmaster' }))).rejects.toThrow('unsupported_practice_domain');

@@ -1,4 +1,5 @@
 import { parse, stringify } from 'yaml';
+import { PracticeError } from './errors.js';
 import { z } from 'zod';
 import { conceptIdSchema, dateSchema, slugSchema } from './practice-schema.js';
 
@@ -32,6 +33,26 @@ export function parseObservations(body: string, completionDate?: string, options
     if (date === undefined && options.deferUndated) return [];
     return [{ ...row, date: dateSchema.parse(date) }];
   });
+}
+
+/**
+ * The observations an attempt stores in its assessment: each submitted one
+ * merged over the saved one with its id, then the attempt's saved ones it
+ * leaves out. `stored` is what the finish writes; `attempt` is the round's
+ * canonical evidence. A submission may not repeat an id.
+ */
+export function mergeAttemptObservations(assessment: string, submitted: readonly ConceptObservation[], attemptId: string, date: string) {
+  const ids = submitted.map(item => item.observation_id);
+  if (new Set(ids).size !== ids.length) throw new PracticeError('duplicate_observation_id');
+  const saved = parseObservations(assessment, date);
+  const prior = new Map(saved.map(item => [item.observation_id, item]));
+  const stored: StoredObservation[] = submitted.map(item => {
+    const observation = conceptObservationSchema.parse(item);
+    const existing = prior.get(observation.observation_id);
+    return { ...existing, ...observation, attempt_id: attemptId, date: observation.date ?? existing?.date ?? date };
+  });
+  const kept = saved.filter(item => item.attempt_id === attemptId && !ids.includes(item.observation_id));
+  return { stored, attempt: [...kept, ...stored] };
 }
 
 export function upsertObservations(body: string, incoming: readonly StoredObservation[], completionDate?: string): string {

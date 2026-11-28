@@ -588,6 +588,13 @@ through the SD Blocks module (`src/system-design-module.ts`, rules in
   observations' `concept_id`, using the item's stored list, or the topic's when
   that is empty. An item without concepts has nothing to check. Other modules
   refuse `problem`.
+- These checks judge the round's evidence as the session will store it: the
+  submitted observations merged over the attempt's saved ones, the same merge
+  the finish writes. A submission that repeats an `observation_id` is refused
+  (`duplicate_observation_id`). A standalone `practice_record_review` carries
+  no evidence, so its `core_blocks_partial` judgment is not checked. When a
+  concurrent first finish stored a different concept list, the attempt is
+  checked again against the stored list before it is recorded.
 - After a round is recorded and verified, each block with a learner
   observation answered `partial` or `weak` is signalled through the core's
   `pullForward(item, domain, day, signalDate)`, with the day after the round.

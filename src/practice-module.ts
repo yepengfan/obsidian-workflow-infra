@@ -51,6 +51,11 @@ export interface ModuleAttempt {
   readonly problem?: string;
   /** The item's concepts as they will be stored once the attempt is recorded. */
   readonly concept_ids?: readonly string[];
+  /**
+   * The round's observations as its session stores them, merged with the ones
+   * saved earlier. Absent when the attempt carries no evidence, as in a
+   * standalone review.
+   */
   readonly concept_observations?: readonly ConceptObservation[];
 }
 

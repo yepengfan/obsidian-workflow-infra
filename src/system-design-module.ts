@@ -1,6 +1,5 @@
 import type { BlockMap } from './block-map.js';
 import { checkCoreBlocks, checkCoreConcepts, checkObservationBlocks, weakBlocks } from './design-blocks.js';
-import { conceptObservationSchema } from './design-profile.js';
 import { PracticeError } from './errors.js';
 import { NoteError } from './paths.js';
 import type { ModuleAttempt, PracticeModule, PracticeModulePorts } from './practice-module.js';
@@ -21,13 +20,16 @@ export class SystemDesignModule implements PracticeModule {
 
   async attempt(_itemId: string, attempt: ModuleAttempt) {
     if (attempt.points?.length) throw new PracticeError('unsupported_practice_domain');
-    const observations = (attempt.concept_observations ?? []).map(item => conceptObservationSchema.parse(item));
+    // The round's evidence as the session stores it; a standalone review has none, so its judgment is not checked.
+    const evidence = attempt.concept_observations;
     // Without a problem row, the item's concepts are its core blocks; that check needs no map.
-    if (attempt.problem === undefined) checkCoreConcepts(attempt.concept_ids ?? [], attempt.criteria, observations);
-    if (attempt.problem === undefined && !observations.some(observation => observation.block !== undefined)) return undefined;
+    if (evidence && attempt.problem === undefined) checkCoreConcepts(attempt.concept_ids ?? [], attempt.criteria, evidence);
+    if (attempt.problem === undefined && !evidence?.some(observation => observation.block !== undefined)) return undefined;
     const map = await this.blockMap();
-    checkObservationBlocks(map, observations);
-    if (attempt.problem !== undefined) checkCoreBlocks(map, attempt.problem, attempt.criteria, observations);
+    if (evidence) checkObservationBlocks(map, evidence);
+    if (attempt.problem === undefined) return undefined;
+    if (!map.problems.some(problem => problem.id === attempt.problem)) throw new PracticeError('unknown_problem');
+    if (evidence) checkCoreBlocks(map, attempt.problem, attempt.criteria, evidence);
     return undefined;
   }
 
