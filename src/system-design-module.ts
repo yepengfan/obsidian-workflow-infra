@@ -80,7 +80,8 @@ export class SystemDesignModule implements PracticeModule {
   /**
    * The learning roadmap named by the module's `roadmap` setting, a plan note
    * whose frontmatter lists the problems in order. Null when none is set; a
-   * roadmap that cannot be read reports why instead of failing the workflow.
+   * roadmap that cannot be used reports why, as the error's code, instead of
+   * failing the workflow.
    */
   private async roadmap() {
     let plan: string | null = null;

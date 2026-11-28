@@ -664,9 +664,12 @@ never calls the SD Blocks module.
     done, with that problem's pre-problem check as `preflight`, found by its
     title as a breakdown. A check that cannot run gives its `error`, such as
     `invalid_block_map`.
-  - Without the setting `roadmap` is null. An unreadable plan, an invalid
-    setting, or a plan without valid frontmatter or list gives `status: unavailable` with its `reason`
-    (`note_unavailable` or `invalid_roadmap`) instead of failing the workflow.
+  - Without the setting `roadmap` is null. A roadmap that cannot be used gives
+    `status: unavailable` with its `reason`, an error code, instead of failing
+    the workflow. An invalid setting, or a plan without valid frontmatter or
+    list, gives `invalid_roadmap`. A plan that cannot be read gives its read
+    error, such as `note_unavailable`, `invalid_utf8` or
+    `practice_note_too_large`.
 - The workflow decides what a gap means for the learner. Block names identify
   techniques, so sysd-solve keeps the check private before the attempt and
   tells the learner only the gap count. With two or more core gaps it offers

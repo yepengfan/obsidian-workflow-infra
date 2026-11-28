@@ -2030,6 +2030,10 @@ describe('the pre-problem check and the roadmap', () => {
       expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { status: 'unavailable', plan, reason: 'invalid_roadmap' } });
     }
     withRoadmap(store, plan);
+    const read = store.read.bind(store);
+    store.read = async (...args) => args[0] === root + plan ? { bytes: Buffer.from([255]), total: 1, etag: 'revision' } : read(...args);
+    expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { status: 'unavailable', plan, reason: 'invalid_utf8' } });
+    store.read = read;
     for (const text of ['# Plan without frontmatter\n', '---\nroadmap: [unclosed\n---\n# Plan\n']) {
       store.files.set(root + plan, text);
       expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { status: 'unavailable', plan, reason: 'invalid_roadmap' } });
