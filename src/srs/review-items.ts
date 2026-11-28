@@ -11,7 +11,9 @@ import { nextSchedule, type ScheduleConfig } from './schedule.js';
 
 const text = z.string().max(12000);
 const requiredText = text.refine(value => value.trim().length > 0);
-const itemSchema = summarySchema.extend({ prompt: requiredText, source: text.optional(), concept_ids: z.array(conceptIdSchema).max(50).default([]), attempt_ids: z.array(z.string()).max(5000).default([]) });
+const itemSchema = summarySchema.extend({ prompt: requiredText, source: text.optional(), concept_ids: z.array(conceptIdSchema).max(50).default([]), attempt_ids: z.array(z.string()).max(5000).default([]),
+  /** Where each attempt was finished from, an opaque key such as a session note path, when its caller named one. */
+  attempt_sessions: z.record(z.string(), z.string()).default({}) });
 
 export function serializeNote(metadata: Record<string, unknown>, body: string) { return `---\n${stringify(metadata)}---\n${body}`; }
 
@@ -39,6 +41,12 @@ export interface RecordedAttempt {
   placement?: boolean;
   /** A module's own history section, rendered after the criteria. */
   details?: string;
+  /**
+   * An opaque key for where the attempt was finished from, stored with the
+   * attempt in the same conditional write, so a caller can tell a retry from
+   * the same place apart from a reuse of the attempt id elsewhere.
+   */
+  session?: string;
 }
 
 /** How one module's items are scheduled and judged. */
@@ -161,7 +169,8 @@ export class ReviewItems<Domain extends string> {
     const change = nextSchedule(note.item, passed, input.completed_on, schedule, input.placement ? placementStage : undefined);
     // last_result replaces the legacy last_outcome.
     const metadata: Record<string, unknown> = { ...note.metadata, ...change, last_result: passed ? 'passed' : 'failed',
-      unmet_criteria: unmet, attempt_ids: [...note.item.attempt_ids, input.attempt_id] };
+      unmet_criteria: unmet, attempt_ids: [...note.item.attempt_ids, input.attempt_id],
+      ...(input.session ? { attempt_sessions: { ...note.item.attempt_sessions, [input.attempt_id]: input.session } } : {}) };
     delete metadata.last_outcome;
     const ordered = criteria.map(criterion => input.criteria.find(result => result.id === criterion.id)!);
     const entry = renderEntry({ date: input.completed_on, round: change.review_count, passed, nextReview: change.next_review,

@@ -602,10 +602,15 @@ only the System Design module receives; the shared module ports stay read-only.
   the session's lock: of two finishes racing on one session, the loser fails
   with `revision_conflict` before registering anything. A claimed but
   unconfirmed session still accepts a corrected retry of the same round.
-  Because the claim precedes recording, an attempt already recorded on the
-  item is retried only from the session bound to that round and item; any
-  other session is refused with `attempt_already_recorded` before it is
-  written, so it can neither store observations nor send signals.
+  Recording an attempt also stores its session note path in the item's
+  `attempt_sessions`, in the same conditional write, so the item owns the
+  attempt. An attempt already recorded is retried only from that session, or
+  for one recorded without a session, from the session bound to it before the
+  call. Any other session is refused with `attempt_already_recorded`, before
+  it is written for a sequential reuse, and after the item is read back when
+  two sessions race on one attempt id. Either way it stores no observations
+  and sends no signals. A session refused after the race stays bound to the
+  reused id, so it needs a new session with its own attempt id.
 - After a round is recorded and verified, each block with a learner
   observation answered `partial` or `weak` is signalled through the core's
   `pullForward(item, domain, day, signalDate)`, with the day after the round.

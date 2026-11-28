@@ -154,9 +154,9 @@ export class Practice {
     return this.recordChecked(input, details);
   }
   /** Records an attempt whose module fields were already checked, with their history section. */
-  private recordChecked(input: z.infer<typeof recordReviewSchema>, details: string | undefined) {
+  private recordChecked(input: z.infer<typeof recordReviewSchema>, details: string | undefined, session?: string) {
     const { id, revision, attempt_id, reflection, completed_on, criteria, submission, observations, placement } = input;
-    return this.items.record({ id, revision, attempt_id, reflection, completed_on, criteria, submission, observations, placement, details });
+    return this.items.record({ id, revision, attempt_id, reflection, completed_on, criteria, submission, observations, placement, details, session });
   }
   async finishRound({ topic, attempt, progress_path }: z.infer<typeof finishRoundSchema>) {
     if (topic.domain !== 'system-design' && attempt.concept_observations?.length) throw new PracticeError('unsupported_practice_domain');
@@ -184,8 +184,10 @@ export class Practice {
         throw new PracticeError('session_topic_mismatch');
       }
       const bound = metadata.round_id === attempt.attempt_id && metadata.review_item_id === topic.id;
-      // A session claims itself before its attempt is recorded, so a recorded attempt is retried only from its own session.
-      if (recorded && !bound) throw new PracticeError('attempt_already_recorded');
+      // A recorded attempt is retried only from the session it was recorded from: the one the item names, or for
+      // an attempt recorded without one, the session bound to it before this call.
+      const owner = existing?.item.attempt_sessions[attempt.attempt_id];
+      if (recorded && (owner === undefined ? !bound : owner !== progress_path)) throw new PracticeError('attempt_already_recorded');
       if ((!tags.includes('system-design/wip') && !(bound && tags.includes('system-design/done'))) ||
         (metadata.round_id && metadata.round_id !== attempt.attempt_id) ||
         (metadata.review_item_id != null && metadata.review_item_id !== topic.id) ||
@@ -220,9 +222,13 @@ export class Practice {
       await this.notes.put(progress_path, serialize({ ...claimed.metadata, confirmed_registration: { topic, attempt } }, unconfirmed.body), claimed.revision);
     }
     if (!current.item.attempt_ids.includes(attempt.attempt_id)) {
-      await this.recordChecked({ ...attempt, id: topic.id, revision: current.revision }, details);
+      await this.recordChecked({ ...attempt, id: topic.id, revision: current.revision }, details, progress_path);
     }
     const verified = await this.items.note(topic.id);
+    // Of finishes racing on one attempt id from different sessions, the item's conditional write records exactly
+    // one with its session; the others store nothing and send no signals.
+    const owner = verified.item.attempt_sessions[attempt.attempt_id];
+    if (progress_path && owner !== undefined && owner !== progress_path) throw new PracticeError('attempt_already_recorded');
     if (!verified.item.attempt_ids.includes(attempt.attempt_id) ||
       (verified.item.status === 'active' && !verified.item.next_review)) throw new PracticeError('registration_verification_failed');
     if (topic.domain === 'system-design' && progress_path) {

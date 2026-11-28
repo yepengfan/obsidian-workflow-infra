@@ -1854,6 +1854,28 @@ describe('block signals from System Design rounds', () => {
     expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-27' });
   });
 
+  it('lets only the session that records a raced attempt id store evidence or send signals', async () => {
+    const { store, practice } = setup();
+    await enroll(practice);
+    const notePath = (folder: string) => `Learning/Practice/System-Design/Solutions/${folder}/progress.md`;
+    for (const folder of ['race-a', 'race-b']) {
+      await practice.createNote(notePath(folder), '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+    }
+    const finish = (folder: string, performance: 'mastered' | 'weak') => practice.finishRound({ topic: designRequest, progress_path: notePath(folder), attempt: {
+      criteria: criteria('system-design', performance === 'weak' ? ['core_blocks_partial'] : []), attempt_id: 'raced', reflection: 'r', completed_on: '2026-11-14',
+      problem: 'ticketmaster', concept_observations: [observe(folder, 'dealing-with-contention', performance)] } });
+    const add = practice.add.bind(practice);
+    // Session A records the same attempt id after B has passed its own checks and claimed its note.
+    practice.add = async topic => { practice.add = add; await finish('race-a', 'mastered'); return add(topic); };
+    await expect(finish('race-b', 'weak')).rejects.toThrow('attempt_already_recorded');
+    await expect(finish('race-b', 'weak')).rejects.toThrow('attempt_already_recorded');
+    // B's payload sits in its confirmed registration, but its assessment stores no evidence.
+    expect(store.files.get(root + notePath('race-b'))).not.toContain('```practice-observations');
+    expect(store.files.get(root + notePath('race-a'))).toContain('```practice-observations');
+    expect(parseFrontmatter(store.files.get(items + designRequest.id + '.md')!)!.metadata).toMatchObject({ review_count: 1, attempt_sessions: { raced: notePath('race-a') } });
+    expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-27' });
+  });
+
   it('keeps the problem to System Design', async () => {
     const { store, practice } = await seeded();
     await expect(practice.record(attempt(store.tag(items + item.id + '.md'), { problem: 'ticketmaster' }))).rejects.toThrow('unsupported_practice_domain');
