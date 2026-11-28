@@ -602,9 +602,10 @@ only the System Design module receives; the shared module ports stay read-only.
   the session's lock: of two finishes racing on one session, the loser fails
   with `revision_conflict` before registering anything. A claimed but
   unconfirmed session still accepts a corrected retry of the same round.
-  Recording an attempt also stores its session note path in the item's
+  Recording an attempt also stores where it came from in the item's
   `attempt_sessions`, in the same conditional write, so the item owns the
-  attempt. An attempt already recorded is retried only from that session, or
+  attempt: the session note path for a finish, or `standalone` for
+  `practice_record_review`. An attempt already recorded is retried only from that session, or
   for one recorded without a session, from the session bound to it before the
   call. Any other session is refused with `attempt_already_recorded`, before
   it is written for a sequential reuse, and after the item is read back when
@@ -616,7 +617,7 @@ only the System Design module receives; the shared module ports stay read-only.
   `pullForward(item, domain, day, signalDate)`, with the day after the round.
   The signal reads the observations stored in the session for that attempt, so
   a retry whose payload differs cannot signal other blocks. The core refuses an
-  item of another domain (`review_domain_mismatch`), reported as `not_enrolled`. An active
+  item of any other domain, registered or not (`review_domain_mismatch`), reported as `not_enrolled`. An active
   item due later moves to that day; an archived item is reactivated at the
   stage it reached and due that day. An item with no attempt yet, one already
   due by then, or one reviewed on or after the round's day is unchanged, since
