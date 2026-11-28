@@ -1,16 +1,15 @@
 # MCP practice adapter
 
 The MCP entry rules override the canonical practice skill's module menu and
-new-problem handoff. Behavioral practice is unsupported. Generic requests use the
+new-problem handoff. Generic requests use the
 combined overview; explicit domain requests stay scoped. Preserve generic-entry
 intent, the current review/handoff phase and any pending new-practice topic
 across calls to practice. A handoff availability check does not restart entry.
 
 Use `practice_instruction` for listed workflow definitions and `read_note` /
-`list_notes` for private S3 notes. Replace local review.py due/show/add/record
-with `practice_reviews` / `practice_review` / `practice_add_review` /
-`practice_record_review`. Always supply the domain to queue and add calls.
-For confirmed rounds in any enrolled module, map local `finish` to `practice_finish_round`. Include the selected session's progress_path for System Design. At practice entry offer Finish registration for pending_finalizations, separately from resuming open rounds. Check the saved item and progress for prior registration, reuse the original attempt ID and completion date, and retry any saved confirmed_registration before asking for input again.
+`list_notes` for private S3 notes. The canonical definitions already call the
+practice tools by name. Always supply the domain to queue and add calls.
+Include the selected session's progress_path when finishing a System Design round. At practice entry offer Finish registration for pending_finalizations, separately from resuming open rounds. Check the saved item and progress for prior registration, reuse the original attempt ID and completion date, and retry any saved confirmed_registration before asking for input again.
 Each `practice_reviews` call returns one domain's complete queue, already
 ordered; there are no pages or cursors. A newly added review can take a few
 seconds to appear.
