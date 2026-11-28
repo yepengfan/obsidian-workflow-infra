@@ -205,6 +205,16 @@ describe('practice storage behavior', () => {
     store.files.set(configPath, moduleText.replace('enabled: true', 'enabled: false'));
     await expect(practice.workflow()).rejects.toThrow('practice_module_disabled');
   });
+  it('reports a module note without a valid consumers table as invalid configuration', async () => {
+    const { store, practice } = setup();
+    const legacy: Record<string, unknown> = { ...moduleNote.metadata, practice_flows: {}, review_time_limits: {} };
+    delete legacy.consumers;
+    store.files.set(configPath, `---\n${stringify(legacy)}---\n${moduleNote.body}`);
+    await expect(practice.workflow()).rejects.toThrow('invalid_practice_config');
+    await expect(practice.workflow('algorithm')).rejects.toThrow('invalid_practice_config');
+    await expect(practice.reviews({ domain: 'algorithm' })).rejects.toThrow('invalid_practice_config');
+    expect(store.writes).toEqual([]);
+  });
   it('rejects changed mappings and disabled domains before domain actions', async () => {
     const { store, practice } = setup();
     store.files.set(configPath, moduleText.replace('.agents/skills/algo-solve/SKILL.md', 'elsewhere.md'));

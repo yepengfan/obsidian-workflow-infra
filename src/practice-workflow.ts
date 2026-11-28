@@ -32,7 +32,9 @@ export class PracticeWorkflow {
   async config(domain?: z.infer<typeof domainSchema>) {
     if (!this.options.enabled) throw new PracticeError('practice_disabled');
     const note = await this.read('system/modules/practice-review/module.md');
-    const config = moduleSchema.parse(parsePracticeNote(note.text).metadata);
+    const parsed = moduleSchema.safeParse(parsePracticeNote(note.text).metadata);
+    if (!parsed.success) throw new PracticeError('invalid_practice_config');
+    const config = parsed.data;
     if (!config.enabled) throw new PracticeError('practice_module_disabled');
     return { ...config, time_limit: domain === undefined ? undefined : await this.checkDomain(config, domain) };
   }

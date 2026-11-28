@@ -105,7 +105,7 @@ and final-interval archiving. Its `consumers` table registers each module that
 uses spaced review: `enabled`, `module`, `flow` and `time_limit`. A module is
 usable only when all five hold, checked before its actions:
 
-1. practice review is enabled (`practice_module_disabled`)
+1. practice review is enabled (`practice_module_disabled`); a manifest missing these settings, such as one without `consumers`, fails every module with `invalid_practice_config`
 2. its consumer entry is enabled (`consumer_disabled`, or `consumer_not_registered` when absent)
 3. its own module is enabled (`domain_module_disabled`, `invalid_domain_module`)
 4. its entry is valid (`invalid_consumer_config`, `invalid_review_time_limit`)
