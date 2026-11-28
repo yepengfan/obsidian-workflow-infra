@@ -1,5 +1,5 @@
 import type { BlockMap } from './block-map.js';
-import { checkCoreBlocks, checkObservationBlocks, weakBlocks } from './design-blocks.js';
+import { checkCoreBlocks, checkCoreConcepts, checkObservationBlocks, weakBlocks } from './design-blocks.js';
 import { conceptObservationSchema } from './design-profile.js';
 import { PracticeError } from './errors.js';
 import { NoteError } from './paths.js';
@@ -22,6 +22,8 @@ export class SystemDesignModule implements PracticeModule {
   async attempt(_itemId: string, attempt: ModuleAttempt) {
     if (attempt.points?.length) throw new PracticeError('unsupported_practice_domain');
     const observations = (attempt.concept_observations ?? []).map(item => conceptObservationSchema.parse(item));
+    // Without a problem row, the item's concepts are its core blocks; that check needs no map.
+    if (attempt.problem === undefined) checkCoreConcepts(attempt.concept_ids ?? [], attempt.criteria, observations);
     if (attempt.problem === undefined && !observations.some(observation => observation.block !== undefined)) return undefined;
     const map = await this.blockMap();
     checkObservationBlocks(map, observations);

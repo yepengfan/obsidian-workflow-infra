@@ -49,6 +49,8 @@ export interface ModuleAttempt {
   readonly points?: readonly BlockPointResult[];
   /** The problem of the block map the attempt solved. */
   readonly problem?: string;
+  /** The item's concepts as they will be stored once the attempt is recorded. */
+  readonly concept_ids?: readonly string[];
   readonly concept_observations?: readonly ConceptObservation[];
 }
 

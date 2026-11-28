@@ -1753,6 +1753,21 @@ describe('block signals from System Design rounds', () => {
     expect(store.writes.length).toBe(writes);
   });
 
+  it.each([
+    { name: 'met with a weak concept', met: true, observations: [observe('lock', undefined, 'weak')], error: 'core_blocks_mismatch' },
+    { name: 'met without an answer for a concept', met: true, observations: [], error: 'core_blocks_mismatch' },
+    { name: 'unmet with every concept answered', met: false, observations: [observe('lock', undefined, 'partial')], error: 'core_blocks_mismatch' },
+    { name: 'met with every concept answered', met: true, observations: [observe('lock', undefined, 'mastered'), observe('hint', undefined, 'weak', false)] },
+  ])('without a problem row, checks core blocks against the concepts: $name', async ({ met, observations, error }) => {
+    const { practice } = setup();
+    const progress = 'Learning/Practice/System-Design/Solutions/concepts/progress.md';
+    await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+    const finish = practice.finishRound({ topic: { ...designRequest, concept_ids: ['contention.lock'] }, progress_path: progress, attempt: {
+      criteria: criteria('system-design', met ? [] : ['core_blocks_partial']), attempt_id: 'concepts', reflection: 'r', completed_on: '2026-11-14', concept_observations: observations } });
+    if (error) await expect(finish).rejects.toThrow(error);
+    else await expect(finish).resolves.toMatchObject({ verified: true, review_count: 1 });
+  });
+
   it('keeps the problem to System Design', async () => {
     const { store, practice } = await seeded();
     await expect(practice.record(attempt(store.tag(items + item.id + '.md'), { problem: 'ticketmaster' }))).rejects.toThrow('unsupported_practice_domain');

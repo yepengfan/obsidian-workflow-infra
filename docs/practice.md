@@ -583,7 +583,11 @@ through the SD Blocks module (`src/system-design-module.ts`, rules in
   (`unknown_problem`). Then `core_blocks_partial`, when the module judges it,
   must be met exactly when every core block of that problem has at least one
   learner observation tagged with it and all of them are `mastered` or
-  `partial` (`core_blocks_mismatch`). Other modules refuse `problem`.
+  `partial` (`core_blocks_mismatch`). Without `problem`, the item's
+  `concept_ids` stand in for the core blocks: the same rule applies to the
+  observations' `concept_id`, using the item's stored list, or the topic's when
+  that is empty. An item without concepts has nothing to check. Other modules
+  refuse `problem`.
 - After a round is recorded and verified, each block with a learner
   observation answered `partial` or `weak` is signalled through the core's
   `pullForward(item, domain, day, signalDate)`, with the day after the round.

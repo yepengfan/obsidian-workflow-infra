@@ -148,7 +148,7 @@ export class Practice {
     const current = await this.items.note(input.id);
     // A retry of a recorded attempt returns it unchanged, so only a new attempt is checked.
     const details = current.item.attempt_ids.includes(input.attempt_id) ? undefined
-      : await this.checkAttempt(domainSchema.parse(current.item.domain), input.id, input);
+      : await this.checkAttempt(domainSchema.parse(current.item.domain), input.id, { ...input, concept_ids: current.item.concept_ids });
     return this.recordChecked(input, details);
   }
   /** Records an attempt whose module fields were already checked, with their history section. */
@@ -164,7 +164,9 @@ export class Practice {
     judge((await this.workflows.config(topic.domain)).policy!.pass_criteria, attempt.criteria);
     // A retry of a recorded attempt re-verifies it without checking it against a map that may have changed.
     const existing = this.modules[topic.domain]?.attempt ? await this.existingItem(topic.id) : null;
-    const details = existing?.item.attempt_ids.includes(attempt.attempt_id) ? undefined : await this.checkAttempt(topic.domain, topic.id, attempt);
+    // An empty concept list takes the topic's, as registration below does.
+    const concept_ids = existing?.item.concept_ids.length ? existing.item.concept_ids : topic.concept_ids ?? [];
+    const details = existing?.item.attempt_ids.includes(attempt.attempt_id) ? undefined : await this.checkAttempt(topic.domain, topic.id, { ...attempt, concept_ids });
     if (progress_path) {
       if (topic.domain !== 'system-design' || validatePracticeWritePath(progress_path) !== topic.domain ||
         !progress_path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !progress_path.endsWith('/progress.md')) throw new NoteError('invalid_path');
