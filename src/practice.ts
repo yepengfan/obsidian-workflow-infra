@@ -35,7 +35,7 @@ export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: rev
   criteria: z.array(criterionResultSchema).min(1).max(20), reflection: requiredText,
   completed_on: dateSchema, submission: text.optional(), observations: text.optional(),
   concept_observations: z.array(conceptObservationSchema).max(20).optional(),
-  points: z.array(blockPointResultSchema).min(1).max(8).optional(), placement: z.boolean().optional() });
+  points: z.array(blockPointResultSchema).min(1).max(8).optional(), placement: z.boolean().optional(), problem: slugSchema.optional() });
 export const finishRoundSchema = z.strictObject({
   topic: addReviewSchema, attempt: recordReviewSchema.omit({ id: true, revision: true }),
   progress_path: z.string().max(1024).optional(),
@@ -53,7 +53,10 @@ export class Practice {
     this.notes = new PracticeNotes(store, settings.prefix, signal, settings.limits.practiceNoteBytes, settings.practice.writesEnabled ? dependencies.writer : undefined);
     ({ modules: this.modules, sdBlocks: this.sdBlocks } = practiceModules({ read: path => this.read(path), notesIn: prefix => this.notesIn(prefix),
       activeReviews: domain => this.index.activeReviews(domain, this.signal), item: async id => (await this.items.note(id, true)).item,
-      today: () => this.today(), signal }));
+      today: () => this.today(), signal, pullForward: (id, day, signalDate) => this.items.pullForward(id, day, signalDate),
+      available: async domain => {
+        try { await this.workflows.config(domain); return true; } catch { this.signal.throwIfAborted(); return false; }
+      } }));
     const checks = Object.fromEntries(Object.entries(this.modules).flatMap(([domain, module]) => module.check ? [[domain, () => module.check!()]] : []));
     this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal, checks);
     this.items = new ReviewItems({
@@ -88,7 +91,7 @@ export class Practice {
   private async checkAttempt(domain: PracticeDomain, itemId: string, attempt: ModuleAttempt) {
     const module = this.modules[domain];
     if (!module?.attempt) {
-      if (attempt.points?.length) throw new PracticeError('unsupported_practice_domain');
+      if (attempt.points?.length || attempt.problem !== undefined) throw new PracticeError('unsupported_practice_domain');
       return undefined;
     }
     await this.workflows.config(domain);
@@ -142,12 +145,16 @@ export class Practice {
   }
   async record(input: z.infer<typeof recordReviewSchema>) {
     if (input.concept_observations?.length) throw new PracticeError('use_practice_finish_round_for_evidence');
-    const { points, ...attempt } = input;
     const current = await this.items.note(input.id);
     // A retry of a recorded attempt returns it unchanged, so only a new attempt is checked.
     const details = current.item.attempt_ids.includes(input.attempt_id) ? undefined
-      : await this.checkAttempt(domainSchema.parse(current.item.domain), input.id, { points, criteria: attempt.criteria });
-    return this.items.record({ ...attempt, details });
+      : await this.checkAttempt(domainSchema.parse(current.item.domain), input.id, input);
+    return this.recordChecked(input, details);
+  }
+  /** Records an attempt whose module fields were already checked, with their history section. */
+  private recordChecked(input: z.infer<typeof recordReviewSchema>, details: string | undefined) {
+    const { id, revision, attempt_id, reflection, completed_on, criteria, submission, observations, placement } = input;
+    return this.items.record({ id, revision, attempt_id, reflection, completed_on, criteria, submission, observations, placement, details });
   }
   async finishRound({ topic, attempt, progress_path }: z.infer<typeof finishRoundSchema>) {
     if (topic.domain !== 'system-design' && attempt.concept_observations?.length) throw new PracticeError('unsupported_practice_domain');
@@ -157,7 +164,7 @@ export class Practice {
     judge((await this.workflows.config(topic.domain)).policy!.pass_criteria, attempt.criteria);
     // A retry of a recorded attempt re-verifies it without checking it against a map that may have changed.
     const existing = this.modules[topic.domain]?.attempt ? await this.existingItem(topic.id) : null;
-    if (!existing?.item.attempt_ids.includes(attempt.attempt_id)) await this.checkAttempt(topic.domain, topic.id, attempt);
+    const details = existing?.item.attempt_ids.includes(attempt.attempt_id) ? undefined : await this.checkAttempt(topic.domain, topic.id, attempt);
     if (progress_path) {
       if (topic.domain !== 'system-design' || validatePracticeWritePath(progress_path) !== topic.domain ||
         !progress_path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !progress_path.endsWith('/progress.md')) throw new NoteError('invalid_path');
@@ -187,9 +194,7 @@ export class Practice {
       current = await this.items.note(topic.id);
     }
     if (!current.item.attempt_ids.includes(attempt.attempt_id)) {
-      const registration = { ...attempt };
-      delete registration.concept_observations;
-      await this.record({ ...registration, id: topic.id, revision: current.revision });
+      await this.recordChecked({ ...attempt, id: topic.id, revision: current.revision }, details);
     }
     const verified = await this.items.note(topic.id);
     if (!verified.item.attempt_ids.includes(attempt.attempt_id) ||
@@ -209,7 +214,9 @@ export class Practice {
           tags: tags.map(tag => tag === 'system-design/wip' ? 'system-design/done' : tag) }, body), note.revision);
       } else if (!tags.includes('system-design/done')) throw new PracticeError('session_round_mismatch');
     }
-    return { ...summarySchema.parse(verified.item), attempt_id: attempt.attempt_id, verified: true };
+    const finish = this.modules[topic.domain];
+    const extra = finish?.finish ? await finish.finish(topic.id, attempt) : {};
+    return { ...summarySchema.parse(verified.item), attempt_id: attempt.attempt_id, verified: true, ...extra };
   }
 
   private async persistDesignProfile(progressPath: string, attemptId: string, date: string, observations: z.infer<typeof conceptObservationSchema>[]) {

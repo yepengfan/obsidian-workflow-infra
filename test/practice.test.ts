@@ -1646,3 +1646,89 @@ describe('SD Blocks', () => {
     await expect(practice.designCanvas(path)).rejects.toThrow('domain_module_disabled');
   });
 });
+
+describe('block signals from System Design rounds', () => {
+  const block = 'sdb-dealing-with-contention';
+  const observe = (id: string, blockId: string | undefined, performance: 'mastered' | 'partial' | 'weak' | 'uncovered', learner = true) =>
+    ({ observation_id: id, concept_id: 'contention.' + id, ...(blockId ? { block: blockId } : {}), performance, learner, summary: `Answered ${performance}.`, anchor: 'Assessment' });
+  const enroll = (practice: Practice) => practice.finishRound({ topic: { id: block, domain: 'sd-blocks', title: 'Dealing with Contention',
+    prompt: 'Review the Dealing with Contention building block in a fresh scenario.' }, attempt: { attempt_id: 'block-1', criteria: criteria('sd-blocks'),
+    reflection: 'Version column.', completed_on: '2026-11-14', placement: true, points: [{ id: 'occ', result: 'mastered', evidence: 'e' }] } });
+  const round = async (practice: Practice, folder: string, attempt: object) => {
+    const progress = `Learning/Practice/System-Design/Solutions/${folder}/progress.md`;
+    try { await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n'); }
+    catch (error) { if (!(error instanceof NoteError) || error.code !== 'revision_conflict') throw error; }
+    return practice.finishRound({ topic: designRequest, progress_path: progress, attempt: { criteria: criteria('system-design'), attempt_id: folder,
+      reflection: 'My answer.', completed_on: '2026-11-14', ...attempt } });
+  };
+  const weakRound = { problem: 'ticketmaster', criteria: criteria('system-design', ['core_blocks_partial']),
+    concept_observations: [observe('lock', 'dealing-with-contention', 'weak'), observe('cache', 'redis', 'partial'), observe('hint', 'redis', 'weak', false)] };
+
+  it('brings a weakly answered block forward, reports blocks without items and is idempotent on retry', async () => {
+    const { store, practice } = setup();
+    expect(await enroll(practice)).toMatchObject({ stage: 4, next_review: '2026-11-28' });
+    expect(await round(practice, 'contention-r1', weakRound)).toMatchObject({ verified: true, block_signals: [
+      { block: 'dealing-with-contention', item_id: block, result: 'pulled_forward' }, { block: 'redis', item_id: 'sdb-redis', result: 'not_enrolled' }] });
+    expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ status: 'active', stage: 4, next_review: '2026-11-15' });
+    expect(await round(practice, 'contention-r1', weakRound)).toMatchObject({ review_count: 1, block_signals: [{ result: 'unchanged' }, { result: 'not_enrolled' }] });
+    const profile = store.files.get(root + 'Learning/Practice/System-Design/Profile.md')!;
+    expect(profile).toContain('## Block: dealing-with-contention\n\n### contention.lock\n\nCurrent: weak.');
+    expect(profile).toContain('## Block: redis\n\n### contention.cache');
+  });
+
+  it('reactivates an archived block at the stage it reached', async () => {
+    const { store, practice } = setup();
+    await enroll(practice);
+    const path = items + block + '.md';
+    store.files.set(path, store.files.get(path)!.replace('status: active', 'status: archived\narchived_on: 2026-11-14').replace('next_review: 2026-11-28', 'next_review: null'));
+    expect(await round(practice, 'contention-r2', weakRound)).toMatchObject({ block_signals: [{ block: 'dealing-with-contention', result: 'reactivated' }, { result: 'not_enrolled' }] });
+    const metadata = parseFrontmatter(store.files.get(path)!)!.metadata;
+    expect(metadata).toMatchObject({ status: 'active', stage: 4, next_review: '2026-11-15' });
+    expect(metadata).not.toHaveProperty('archived_on');
+  });
+
+  it('leaves an unstarted block, and one reviewed after the round, unchanged', async () => {
+    const { store, practice } = setup();
+    await practice.add({ id: block, domain: 'sd-blocks', title: 'Dealing with Contention', prompt: 'p' });
+    expect(await round(practice, 'unstarted', weakRound)).toMatchObject({ block_signals: [{ result: 'unchanged' }, { result: 'not_enrolled' }] });
+    const later = setup();
+    await enroll(later.practice);
+    expect(await round(later.practice, 'earlier', { ...weakRound, completed_on: '2026-11-13' })).toMatchObject({ block_signals: [{ result: 'unchanged' }, { result: 'not_enrolled' }] });
+    expect(parseFrontmatter(later.store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-28' });
+    expect(store.files.get(items + block + '.md')).toContain('review_count: 0');
+  });
+
+  it('sends no signal while SD Blocks is off, and none for mastered or untagged answers', async () => {
+    const { store, practice } = setup();
+    await enroll(practice);
+    expect(await round(practice, 'mastered', { problem: 'ticketmaster', concept_observations: [observe('lock', 'dealing-with-contention', 'mastered'), observe('free', undefined, 'weak')] }))
+      .not.toHaveProperty('block_signals');
+    disable(store, 'sd-blocks');
+    expect(await round(practice, 'off', weakRound)).toMatchObject({ block_signals: [{ block: 'dealing-with-contention', result: 'sd_blocks_unavailable' }, { result: 'sd_blocks_unavailable' }] });
+    expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-28' });
+  });
+
+  it.each([
+    { name: 'core blocks met with a weak core block', attempt: { ...weakRound, criteria: criteria('system-design') }, error: 'core_blocks_mismatch' },
+    { name: 'core blocks met without a core block observation', attempt: { problem: 'ticketmaster', concept_observations: [observe('cache', 'redis', 'mastered')] }, error: 'core_blocks_mismatch' },
+    { name: 'core blocks unmet with every core block answered', attempt: { problem: 'ticketmaster', criteria: criteria('system-design', ['core_blocks_partial']),
+      concept_observations: [observe('lock', 'dealing-with-contention', 'partial')] }, error: 'core_blocks_mismatch' },
+    { name: 'a problem missing from the map', attempt: { problem: 'bitly' }, error: 'unknown_problem' },
+    { name: 'an observation of an unknown block', attempt: { concept_observations: [observe('queue', 'kafka', 'weak')] }, error: 'unknown_block' },
+  ])('refuses $name before any write', async ({ attempt, error }) => {
+    const { store, practice } = setup();
+    const progress = 'Learning/Practice/System-Design/Solutions/refused/progress.md';
+    await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+    const writes = store.writes.length;
+    await expect(practice.finishRound({ topic: designRequest, progress_path: progress, attempt: { criteria: criteria('system-design'), attempt_id: 'refused',
+      reflection: 'r', completed_on: '2026-11-14', ...attempt } })).rejects.toThrow(error);
+    expect(store.writes.length).toBe(writes);
+  });
+
+  it('keeps the problem to System Design', async () => {
+    const { store, practice } = await seeded();
+    await expect(practice.record(attempt(store.tag(items + item.id + '.md'), { problem: 'ticketmaster' }))).rejects.toThrow('unsupported_practice_domain');
+    await expect(practice.finishRound({ topic: { id: block, domain: 'sd-blocks', title: 'Dealing with Contention', prompt: 'p' }, attempt: { attempt_id: 'b', criteria: criteria('sd-blocks'),
+      reflection: 'r', completed_on: '2026-11-14', problem: 'ticketmaster', points: [{ id: 'occ', result: 'mastered', evidence: 'e' }] } })).rejects.toThrow('unsupported_practice_domain');
+  });
+});

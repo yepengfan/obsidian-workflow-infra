@@ -438,8 +438,9 @@ SD Blocks reviews each building block article of System Design on its own
 schedule. Its rules sit behind the practice module contract
 (`src/practice-module.ts`): the service calls a module's hooks for its domain,
 after its configuration guard, for availability, the workflow and review
-results, adding items, attempt fields, reads of other domains' notes and canvas
-paths. `src/practice-modules.ts` wires the modules, so a new module adds hooks
+results, adding items, attempt fields, a finished round, reads of other
+domains' notes and canvas paths. `src/practice-modules.ts` wires the modules
+and gives them one block map loader per request, so a new module adds hooks
 there instead of branches in the service. Its data is `Learning/Practice/System-Design/Blocks.md`, which the
 learner maintains and the server only reads: one `## <block-id>` section per
 block with its `note` link, optional `cards` links and 4 to 8
@@ -568,3 +569,31 @@ sets each concept's current conclusion while contrary evidence is retained.
 attempts, including across different concepts; summaries remain descriptions,
 not identities. Generic practice note writes reject the
 profile. Only finish-triggered and explicit rebuilds replace that generated index.
+
+## Block signals
+
+System Design rounds feed the SD Blocks schedule through the SRS core, never
+through the SD Blocks module (`src/system-design-module.ts`, rules in
+`src/design-blocks.ts`).
+
+- An observation may carry `block`, the id of the `Blocks.md` block it
+  concerns. Tagged ids must be blocks of the map (`unknown_block`), checked
+  before any write; a round with tags or a `problem` needs a valid map.
+- An attempt may name its `problem`, a row of the map's Problems table
+  (`unknown_problem`). Then `core_blocks_partial`, when the module judges it,
+  must be met exactly when every core block of that problem has at least one
+  learner observation tagged with it and all of them are `mastered` or
+  `partial` (`core_blocks_mismatch`). Other modules refuse `problem`.
+- After a round is recorded and verified, each block with a learner
+  observation answered `partial` or `weak` is signalled through the core's
+  `pullForward(item, day, signalDate)`, with the day after the round. An active
+  item due later moves to that day; an archived item is reactivated at the
+  stage it reached and due that day. An item with no attempt yet, one already
+  due by then, or one reviewed after the round is unchanged, so a finish retry
+  sends harmless repeats. The finish result lists `block_signals`: one
+  `{block, item_id, result}` with `pulled_forward`, `reactivated`, `unchanged`,
+  `not_enrolled` for a block without an item, or `sd_blocks_unavailable` while
+  SD Blocks is off.
+- Once any observation is tagged, `Profile.md` groups concepts under
+  `## Block: <id>` by their latest tagged observation, with untagged concepts
+  under `## Other concepts`. Without tags it keeps the flat layout.

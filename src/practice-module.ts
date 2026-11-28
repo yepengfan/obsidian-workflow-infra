@@ -1,6 +1,8 @@
+import type { ConceptObservation } from './design-profile.js';
 import type { CriterionResult } from './srs/criteria.js';
 import type { PracticeDomain } from './practice-domains.js';
 import type { BlockPointResult } from './sd-blocks.js';
+import type { PullForwardResult } from './srs/review-items.js';
 
 /**
  * The extension contract between the generic practice service and a practice
@@ -19,11 +21,17 @@ export interface PracticeModule {
   /** Refuses an item id the module cannot review, before the item is created. */
   add?(itemId: string): Promise<void>;
   /**
-   * Checks a new attempt's module fields, such as SD Blocks `points`, before
-   * any write. Returns a history section recorded after the criteria. Modules
-   * without this hook refuse those fields.
+   * Checks a new attempt's module fields, such as SD Blocks `points` or the
+   * System Design `problem`, before any write. Returns a history section
+   * recorded after the criteria. Modules without this hook refuse those
+   * fields, and a hook refuses the ones it does not use.
    */
   attempt?(itemId: string, attempt: ModuleAttempt): Promise<string | undefined>;
+  /**
+   * Runs after a finished round is recorded and verified, including on a
+   * retry, so it must be idempotent. Returns extra fields for the result.
+   */
+  finish?(itemId: string, attempt: ModuleAttempt & { completed_on: string }): Promise<Record<string, unknown>>;
   /** Notes outside the module's own root that it may read while their own domain is unavailable. */
   reads?(): Promise<ReadonlySet<string>>;
   /** Whether a canvas path under the module's root is one of its drawings. */
@@ -37,6 +45,9 @@ export interface ItemState { id: string; status: string; stage: number; next_rev
 export interface ModuleAttempt {
   readonly criteria: readonly CriterionResult[];
   readonly points?: readonly BlockPointResult[];
+  /** The problem of the block map the attempt solved. */
+  readonly problem?: string;
+  readonly concept_observations?: readonly ConceptObservation[];
 }
 
 /** Narrow read access a module may use, built by the service for one request. */
@@ -50,5 +61,9 @@ export interface PracticeModulePorts {
   item(id: string): Promise<ItemState & { domain: string }>;
   /** Today in the configured vault calendar. */
   today(): string;
+  /** Whether a domain is usable now: its configuration guard passes. */
+  available(domain: PracticeDomain): Promise<boolean>;
+  /** The core's cross-module signal; see `ReviewItems.pullForward`. */
+  pullForward(id: string, day: string, signalDate: string): Promise<PullForwardResult>;
   readonly signal: AbortSignal;
 }
