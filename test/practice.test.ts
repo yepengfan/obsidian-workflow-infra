@@ -4,14 +4,14 @@ import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 import bundle from '../workflows/practice.json' with { type: 'json' };
-import designRounds from './fixtures/design-rounds.json' with { type: 'json' };
-import { calendarDay, Practice, finishRoundSchema, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
-import { nextSchedule as schedule } from '../src/srs/schedule.js';
+import reviewAttempts from './fixtures/review-attempts.json' with { type: 'json' };
+import { parseHistory } from '../src/srs/history.js';
+import { Practice, finishRoundSchema, recordReviewSchema, validatePracticeWritePath } from '../src/practice.js';
 import { parseObservations, renderProfile, type StoredObservation } from '../src/design-profile.js';
 import { NoteError } from '../src/paths.js';
 import type { NoteStore, NoteWriter, WriteCondition } from '../src/note-store.js';
 import { parseFrontmatter } from '../src/frontmatter.js';
-import { reviewSummarySchema, type ReviewSummary } from '../src/practice-schema.js';
+import { reviewSummarySchema } from '../src/practice-schema.js';
 import { practiceSkill, registerPracticeTools } from '../src/practice-tools.js';
 import type { IndexedReview, ReviewIndex, SessionIndex } from '../src/review-index.js';
 import { owner, runtimeSettings } from './runtime-fixtures.js';
@@ -35,15 +35,15 @@ function withMockMinutes(minutes?: number | string) {
   return withDesignConsumer({ time_limit: minutes });
 }
 
-const nextSchedule = (current: ReviewSummary, outcome: string, day: string, intervals: number[], retryDays: number, archiveAfterFinal = false) =>
-  schedule(current, outcome, day, { intervals, retryDays, archiveAfterFinal });
 const now = () => new Date('2026-11-14T02:00:00Z');
 const settings = (writesEnabled = true) => runtimeSettings({ practice: { enabled: true, writesEnabled, timeZone: 'Australia/Brisbane' } });
 const item = { id: 'lc-1071', domain: 'algorithm' as const, title: 'GCD of strings', status: 'active' as const,
   review_count: 0, stage: 0, last_review: null as string | null, next_review: null as string | null };
+/** A module's own module.md as imported, with its guard and pass criteria. */
+const domainModule = (domain: 'algorithm' | 'system-design') => bundle.documents[`system/modules/${domain}/module.md`].text;
 class PracticeStore implements NoteStore, NoteWriter {
   files = new Map<string, string>([[configPath, moduleText],
-    ...['algorithm', 'system-design'].map(domain => [root + `system/modules/${domain}/module.md`, '---\nenabled: true\n---\n'] as [string, string])]);
+    ...(['algorithm', 'system-design'] as const).map(domain => [root + `system/modules/${domain}/module.md`, domainModule(domain)] as [string, string])]);
   reads: string[] = []; writes: string[] = []; lists: { prefix: string; limit: number }[] = []; serial = 0;
   beforePut?: (key: string) => void;
   tag(key: string) { return '"' + createHash('sha256').update(this.files.get(key) ?? '').digest('hex') + '"'; }
@@ -100,46 +100,13 @@ const request = { id: item.id, domain: item.domain, title: item.title, prompt: '
 const designRequest = { id: 'sysd-url-shortener', domain: 'system-design' as const, title: 'Design a URL shortener',
   prompt: 'Design a service that creates short links and redirects requests. Agree on scale and requirements.', review_focus: 'Compare collision handling after submission.' };
 async function seeded() { const env = setup(); await env.practice.add(request); return env; }
+/** Every criterion of a module, met unless listed in `unmet`. */
+function criteria(domain: 'algorithm' | 'system-design', unmet: string[] = []) {
+  const ids = domain === 'algorithm' ? ['no_substantive_help', 'tests_pass'] : ['no_substantive_help', 'within_time_limit', 'all_steps_done', 'core_blocks_partial'];
+  return ids.map(id => ({ id, met: !unmet.includes(id), evidence: unmet.includes(id) ? `Missed ${id}.` : `Observed ${id}.` }));
+}
 function attempt(revision: string, extra: object = {}) { return recordReviewSchema.parse({ id: item.id, revision,
-  attempt_id: 'attempt-001', outcome: 'independent', reflection: 'I checked string concatenation first.', completed_on: '2026-11-14', ...extra }); }
-
-describe('canonical spaced review policy', () => {
-  it.each([
-    { name: 'first independent completion', prior: {}, outcome: 'independent', date: '2026-11-14', stage: 0, due: '2026-11-15' },
-    { name: 'due independent completion', prior: { stage: 0, next_review: '2026-11-14', last_review: '2026-11-13' }, outcome: 'independent', date: '2026-11-14', stage: 1, due: '2026-11-17' },
-    { name: 'overdue independent completion', prior: { stage: 1, next_review: '2026-11-10' }, outcome: 'independent', date: '2026-11-14', stage: 2, due: '2026-11-21' },
-    { name: 'early extra practice', prior: { stage: 2, next_review: '2026-11-20' }, outcome: 'independent', date: '2026-11-14', stage: 2, due: '2026-11-20' },
-    { name: 'assisted completion', prior: { stage: 3, next_review: '2026-11-14' }, outcome: 'assisted', date: '2026-11-14', stage: 3, due: '2026-11-15' },
-    { name: 'incomplete round', prior: { stage: 1 }, outcome: 'incomplete', date: '2026-11-14', stage: 1, due: '2026-11-15' },
-    { name: 'final stage repeats without archiving', prior: { stage: 4, next_review: '2026-11-14' }, outcome: 'independent', date: '2026-11-14', stage: 4, due: '2027-01-13' },
-    { name: 'month boundary', prior: {}, outcome: 'independent', date: '2026-12-31', stage: 0, due: '2027-01-01' },
-  ])('$name', ({ prior, outcome, date, stage, due }) => {
-    expect(nextSchedule({ ...item, ...prior }, outcome, date, [1, 3, 7, 14, 60], 1)).toEqual({ stage, next_review: due, last_review: date, review_count: 1, status: 'active' });
-  });
-  it('archives an on-time independent final round when enabled', () => {
-    const final = { ...item, stage: 4, review_count: 5, last_review: '2026-09-15', next_review: '2026-11-14' };
-    expect(nextSchedule(final, 'independent', '2026-11-16', [1, 3, 7, 14, 60], 1, true)).toEqual({
-      stage: 4, next_review: null, last_review: '2026-11-16', review_count: 6, status: 'archived', archived_on: '2026-11-16' });
-    expect(nextSchedule({ ...final, stage: 3 }, 'independent', '2026-11-14', [1, 3, 7, 14, 60], 1, true)).toMatchObject({ stage: 4, next_review: '2027-01-13', status: 'active' });
-  });
-  it.each(['assisted', 'incomplete'])('retries an %s final round without archiving', outcome => {
-    const final = { ...item, stage: 4, next_review: '2026-11-14' };
-    expect(nextSchedule(final, outcome, '2026-11-14', [1, 3, 7, 14, 60], 1, true)).toMatchObject({ stage: 4, next_review: '2026-11-15', status: 'active' });
-  });
-  it('keeps early final-stage practice scheduled instead of archiving', () => {
-    expect(nextSchedule({ ...item, stage: 4, next_review: '2026-12-31' }, 'independent', '2026-11-14', [1, 3, 7, 14, 60], 1, true))
-      .toMatchObject({ stage: 4, next_review: '2026-12-31', status: 'active' });
-  });
-  it('uses the vault calendar rather than UTC and handles daylight saving', () => {
-    expect(calendarDay('Australia/Brisbane', new Date('2026-11-14T15:00:00Z'))).toBe('2026-11-15');
-    expect(calendarDay('America/New_York', new Date('2026-11-01T05:30:00Z'))).toBe('2026-11-01');
-  });
-  it('uses configured intervals and refuses invalid historical stages/dates', () => {
-    expect(nextSchedule(item, 'independent', '2026-11-14', [2, 5], 3).next_review).toBe('2026-11-16');
-    expect(() => nextSchedule({ ...item, stage: 4 }, 'independent', '2026-11-14', [1], 1)).toThrow('invalid_review_stage');
-    expect(() => nextSchedule({ ...item, last_review: '2026-11-15' }, 'assisted', '2026-11-14', [1], 1)).toThrow('precedes');
-  });
-});
+  attempt_id: 'attempt-001', criteria: criteria('algorithm'), reflection: 'I checked string concatenation first.', completed_on: '2026-11-14', ...extra }); }
 
 describe('practice storage behavior', () => {
   it('routes each domain to its own live mapping, time limit and guard', async () => {
@@ -195,7 +162,8 @@ describe('practice storage behavior', () => {
   it('returns canonical workflow definitions and honors live module guards', async () => {
     const { store, practice } = setup(); const result = await practice.workflow('algorithm');
     expect(result.domains).toEqual(['algorithm', 'system-design']); expect(result.selected_domain).toBe('algorithm');
-    expect(result.source_commit).toBe(bundle.sourceCommit); expect(result.intervals).toEqual([1, 3, 7, 14, 60]);
+    expect(result.source_commit).toBe(bundle.sourceCommit); expect(result.schedule.intervals).toEqual([1, 3, 7, 14, 30, 60]);
+    expect(result.pass_criteria.algorithm!.map(criterion => criterion.id)).toEqual(['no_substantive_help', 'tests_pass']);
     let document = await practice.instruction('.agents/skills/algo-solve/SKILL.md', 0);
     let text = document.text;
     while (document.next_offset !== undefined) {
@@ -245,16 +213,15 @@ describe('practice storage behavior', () => {
     expect(saved).toContain(payload.reflection); expect(saved).toContain('历史记录');
     expect(await practice.record(payload)).toMatchObject({ recorded: false, review_count: 1 }); expect(store.files.get(path)).toBe(saved);
   });
-  it('archives a passed final round, records it and removes it from the queue', async () => {
+  it('archives a pass at the top stage, records it and removes it from the queue', async () => {
     const { store, practice } = await seeded(); const path = items + item.id + '.md';
-    store.files.set(configPath, moduleText.replace(/^archive_after_final: .*\n/mu, '').replace('retry_days: 1\n', 'retry_days: 1\narchive_after_final: true\n'));
-    store.files.set(path, store.files.get(path)!.replace('stage: 0', 'stage: 4').replace('review_count: 0', 'review_count: 5')
+    store.files.set(path, store.files.get(path)!.replace('stage: 0', 'stage: 6').replace('review_count: 0', 'review_count: 5')
       .replace('last_review: null', 'last_review: 2026-09-15').replace('next_review: null', 'next_review: 2026-11-14'));
     const prompt = await practice.review(item.id);
-    expect(await practice.record(attempt(prompt.revision))).toMatchObject({ recorded: true, status: 'archived', next_review: null, stage: 4, review_count: 6 });
+    expect(await practice.record(attempt(prompt.revision))).toMatchObject({ recorded: true, passed: true, status: 'archived', next_review: null, stage: 6, review_count: 6 });
     const saved = parse(store.files.get(path)!.split('---\n')[1]!);
     expect(saved).toMatchObject({ status: 'archived', archived_on: '2026-11-14', next_review: null, last_review: '2026-11-14' });
-    expect(store.files.get(path)).toContain('**independent** · Archived');
+    expect(store.files.get(path)).toContain('**Passed** · Archived');
     await expect(practice.review(item.id)).rejects.toThrow('review_archived');
     const queue = await practice.reviews({ domain: 'algorithm' });
     expect([...queue.overdue, ...queue.today, ...queue.unstarted, ...queue.upcoming]).toHaveLength(0);
@@ -276,7 +243,7 @@ describe('practice storage behavior', () => {
       day = '2026-11-11';
       await session().add(designRequest);
       const review = await session().review(designRequest.id);
-      await session().record(attempt(review.revision, { id: designRequest.id, completed_on: day }));
+      await session().record(attempt(review.revision, { id: designRequest.id, criteria: criteria('system-design'), completed_on: day }));
       day = '2026-11-12';
     }
     const draft = await session().designTemplate({ topic: 'Design a URL shortener', short_topic: 'URL-Shortener' });
@@ -299,7 +266,7 @@ describe('practice storage behavior', () => {
     if (!existing) await session().add(designRequest);
     const completed = await session().review(designRequest.id);
     const payload = attempt(completed.revision, { id: designRequest.id, completed_on: '2026-11-14',
-      attempt_id: 'multi-day-design', reflection: 'I separated the redirect path from analytics.' });
+      criteria: criteria('system-design'), attempt_id: 'multi-day-design', reflection: 'I separated the redirect path from analytics.' });
     const saved = await session().record(payload);
     expect(saved).toMatchObject({ last_review: '2026-11-14', next_review: existing ? '2026-11-17' : '2026-11-15',
       review_count: existing ? 2 : 1, recorded: true });
@@ -380,6 +347,21 @@ describe('practice storage behavior', () => {
     expect(await practice.workflow()).toMatchObject({ status: 'ready', availability: 'complete', selected_domain: domain,
       available_domains: [{ domain }], unavailable_domains: [{ domain: disabled, status: 'disabled', reason: 'domain_module_disabled' }] });
     expect(store.lists).toEqual([]); expect(store.writes).toEqual([]);
+  });
+  it.each([
+    { name: 'no pass criteria', change: (text: string) => text.replace(/^pass_criteria:\n(?: {2}.*\n)+/mu, '') },
+    { name: 'an unknown shared criterion', change: (text: string) => text.replace('  - no_substantive_help\n', '  - no_hints\n') },
+    { name: 'a repeated criterion', change: (text: string) => text.replace('  - within_time_limit\n', '  - within_time_limit\n  - within_time_limit\n') },
+    { name: 'a criterion without a rule', change: (text: string) => text.replace(/( {2}- id: all_steps_done\n) {4}rule: .*\n/u, '$1') },
+  ])('reports a module with $name as unavailable before any domain action', async ({ change }) => {
+    const { store, practice } = setup(), path = root + 'system/modules/system-design/module.md';
+    const changed = change(domainModule('system-design'));
+    expect(changed).not.toBe(domainModule('system-design'));
+    store.files.set(path, changed);
+    expect(await practice.workflow()).toMatchObject({ availability: 'partial',
+      unavailable_domains: [{ domain: 'system-design', status: 'unavailable', reason: 'invalid_pass_criteria' }] });
+    await expect(practice.add(designRequest)).rejects.toThrow('invalid_pass_criteria');
+    expect(store.writes).toEqual([]);
   });
   it('treats a disabled consumer entry as switched off without reading that module', async () => {
     const { store, practice } = setup();
@@ -656,7 +638,7 @@ it('supports a System Design session and review through the real MCP client with
     expect((await call('practice_add_review', designRequest)).structuredContent).toMatchObject({ domain: 'system-design', created: true });
     const roundTopic = { ...designRequest, id: 'sysd-dropbox-closeout', title: 'Dropbox' };
     const finish = { topic: roundTopic, progress_path: progress.path, attempt: {
-      attempt_id: 'closeout-round', outcome: 'assisted', reflection: 'Chunk uploads can resume.', completed_on: '2026-11-14' } };
+      attempt_id: 'closeout-round', criteria: criteria('system-design', ['no_substantive_help']), reflection: 'Chunk uploads can resume.', completed_on: '2026-11-14' } };
     const writesBeforeFinish = store.writes.length;
     expect((await call('practice_finish_round', { topic: roundTopic, attempt: finish.attempt })).isError).toBe(true);
     expect((await call('practice_finish_round', finish)).isError).toBe(true);
@@ -680,26 +662,27 @@ it('supports a System Design session and review through the real MCP client with
       expect((await call('practice_finish_round', finish)).structuredContent).toMatchObject({ verified: true, review_count: 1, next_review: '2026-11-15' });
     }
     expect((await call('practice_read_note', { path: finish.progress_path })).structuredContent).toMatchObject({ text: expect.stringContaining('system-design/done') });
-    const algorithmFinish = { topic: { ...request, id: 'lc-closeout' }, attempt: { ...finish.attempt, attempt_id: 'algorithm-closeout' } };
+    const algorithmFinish = { topic: { ...request, id: 'lc-closeout' }, attempt: { ...finish.attempt, criteria: criteria('algorithm'), attempt_id: 'algorithm-closeout' } };
     for (let retry = 0; retry < 2; retry++) {
       expect((await call('practice_finish_round', algorithmFinish)).structuredContent).toMatchObject({ verified: true, review_count: 1 });
     }
     const prompt = await call('practice_review', { id: designRequest.id });
     expect(JSON.stringify(prompt.structuredContent)).not.toContain('collision handling');
     const reviewRevision = z.object({ revision: z.string() }).parse(prompt.structuredContent).revision;
-    const payload = { ...attempt(reviewRevision), id: designRequest.id, attempt_id: secondRound, reflection: 'The redirect read path drives the latency target.', submission: 'My design and tradeoffs.' };
+    const payload = { ...attempt(reviewRevision), criteria: criteria('system-design'), id: designRequest.id, attempt_id: secondRound, reflection: 'The redirect read path drives the latency target.', submission: 'My design and tradeoffs.' };
     expect((await call('practice_record_review', payload)).structuredContent).toMatchObject({ recorded: true, domain: 'system-design', next_review: '2026-11-15' });
     expect((await call('practice_record_review', payload)).structuredContent).toMatchObject({ recorded: false, review_count: 1 });
     const row = async (id: string) => (await call('practice_review', { id })).structuredContent;
     const second = await row(designRequest.id);
-    expect(second).toMatchObject({ next_round: 2, coaching_mode: 'guided' });
-    const secondAttempt = { ...payload, outcome: 'assisted', attempt_id: firstRound, revision: z.object({ revision: z.string() }).parse(second).revision };
-    expect((await call('practice_record_review', secondAttempt)).structuredContent).toMatchObject({ recorded: true, next_review: '2026-11-17' });
-    expect((await call('practice_record_review', secondAttempt)).structuredContent).toMatchObject({ recorded: false, completed_design_rounds: 2 });
-    expect(await row(designRequest.id)).toMatchObject({ next_round: 3, coaching_mode: 'mock_interview' });
+    expect(second).toMatchObject({ stage: 1, next_review: '2026-11-15' }); expect(second).not.toHaveProperty('coaching_mode');
+    const secondAttempt = { ...payload, criteria: criteria('system-design', ['no_substantive_help']), attempt_id: firstRound,
+      revision: z.object({ revision: z.string() }).parse(second).revision };
+    expect((await call('practice_record_review', secondAttempt)).structuredContent).toMatchObject({ recorded: true, passed: false, stage: 0, next_review: '2026-11-15' });
+    expect((await call('practice_record_review', secondAttempt)).structuredContent).toMatchObject({ recorded: false, review_count: 2 });
+    expect(await row(designRequest.id)).toMatchObject({ stage: 0, review_count: 2 });
     const dropbox = { ...designRequest, id: 'sysd-dropbox', title: 'Design Dropbox' };
     await call('practice_add_review', dropbox);
-    expect(await row(dropbox.id)).toMatchObject({ next_round: 1, coaching_mode: 'guided' });
+    expect(await row(dropbox.id)).toMatchObject({ stage: 0, next_review: null });
     const feedback = await call('practice_review', { id: designRequest.id, phase: 'feedback' });
     expect(feedback.structuredContent).toMatchObject({ history: expect.stringContaining(payload.reflection) });
     expect((await call('practice_reviews', { domain: 'system-design' })).structuredContent).toMatchObject({ domain: 'system-design', complete: true });
@@ -878,20 +861,6 @@ it('starts generic practice with an overview through the real MCP client, then r
   } finally { await client.close(); }
 });
 
-it('projects a legacy two-round guided topic into the first independent review without writing its history', async () => {
-  const { store, practice } = setup();
-  const key = items + designRequest.id + '.md';
-  const fixture = { ...item, ...designRequest, review_count: 2, last_review: '2026-11-22', next_review: '2026-11-23' };
-  const history = '### 2026-11-21 · Round 1\n\n**assisted** · Next review 2026-11-22\n\n### 2026-11-22 · 第 2 轮\n\n**提示后完成** · 下次复习 2026-11-23';
-  store.files.set(key, '---\n' + JSON.stringify(fixture) + '\n---\n' + history);
-  expect(await practice.review(designRequest.id)).toMatchObject({ next_round: 3, coaching_mode: 'mock_interview', next_review: '2026-11-25' });
-  expect((await practice.reviews({ domain: 'system-design' })).upcoming[0]).toMatchObject({ next_round: 3, next_review: '2026-11-25' });
-  const third = { ...fixture, review_count: 3, stage: 1, last_review: '2026-11-25', next_review: '2026-11-28' };
-  store.files.set(key, '---\n' + JSON.stringify(third) + '\n---\n' + history + '\n### 2026-11-25 · Round 3\n\n**independent** · Next review 2026-11-28');
-  expect(await practice.review(designRequest.id)).toMatchObject({ next_round: 4, stage: 2, next_review: '2026-12-02' });
-  expect(store.writes).toHaveLength(0);
-});
-
 it('saves an exact reviewed scene from ChatGPT by receipt and conditionally overwrites a saved drawing', async () => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
@@ -940,63 +909,12 @@ it('saves an exact reviewed scene from ChatGPT by receipt and conditionally over
   } finally { await client.close(); }
 });
 
-it('normalizes upcoming indexed design rows and persists cutover idempotently without changing history', async () => {
-  const { store, index } = setup();
-  const practice = new Practice(store, index, settings(), AbortSignal.timeout(10000),
-    { writer: store, now: () => new Date('2026-11-26T02:00:00Z') });
-  const key = items + designRequest.id + '.md';
-  const history = ['2026-11-21', '2026-11-22', '2026-11-25'].map((day, i) =>
-    `### ${day} · Round ${i + 1}\n\n**assisted** · Next review 2026-11-28`).join('\n\n');
-  store.files.set(key, '---\n' + stringify({ ...item, ...designRequest, completed_design_rounds: 3,
-    review_count: 3, last_review: '2026-11-25', next_review: '2026-11-28' }) + '---\n' + history);
-  index.snapshot();
-  expect((await practice.reviews({ domain: 'system-design' })).upcoming[0]).toMatchObject({ next_review: '2026-12-02', stage: 2 });
-  expect(await practice.review(designRequest.id)).toMatchObject({ next_review: '2026-12-02', stage: 2 });
-  expect(store.writes).toHaveLength(0);
-  expect(await practice.recalculateDesignReviews()).toEqual({ updated: 1 });
-  expect(parseFrontmatter(store.files.get(key)!)!.metadata).toMatchObject({ next_review: '2026-12-02', stage: 2 });
-  expect(parseFrontmatter(store.files.get(key)!)!.body).toBe(history);
-  expect(await practice.recalculateDesignReviews()).toEqual({ updated: 0 });
-  expect(store.writes).toHaveLength(1);
-});
-
-it.each(['assisted', 'incomplete'])('keeps replayed archives terminal after a trailing %s attempt', async outcome => {
-  const { store, index, practice } = setup();
-  const history = Array.from({ length: 6 }, (_, i) => `### 2026-11-0${i + 1} · Round ${i + 1}\n\n**assisted** · Next review 2026-11-14`).join('\n\n') +
-    `\n\n### 2026-11-07 · Round 7\n\n**${outcome}** · Next review 2026-11-14`;
-  const key = items + designRequest.id + '.md';
-  store.files.set(configPath, moduleText.replace(/^archive_after_final: .*\n/mu, ''));
-  store.files.set(key, '---\n' + stringify({ ...item, ...designRequest, review_count: 7,
-    last_review: '2026-11-07', next_review: '2026-11-14' }) + '---\n' + history);
-  index.snapshot();
-  await expect(practice.review(designRequest.id)).rejects.toThrow('review_archived');
-  expect(await practice.reviews({ domain: 'system-design' })).toMatchObject({ overdue: [], today: [], upcoming: [], unstarted: [] });
-  expect(await practice.recalculateDesignReviews()).toEqual({ updated: 1 });
-  expect(parseFrontmatter(store.files.get(key)!)!.metadata).toMatchObject({ status: 'archived', archived_on: '2026-11-06',
-    completed_design_rounds: 6, review_count: 7, last_review: '2026-11-07', next_review: null });
-  expect(parseFrontmatter(store.files.get(key)!)!.body).toBe(history);
-  await expect(practice.record(attempt(store.tag(key), { id: designRequest.id, attempt_id: 'after-archive' }))).rejects.toThrow('review_archived');
-  expect(await practice.recalculateDesignReviews()).toEqual({ updated: 0 });
-});
-
-it('preserves concurrent edits during cutover', async () => {
-  const { store, practice } = setup();
-  const key = items + designRequest.id + '.md';
-  store.files.set(key, '---\n' + stringify({ ...item, ...designRequest, review_count: 1,
-    last_review: '2026-11-01', next_review: '2026-11-14' }) + '---\n### 2026-11-01 · Round 1\n\n**assisted** · Next review 2026-11-14');
-  store.beforePut = path => { store.beforePut = undefined; store.files.set(path, store.files.get(path)! + '\nHuman edit'); };
-  await expect(practice.recalculateDesignReviews()).rejects.toThrow('revision_conflict');
-  expect(store.files.get(key)).toContain('Human edit');
-  expect(parseFrontmatter(store.files.get(key)!)!.metadata.next_review).toBe('2026-11-14');
-});
-
-it.each(['practice_record_review', 'practice_finish_round'])('executes the shared six-round sample through %s with duplicate and concurrent registration', async name => {
+it.each(['practice_record_review', 'practice_finish_round'])('executes the shared attempt sample through %s with duplicate and concurrent registration', async name => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
   const { createFetchHandler } = await import('../src/handler.js');
   const { store, index } = setup(), options = settings();
-  store.files.set(configPath, moduleText.replace(/^archive_after_final: .*\n/mu, ''));
-  let day = designRounds.rounds[0]!.date;
+  let day = reviewAttempts.attempts[0]!.date;
   const practice = new Practice(store, index, options, AbortSignal.timeout(10000),
     { writer: store, now: () => new Date(day + 'T02:00:00Z') });
   const handler = createFetchHandler(options, { store, writer: store, verify: async () => owner,
@@ -1008,20 +926,20 @@ it.each(['practice_record_review', 'practice_finish_round'])('executes the share
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
     await client.callTool({ name: 'practice_add_review', arguments: designRequest });
     let count = 0;
-    for (const step of designRounds.rounds) {
+    const steps: { date: string; attempt_id: string; unmet: string[]; stage: number; next_review: string | null; status: string }[] = reviewAttempts.attempts;
+    for (const step of steps) {
       day = step.date;
-      const attempt = { attempt_id: step.attempt_id, outcome: step.outcome,
+      const attempt = { attempt_id: step.attempt_id, criteria: reviewAttempts.criteria.map(id =>
+        ({ id, met: !step.unmet.includes(id), evidence: step.unmet.includes(id) ? `Missed ${id}.` : `Observed ${id}.` })),
         completed_on: day, reflection: 'My actual reflection.',
         ...(name === 'practice_finish_round' && step.attempt_id === 'r1' ? { concept_observations: [{
           observation_id: 'sample-cache', concept_id: 'cache.expiry', performance: 'weak',
           summary: 'Left the cache unbounded.', anchor: 'Assessment' }] } : {}),
-        ...(step.attempt_id === 'r6' ? { submission: '## Summary\nCache expiry needs work, citing sample-cache from round r1.' } : {}),
       };
       const review = await practice.review(designRequest.id);
-      expect(review).toMatchObject({ coaching_mode: step.completed_design_rounds <= 2 ? 'guided' : 'mock_interview',
-        summary_required: step.attempt_id === 'r6' });
+      expect(review).not.toHaveProperty('coaching_mode');
       const progress_path = `Learning/Practice/System-Design/Solutions/${step.attempt_id}/progress.md`;
-      const checkpoint = designRounds.checkpoints.find(entry => entry.attempt_id === step.attempt_id);
+      const checkpoint = reviewAttempts.checkpoints.find(entry => entry.attempt_id === step.attempt_id);
       if (checkpoint) {
         day = checkpoint.paused_on;
         const before = store.files.get(items + designRequest.id + '.md');
@@ -1043,125 +961,67 @@ it.each(['practice_record_review', 'practice_finish_round'])('executes the share
       }
       if (name === 'practice_finish_round' && !checkpoint) await practice.createNote(progress_path,
         '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
-      if (name === 'practice_record_review' && step.attempt_id === 'r6') await practice.createNote(
-        'Learning/Practice/System-Design/Solutions/earlier-evidence/progress.md',
-        '---\n' + stringify({ topic: 'Earlier evidence', tags: ['system-design/wip'], round_completed_on: '2026-10-01' }) +
-        '---\n```practice-observations\n' + stringify([{ observation_id: 'sample-cache', attempt_id: 'earlier',
-          concept_id: 'cache.expiry', performance: 'weak', summary: 'Left the cache unbounded.', anchor: 'Assessment',
-          date: '2026-10-01', learner: true }]) + '```\n');
       const args = name === 'practice_finish_round' ? { topic: designRequest, attempt, progress_path } :
         { ...attempt, id: designRequest.id, revision: review.revision };
       const results = await Promise.all([client.callTool({ name, arguments: args }), client.callTool({ name, arguments: args })]);
       expect(results.some(result => !result.isError)).toBe(true);
       count++;
       expect(parseFrontmatter(store.files.get(items + designRequest.id + '.md')!)!.metadata).toMatchObject({
-        review_count: count, completed_design_rounds: step.completed_design_rounds,
-        stage: step.stage, next_review: step.next_review, status: step.status,
+        review_count: count, stage: step.stage, next_review: step.next_review, status: step.status,
+        last_result: step.unmet.length ? 'failed' : 'passed', unmet_criteria: step.unmet,
       });
-      if (name === 'practice_finish_round' && step.attempt_id === 'r6') {
+      if (name === 'practice_finish_round' && step.attempt_id === 'r1') {
         const profile = store.files.get(root + 'Learning/Practice/System-Design/Profile.md')!;
         expect(parseObservations(profile).map(row => row.observation_id)).toEqual(['sample-cache']);
-        const finalHistory = parseFrontmatter(store.files.get(items + designRequest.id + '.md')!)!.body;
-        expect(finalHistory).toContain('citing sample-cache from round r1');
-        expect(parseFrontmatter(store.files.get(root + progress_path)!)!.metadata.tags).toEqual(['system-design/done']);
       }
+      if (name === 'practice_finish_round') expect(parseFrontmatter(store.files.get(root + progress_path)!)!.metadata.tags).toEqual(['system-design/done']);
       const retry = await client.callTool({ name, arguments: args });
       expect(retry.isError).not.toBe(true);
-      expect(retry.structuredContent).toMatchObject({ review_count: count, completed_design_rounds: step.completed_design_rounds });
+      expect(retry.structuredContent).toMatchObject({ review_count: count });
     }
     expect(await practice.reviews({ domain: 'system-design' })).toMatchObject({ overdue: [], today: [], upcoming: [], unstarted: [] });
     await expect(practice.review(designRequest.id)).rejects.toThrow('review_archived');
+    const history = parseHistory(parseFrontmatter(store.files.get(items + designRequest.id + '.md')!)!.body);
+    expect(history.map(entry => [entry.date, entry.passed, entry.unmet])).toEqual(reviewAttempts.attempts.map(step => [step.date, !step.unmet.length, step.unmet]));
   } finally { await client.close(); }
 });
 
-it.each(['practice_record_review', 'practice_finish_round'])('keeps round six unwritten until the summary cites stored evidence through %s', async name => {
+it.each(['practice_record_review', 'practice_finish_round'])('accepts only a judgment of every declared criterion through %s', async name => {
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
   const { createFetchHandler } = await import('../src/handler.js');
   const { store, practice, index } = setup(), options = settings();
   await practice.add(designRequest);
-  await practice.createNote('Learning/Practice/System-Design/Solutions/earlier-evidence/progress.md',
-    '---\n' + stringify({ topic: 'Earlier evidence', tags: ['system-design/wip'], round_completed_on: '2026-10-01' }) +
-    '---\n```practice-observations\n' + stringify([{ observation_id: 'sample-cache', attempt_id: 'earlier',
-      concept_id: 'cache.expiry', performance: 'weak', summary: 'Left the cache unbounded.', anchor: 'Assessment',
-      date: '2026-10-01', learner: true }]) + '```\n');
-  const progress = 'Learning/Practice/System-Design/Solutions/final-round/progress.md';
-  const retryProgress = 'Learning/Practice/System-Design/Solutions/retry-round/progress.md';
-  const session = '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n';
-  await practice.createNote(progress, session);
-  await practice.createNote(retryProgress, session);
-  for (let number = 1; number <= 5; number += 1) {
-    const review = await practice.review(designRequest.id);
-    await practice.record({ id: designRequest.id, revision: review.revision, attempt_id: `r${number}`, outcome: 'assisted',
-      reflection: 'Completed the round.', completed_on: `2026-11-0${number}` });
-  }
-  const cited = '## Summary\nCache expiry needs work, citing sample-cache from the earlier round.';
-  const fresh = { observation_id: 'new-cache', concept_id: 'cache.expiry', performance: 'weak' as const, learner: true,
-    summary: 'A new final-round claim.', anchor: 'Assessment' };
-  const handler = createFetchHandler(options, { store, writer: store, verify: async () => owner,
-    verifyScope: async () => owner, skills: [practiceSkill(options, index)] });
-  const client = new Client({ name: 'final-summary', version: '1' });
-  client.onerror = () => {};
-  try {
-    await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
-    const call = async (attempt: Record<string, unknown>, revision?: string, progressPath = progress) => {
-      const arguments_ = name === 'practice_finish_round' ? { topic: designRequest, attempt, progress_path: progressPath } :
-        { ...attempt, id: designRequest.id, revision: revision ?? (await practice.review(designRequest.id)).revision };
-      return client.callTool({ name, arguments: arguments_ });
-    };
-    const unchanged = async (attempt: Record<string, unknown>) => {
-      const before = new Map(store.files), writes = [...store.writes];
-      expect((await call(attempt)).isError).toBe(true);
-      expect(store.files).toEqual(before);
-      expect(store.writes).toEqual(writes);
-    };
-    await unchanged({ attempt_id: 'r6-missing', reflection: 'Final mock.', completed_on: '2026-11-06' });
-    await unchanged({ attempt_id: 'r6-uncited', reflection: 'Final mock.', completed_on: '2026-11-06', submission: '## Summary\nNo stored evidence.' });
-    await unchanged({ attempt_id: 'r6-new', reflection: 'Final mock.', completed_on: '2026-11-06', submission: cited, concept_observations: [fresh] });
-    const retry = await call({ attempt_id: 'r6-retry', outcome: 'incomplete', reflection: 'Not ready.', completed_on: '2026-11-06' }, undefined, retryProgress);
-    expect(retry.isError).not.toBe(true);
-    expect(retry.structuredContent).toMatchObject({ status: 'active', completed_design_rounds: 5, review_count: 6 });
-    const closed = await call({ attempt_id: 'r6', reflection: 'Final mock.', completed_on: '2026-11-07', submission: cited });
-    expect(closed.isError).not.toBe(true);
-    expect(closed.structuredContent).toMatchObject({ status: 'archived', completed_design_rounds: 6, next_review: null });
-    expect(store.files.get(root + progress)).not.toContain('new-cache');
-    const again = await call({ attempt_id: 'r6', reflection: 'Final mock.', completed_on: '2026-11-07', submission: cited }, 'stale');
-    expect(again.isError).not.toBe(true);
-    expect(again.structuredContent).toMatchObject({ status: 'archived', completed_design_rounds: 6, review_count: 7 });
-  } finally { await client.close(); }
-});
-
-it.each(['practice_record_review', 'practice_finish_round'])('rejects extra public outcome spellings but accepts omission through %s', async name => {
-  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
-  const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
-  const { createFetchHandler } = await import('../src/handler.js');
-  const { store, practice, index } = setup(), options = settings();
-  await practice.add(designRequest);
-  const progress_path = 'Learning/Practice/System-Design/Solutions/omitted/progress.md';
+  const progress_path = 'Learning/Practice/System-Design/Solutions/criteria/progress.md';
   await practice.createNote(progress_path, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
   const review = await practice.review(designRequest.id);
-  const attempt = { attempt_id: 'omitted-outcome', reflection: 'My actual answer.', completed_on: '2026-11-14' };
-  const payload = (outcome?: string) => name === 'practice_finish_round' ?
-    { topic: designRequest, attempt: { ...attempt, ...(outcome ? { outcome } : {}) }, progress_path } :
-    { ...attempt, ...(outcome ? { outcome } : {}), id: designRequest.id, revision: review.revision };
+  const base = { attempt_id: 'criteria-contract', reflection: 'My actual answer.', completed_on: '2026-11-14' };
+  const payload = (judgment: object) => name === 'practice_finish_round' ?
+    { topic: designRequest, attempt: { ...base, ...judgment }, progress_path } :
+    { ...base, ...judgment, id: designRequest.id, revision: review.revision };
   const handler = createFetchHandler(options, { store, writer: store, verify: async () => owner,
     verifyScope: async () => owner, skills: [practiceSkill(options, index)] });
-  const client = new Client({ name: 'public-outcome-contract', version: '1' });
+  const client = new Client({ name: 'criteria-contract', version: '1' });
   client.onerror = () => {};
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
     const before = new Map(store.files), writes = [...store.writes];
-    for (const outcome of ['completed', '已完成']) {
-      expect((await client.callTool({ name, arguments: payload(outcome) })).isError).toBe(true);
+    const full = criteria('system-design', ['within_time_limit']);
+    for (const invalid of [{ outcome: 'independent' }, { criteria: full, outcome: 'independent' }, { criteria: full.slice(1) },
+      { criteria: [...full, { id: 'fast', met: true, evidence: 'Quick.' }] }, { criteria: [...full.slice(1), full[1]] },
+      { criteria: criteria('algorithm') }, { criteria: full.map(item => ({ ...item, evidence: ' ' })) }]) {
+      expect((await client.callTool({ name, arguments: payload(invalid) })).isError).toBe(true);
       expect(store.files).toEqual(before);
       expect(store.writes).toEqual(writes);
     }
-    const registered = await client.callTool({ name, arguments: payload() });
+    const registered = await client.callTool({ name, arguments: payload({ criteria: full }) });
     expect(registered.isError).not.toBe(true);
-    expect(registered.structuredContent).toMatchObject({ completed_design_rounds: 1, review_count: 1, next_review: '2026-11-15' });
+    expect(registered.structuredContent).toMatchObject({ stage: 0, review_count: 1, next_review: '2026-11-15' });
     const history = await practice.review(designRequest.id, true);
-    expect(history.history).toContain('**completed** · Next review 2026-11-15');
-    expect((await client.callTool({ name, arguments: payload() })).structuredContent).toMatchObject({ review_count: 1 });
+    expect(history.history).toContain('**Failed** · Next review 2026-11-15');
+    expect(history.history).toContain('- Not met `within_time_limit`: Missed within_time_limit.');
+    expect(parseFrontmatter(store.files.get(items + designRequest.id + '.md')!)!.metadata).toMatchObject({ last_result: 'failed', unmet_criteria: ['within_time_limit'] });
+    expect((await client.callTool({ name, arguments: payload({ criteria: full }) })).structuredContent).toMatchObject({ review_count: 1 });
   } finally { await client.close(); }
 });
 
@@ -1172,15 +1032,15 @@ it('persists assessment observations and replaces Profile.md from a normal finis
   const observation = { observation_id: 'cache-expiry-01', concept_id: 'cache.expiry', performance: 'partial' as const, learner: true,
     summary: 'Bounded cache lifetime by the link expiry.', anchor: 'Assessment', evidence_order: 1 };
   const finished = await practice.finishRound({ topic: designRequest, progress_path: progress, attempt: {
-    attempt_id: 'profile-r1', reflection: 'My actual answer.', completed_on: '2026-11-14', concept_observations: [observation] } });
-  expect(finished).toMatchObject({ verified: true, review_count: 1, completed_design_rounds: 1 });
+    criteria: criteria('system-design'), attempt_id: 'profile-r1', reflection: 'My actual answer.', completed_on: '2026-11-14', concept_observations: [observation] } });
+  expect(finished).toMatchObject({ verified: true, review_count: 1, stage: 1 });
   expect(store.files.get(root + progress)).toContain('observation_id: cache-expiry-01');
   const profile = 'Learning/Practice/System-Design/Profile.md';
   expect(store.files.get(root + profile)).toContain('Current: partial');
   const later = 'Learning/Practice/System-Design/Solutions/profile-round-2/progress.md';
   await practice.createNote(later, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
   await practice.finishRound({ topic: designRequest, progress_path: later, attempt: {
-    attempt_id: 'profile-r2', reflection: 'A later answer.', completed_on: '2026-11-14', concept_observations: [{
+    criteria: criteria('system-design'), attempt_id: 'profile-r2', reflection: 'A later answer.', completed_on: '2026-11-14', concept_observations: [{
       ...observation, observation_id: 'cache-expiry-02', evidence_order: 2, performance: 'weak', summary: 'Left the cache unbounded.' }] } });
   const text = store.files.get(root + profile)!;
   expect(text).toContain('Current: weak');
@@ -1196,7 +1056,7 @@ it.each(['assessment', 'profile'])('keeps %s write failures pending and retries 
   await practice.createNote(progress, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
   store.files.set(profile, 'Existing profile');
   const payload = { topic: designRequest, progress_path: progress, attempt: {
-    attempt_id: 'recovery', reflection: 'Actual answer.', completed_on: '2026-11-14', concept_observations: [{
+    criteria: criteria('system-design'), attempt_id: 'recovery', reflection: 'Actual answer.', completed_on: '2026-11-14', concept_observations: [{
       observation_id: 'recovery-evidence', concept_id: 'cache.expiry', performance: 'weak' as const, learner: true,
       summary: 'Left the cache unbounded.', anchor: 'Assessment' }] } };
   store.beforePut = key => {
@@ -1208,7 +1068,7 @@ it.each(['assessment', 'profile'])('keeps %s write failures pending and retries 
   expect(pending).toMatchObject({ tags: ['system-design/wip'], confirmed_registration: { topic: payload.topic, attempt: payload.attempt } });
   expect(store.files.get(profile)).toBe('Existing profile');
   delete store.beforePut;
-  expect(await practice.finishRound(payload)).toMatchObject({ verified: true, completed_design_rounds: 1, review_count: 1 });
+  expect(await practice.finishRound(payload)).toMatchObject({ verified: true, stage: 1, review_count: 1 });
   const done = parseFrontmatter(store.files.get(root + progress)!)!.metadata;
   expect(done.tags).toEqual(['system-design/done']);
   expect(done).not.toHaveProperty('confirmed_registration');
@@ -1220,7 +1080,7 @@ it('rejects standalone evidence before recording any state', async () => {
   await practice.add(designRequest);
   const before = new Map(store.files);
   await expect(practice.record({ id: designRequest.id, revision: (await practice.review(designRequest.id)).revision,
-    attempt_id: 'unsupported', completed_on: '2026-11-14', reflection: 'Actual answer.', concept_observations: [{
+    criteria: criteria('system-design'), attempt_id: 'unsupported', completed_on: '2026-11-14', reflection: 'Actual answer.', concept_observations: [{
       observation_id: 'unsupported', concept_id: 'cache.expiry', performance: 'weak', learner: true,
       summary: 'No expiry.', anchor: 'Assessment' }] })).rejects.toThrow('use_practice_finish_round_for_evidence');
   expect(store.files).toEqual(before);
@@ -1314,7 +1174,7 @@ it('recovers and retries MCP closeout while preserving canonical ordering, corre
   const progress = 'Learning/Practice/System-Design/Solutions/A-newer/progress.md';
   const prior = 'Learning/Practice/System-Design/Solutions/Z-older/progress.md';
   const finish = { topic: { ...designRequest, concept_ids: concepts }, progress_path: progress, attempt: {
-    attempt_id: 'a-later', completed_on: '2026-11-14', reflection: 'Actual answer.', concept_observations: [later],
+    criteria: criteria('system-design'), attempt_id: 'a-later', completed_on: '2026-11-14', reflection: 'Actual answer.', concept_observations: [later],
   } };
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(options.resource), { fetch: (input, init) => handler(new Request(input, init)) }));
@@ -1340,7 +1200,7 @@ it('recovers and retries MCP closeout while preserving canonical ordering, corre
     expect(parseFrontmatter(store.files.get(root + progress)!)!.metadata).toMatchObject({ tags: ['system-design/wip'], confirmed_registration: { topic: finish.topic, attempt: finish.attempt } });
     expect(store.files.get(root + profile)).toBe(existingProfile);
     delete store.beforePut;
-    expect((await call('practice_finish_round', finish)).structuredContent).toMatchObject({ verified: true, completed_design_rounds: 2 });
+    expect((await call('practice_finish_round', finish)).structuredContent).toMatchObject({ verified: true, review_count: 2 });
     expect(parseFrontmatter(store.files.get(key)!)!.metadata).toMatchObject({ concept_ids: concepts, custom_field: 'retained' });
     const snapshot = store.files.get(root + profile)!;
     expect(snapshot).toContain('Current: mastered. Bounded cache lifetime.');
@@ -1364,7 +1224,7 @@ it('recovers and retries MCP closeout while preserving canonical ordering, corre
     expect((await call('practice_rebuild_design_profile', {})).isError).not.toBe(true);
     const corrected = new Map(store.files);
     expect(store.files.get(root + profile)).toContain('Repeated error: cache.no-expiry. No expiry.');
-    expect((await call('practice_finish_round', finish)).structuredContent).toMatchObject({ verified: true, completed_design_rounds: 2 });
+    expect((await call('practice_finish_round', finish)).structuredContent).toMatchObject({ verified: true, review_count: 2 });
     expect(store.files).toEqual(corrected);
     expect((await call('practice_design_outline', { id: designRequest.id })).structuredContent).toMatchObject({
       follow_ups: [{ performance: 'weak', kind: 'probe' }],
@@ -1400,7 +1260,7 @@ it('identifies repeated error IDs across distinct finishes with different summar
     const progress_path = `Learning/Practice/System-Design/Solutions/${id}/progress.md`;
     await practice.createNote(progress_path, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
     return practice.finishRound(finishRoundSchema.parse({ topic: designRequest, progress_path, attempt: {
-      attempt_id: id, completed_on: '2026-11-14', reflection: 'Actual learner answer.', concept_observations: observations,
+      criteria: criteria('system-design'), attempt_id: id, completed_on: '2026-11-14', reflection: 'Actual learner answer.', concept_observations: observations,
     } }));
   };
   await finish('error-first', [
@@ -1434,7 +1294,7 @@ it('preserves answer dates and same-day evidence order through late finish and c
     await practice.createNote(progress_path, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n' +
       (saved.length ? '```practice-observations\n' + stringify(saved) + '```\n' : ''));
     return practice.finishRound(finishRoundSchema.parse({ topic: { ...designRequest, id }, progress_path, attempt: {
-      attempt_id, completed_on, reflection: 'Actual learner answer.', concept_observations: observations,
+      attempt_id, completed_on, criteria: criteria('system-design'), reflection: 'Actual learner answer.', concept_observations: observations,
     } }));
   };
   await finish('recent-question', 'z-earlier-order', '2026-11-25', [
@@ -1498,7 +1358,7 @@ it.each([
   const observation = { observation_id: 'invalid-evidence', concept_id: 'cache.expiry', performance: 'weak' as const,
     summary: 'No expiration.', anchor: 'Assessment' };
   const payload = finishRoundSchema.parse({ topic: designRequest, progress_path: progress, attempt: {
-    attempt_id: 'invalid-evidence', completed_on: '2026-11-14', reflection: 'Actual answer.', concept_observations: [observation],
+    criteria: criteria('system-design'), attempt_id: 'invalid-evidence', completed_on: '2026-11-14', reflection: 'Actual answer.', concept_observations: [observation],
   } });
   store.files.set(profile, 'Existing profile');
   store.beforePut = key => { if (key === profile) throw new NoteError('note_unavailable'); };
@@ -1526,7 +1386,7 @@ it('repeats error IDs across concepts and distinct attempts without mixing concl
     const progress_path = `Learning/Practice/System-Design/Solutions/${id}/progress.md`;
     await practice.createNote(progress_path, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
     await practice.finishRound(finishRoundSchema.parse({ topic: designRequest, progress_path, attempt: {
-      attempt_id: id, completed_on: '2026-11-14', reflection: 'Actual learner answer.', concept_observations: observations,
+      criteria: criteria('system-design'), attempt_id: id, completed_on: '2026-11-14', reflection: 'Actual learner answer.', concept_observations: observations,
     } }));
   };
   await finish('routing-errors', [
@@ -1558,7 +1418,7 @@ it.each([
     '---\n## Assessment\n```practice-observations\n' + stringify([observation]) + '```\n');
   store.files.set(profile, 'Existing profile');
   const payload = finishRoundSchema.parse({ topic: designRequest, progress_path, attempt: {
-    attempt_id: 'first-evidence', completed_on: '2026-11-14', reflection: 'Actual answer.',
+    criteria: criteria('system-design'), attempt_id: 'first-evidence', completed_on: '2026-11-14', reflection: 'Actual answer.',
   } });
   const before = new Map(store.files);
   const writeCount = store.writes.length;
@@ -1594,7 +1454,7 @@ it.each([
   const before = new Map(store.files);
   const writeCount = store.writes.length;
   const payload = finishRoundSchema.parse({ topic: designRequest, progress_path, attempt: {
-    attempt_id: 'current-session', completed_on: '2026-11-14', reflection: 'Actual answer.',
+    criteria: criteria('system-design'), attempt_id: 'current-session', completed_on: '2026-11-14', reflection: 'Actual answer.',
   } });
   if (!valid) {
     await expect(practice.finishRound(payload)).rejects.toThrow();

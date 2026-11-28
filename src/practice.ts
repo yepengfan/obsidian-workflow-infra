@@ -3,9 +3,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { parseFrontmatter } from './frontmatter.js';
 import { PracticeWorkflow } from './practice-workflow.js';
-import { checkFinalSummary } from './design-review.js';
-import { practiceReviewConsumers } from './review-consumers.js';
 import { ReviewItems, serializeNote as serialize } from './srs/review-items.js';
+import { criterionResultSchema, judge } from './srs/criteria.js';
 import { calendarDay } from './srs/schedule.js';
 import type { Settings } from './config.js';
 import { NoteError } from './paths.js';
@@ -19,7 +18,6 @@ import { conceptIdSchema, dateSchema, reviewSummarySchema as summarySchema, slug
 import { parsePracticeNote, PracticeNotes } from './practice-note.js';
 import type { ReviewIndex, SessionIndex } from './review-index.js';
 
-export { calendarDay } from './srs/schedule.js';
 export { PracticeError } from './errors.js';
 export { domainSchema, validatePracticeWritePath } from './practice-domains.js';
 export { dateSchema, slugSchema } from './practice-schema.js';
@@ -30,7 +28,7 @@ export const addReviewSchema = z.strictObject({ id: slugSchema, domain: domainSc
   source: text.optional(), review_focus: text.optional(), concept_ids: z.array(conceptIdSchema).max(50).optional() });
 export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: revisionSchema,
   attempt_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u).max(128),
-  outcome: z.enum(['independent', 'assisted', 'incomplete']).optional(), reflection: requiredText,
+  criteria: z.array(criterionResultSchema).min(1).max(20), reflection: requiredText,
   completed_on: dateSchema, submission: text.optional(), observations: text.optional(),
   concept_observations: z.array(conceptObservationSchema).max(20).optional() });
 export const finishRoundSchema = z.strictObject({
@@ -49,10 +47,11 @@ export class Practice {
     this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal);
     this.items = new ReviewItems({
       notes: this.notes, index, signal, today: () => this.today(),
-      consumers: practiceReviewConsumers({ designObservations: () => this.assessmentObservations() }),
-      schedule: async domain => {
-        const config = await this.workflows.config(domainSchema.parse(domain));
-        return { intervals: config.interval_days, retryDays: config.retry_days, archiveAfterFinal: config.archive_after_final };
+      registered: (domain): domain is PracticeDomain => domainSchema.safeParse(domain).success,
+      policy: async domain => {
+        const { schedule, policy } = await this.workflows.config(domainSchema.parse(domain));
+        return { criteria: policy!.pass_criteria, schedule: { intervals: schedule.intervals, stepBack: schedule.on_fail.step_back,
+          retryDays: schedule.on_fail.retry_days, archiveAfterFinal: schedule.archive_after_final } };
       },
     });
   }
@@ -81,9 +80,6 @@ export class Practice {
     const { date, domain, ...queue } = await this.items.reviews(domainSchema.parse(input.domain));
     return { date, time_zone: this.settings.practice.timeZone, domain, ...queue, complete: true };
   }
-  async recalculateDesignReviews() {
-    return this.items.recalculate('system-design');
-  }
   async review(id: string, includeHistory = false) {
     return this.items.review(id, includeHistory);
   }
@@ -98,6 +94,8 @@ export class Practice {
     if (topic.domain !== 'system-design' && attempt.concept_observations?.length) throw new PracticeError('unsupported_practice_domain');
     if (attempt.completed_on > this.today()) throw new PracticeError('review_date_is_in_future');
     if (topic.domain === 'system-design' && !progress_path) throw new PracticeError('session_progress_required');
+    // Judge before binding the session or creating the item, so a mismatched judgment writes nothing.
+    judge((await this.workflows.config(topic.domain)).policy!.pass_criteria, attempt.criteria);
     if (progress_path) {
       if (topic.domain !== 'system-design' || validatePracticeWritePath(progress_path) !== topic.domain ||
         !progress_path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !progress_path.endsWith('/progress.md')) throw new NoteError('invalid_path');
@@ -115,7 +113,6 @@ export class Practice {
         (metadata.round_completed_on && metadata.round_completed_on !== attempt.completed_on)) throw new PracticeError('session_round_mismatch');
       if (metadata.confirmed_registration && !isDeepStrictEqual(metadata.confirmed_registration, { topic, attempt })) throw new PracticeError('confirmed_registration_mismatch');
       await this.assessmentObservations({ progressPath: progress_path, completedOn: attempt.completed_on });
-      await this.assertFinalSummary(topic.id, attempt, { progressPath: progress_path, completedOn: attempt.completed_on });
       if (tags.includes('system-design/wip') && !metadata.confirmed_registration) {
         await this.notes.put(progress_path, serialize({ ...metadata, round_id: attempt.attempt_id, review_item_id: topic.id,
           round_completed_on: attempt.completed_on, confirmed_registration: { topic, attempt } }, body), note.revision);
@@ -151,15 +148,6 @@ export class Practice {
       } else if (!tags.includes('system-design/done')) throw new PracticeError('session_round_mismatch');
     }
     return { ...summarySchema.parse(verified.item), attempt_id: attempt.attempt_id, verified: true };
-  }
-
-  /** Checks a System Design closing round before its session is bound, while the topic may not exist yet. */
-  private async assertFinalSummary(id: string, attempt: z.infer<typeof finishRoundSchema>['attempt'], progress: { progressPath: string; completedOn: string }) {
-    let current;
-    try { current = await this.items.note(id); }
-    catch (error) { if (error instanceof NoteError && error.code === 'note_unavailable') return; throw error; }
-    if (current.item.domain !== 'system-design') return;
-    await checkFinalSummary(current.item, attempt, () => this.assessmentObservations(progress));
   }
 
   private async persistDesignProfile(progressPath: string, attemptId: string, date: string, observations: z.infer<typeof conceptObservationSchema>[]) {
