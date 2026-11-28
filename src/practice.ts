@@ -184,6 +184,8 @@ export class Practice {
         throw new PracticeError('session_topic_mismatch');
       }
       const bound = metadata.round_id === attempt.attempt_id && metadata.review_item_id === topic.id;
+      // A session claims itself before its attempt is recorded, so a recorded attempt is retried only from its own session.
+      if (recorded && !bound) throw new PracticeError('attempt_already_recorded');
       if ((!tags.includes('system-design/wip') && !(bound && tags.includes('system-design/done'))) ||
         (metadata.round_id && metadata.round_id !== attempt.attempt_id) ||
         (metadata.review_item_id != null && metadata.review_item_id !== topic.id) ||

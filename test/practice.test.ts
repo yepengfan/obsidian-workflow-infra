@@ -1840,6 +1840,20 @@ describe('block signals from System Design rounds', () => {
     expect(store.files.has(items + designRequest.id + '.md')).toBe(false);
   });
 
+  it('refuses a recorded attempt id from a session it was not recorded from', async () => {
+    const { store, practice } = setup();
+    await enroll(practice);
+    await round(practice, 'reused', { problem: 'ticketmaster', concept_observations: [observe('lock', 'dealing-with-contention', 'mastered')] });
+    const fresh = 'Learning/Practice/System-Design/Solutions/fresh/progress.md';
+    await practice.createNote(fresh, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+    const before = store.files.get(root + fresh);
+    await expect(practice.finishRound({ topic: designRequest, progress_path: fresh, attempt: { criteria: criteria('system-design', ['core_blocks_partial']),
+      attempt_id: 'reused', reflection: 'r', completed_on: '2026-11-14', problem: 'ticketmaster', concept_observations: [observe('lock2', 'dealing-with-contention', 'weak')] } }))
+      .rejects.toThrow('attempt_already_recorded');
+    expect(store.files.get(root + fresh)).toBe(before);
+    expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-27' });
+  });
+
   it('keeps the problem to System Design', async () => {
     const { store, practice } = await seeded();
     await expect(practice.record(attempt(store.tag(items + item.id + '.md'), { problem: 'ticketmaster' }))).rejects.toThrow('unsupported_practice_domain');
