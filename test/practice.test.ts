@@ -1540,6 +1540,27 @@ describe('SD Blocks', () => {
     await expect(practice.finishRound({ topic, attempt: blockAttempt({ attempt_id: 'block-3', placement: true }) })).rejects.toThrow('placement_requires_first_attempt');
   });
 
+  it('orders same-day reviews by their recorded order', async () => {
+    const { practice } = setup();
+    const weak = (point: string) => ({ id: point, result: 'weak' as const, evidence: 'e' });
+    const failed = criteria('sd-blocks', ['points_answered']);
+    await practice.finishRound({ topic, attempt: blockAttempt({ criteria: failed, points: [weak('pessimistic-lock')] }) });
+    await practice.finishRound({ topic, attempt: blockAttempt({ attempt_id: 'block-2', criteria: failed, points: [weak('conditional-write')] }) });
+    expect((await rotation(practice)).slice(2)).toEqual([['pessimistic-lock', 1, 'weak'], ['conditional-write', 1, 'weak']]);
+  });
+
+  it('reads the notes its map links while System Design is off, and nothing else of System Design', async () => {
+    const { store, practice } = setup();
+    disable(store, 'system-design');
+    for (const note of [...blockNotes.map(note => `Learning/Practice/System-Design/${note}.md`), 'Learning/Practice/System-Design/Blocks.md']) {
+      await expect(practice.readNote(note)).resolves.toMatchObject({ path: note });
+    }
+    store.files.set(sd + 'Solutions/Bitly/progress.md', '# progress\n');
+    await expect(practice.readNote('Learning/Practice/System-Design/Solutions/Bitly/progress.md')).rejects.toThrow('domain_module_disabled');
+    disable(store, 'sd-blocks');
+    await expect(practice.readNote('Learning/Practice/System-Design/Key Technologies/Redis.md')).rejects.toThrow('domain_module_disabled');
+  });
+
   it('records an ordinary first attempt and reports an archived item from its note', async () => {
     const { store, practice } = setup();
     expect(await practice.finishRound({ topic, attempt: blockAttempt({ criteria: criteria('sd-blocks', ['no_substantive_help']) }) }))

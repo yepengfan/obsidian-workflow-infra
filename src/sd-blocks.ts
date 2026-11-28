@@ -76,21 +76,25 @@ export interface PointRotation {
  * The block's points in the order the next review should examine them:
  * points never examined, then those last answered weak, then partial, then
  * mastered; within each, the least recently examined first, then map order.
+ * Recency follows the history's entry order, so two reviews on one day keep
+ * their order.
  */
 export function pointRotation(block: Block, history: readonly HistoryEntry[]): PointRotation[] {
   const state = new Map(block.points.map(point => [point.id, { id: point.id, text: point.text, examined: 0,
     last_result: null as PointResult | null, last_examined: null as string | null }]));
-  for (const entry of history) {
+  const lastEntry = new Map<string, number>();
+  history.forEach((entry, index) => {
     for (const point of entryPoints(entry)) {
       const current = state.get(point.id);
       // A point removed from the map keeps its history but is no longer examined.
       if (!current) continue;
       Object.assign(current, { examined: current.examined + 1, last_result: point.result, last_examined: entry.date });
+      lastEntry.set(point.id, index);
     }
-  }
+  });
   const rank = (point: PointRotation) => point.last_result === null ? -1 : RESULTS.length - 1 - RESULTS.indexOf(point.last_result);
   const order = block.points.map(point => point.id);
-  return [...state.values()].sort((a, b) => rank(a) - rank(b) || (a.last_examined ?? '').localeCompare(b.last_examined ?? '') ||
+  return [...state.values()].sort((a, b) => rank(a) - rank(b) || (lastEntry.get(a.id) ?? -1) - (lastEntry.get(b.id) ?? -1) ||
     order.indexOf(a.id) - order.indexOf(b.id));
 }
 

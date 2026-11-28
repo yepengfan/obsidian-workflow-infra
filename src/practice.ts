@@ -10,7 +10,7 @@ import type { Settings } from './config.js';
 import { NoteError } from './paths.js';
 import type { NoteStore, NoteWriter } from './note-store.js';
 import { PracticeError } from './errors.js';
-import { CANVAS_REVIEW_PREFIX, DESIGN_PROFILE, type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
+import { BLOCK_MAP, CANVAS_REVIEW_PREFIX, DESIGN_PROFILE, type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
 import { conceptObservationSchema, designOutline, parseObservations, renderProfile, upsertObservations, type StoredObservation } from './design-profile.js';
 import { readDesignCanvas, parseScene, writeDesignCanvas } from './design-canvas.js';
@@ -304,8 +304,18 @@ export class Practice {
   }
 
   async readNote(path: string) {
-    await this.workflows.config(practiceNoteDomain(path));
+    const domain = practiceNoteDomain(path);
+    try { await this.workflows.config(domain); } catch (error) {
+      // SD Blocks reads its map and the notes it links even when System Design is off.
+      if (domain !== 'system-design' || !(await this.blockMapReads().catch(() => new Set<string>())).has(path)) throw error;
+    }
     return { path, ...await this.read(path) };
+  }
+  /** The System Design notes SD Blocks may read: its map and every note the map links. */
+  private async blockMapReads() {
+    await this.workflows.config('sd-blocks');
+    const map = await this.blockMap();
+    return new Set([BLOCK_MAP, ...map.blocks.flatMap(block => [block.note, ...block.cards]), ...map.problems.map(problem => problem.note)]);
   }
   async designTemplate(input: z.infer<typeof designSessionSchema>) {
     await this.workflows.config('system-design');

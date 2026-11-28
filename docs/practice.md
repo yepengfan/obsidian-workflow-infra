@@ -465,7 +465,7 @@ error with its line in the availability report. Other domains are unaffected.
   so a later edit of the map cannot make its retry fail.
 - `practice_review` returns the block's points in rotation order: never
   examined, then last answered weak, partial and mastered, each least recently
-  examined first. Points are read only from each entry's own Points section,
+  examined first, by the order of the history entries. Points are read only from each entry's own Points section,
   before any learner text.
 - The consumer sets `placement_interval: 14`, so a familiar block's passed
   placement review starts at stage 4.
@@ -473,7 +473,9 @@ error with its line in the availability report. Other domains are unaffected.
   `Learning/Practice/System-Design/Blocks/Reviews/*/*.excalidraw.md`, through
   the same stage and save tools as session canvases. This is the module's only
   write path, shared with IAM synthesis. `Blocks.md`, the articles, cards and
-  breakdowns are read-only; reading them is guarded by System Design.
+  breakdowns are read-only. They are readable while System Design is usable;
+  while it is off, SD Blocks can still read `Blocks.md` and every note the map
+  links, and nothing else under System Design.
 
 ## Activation procedure
 
