@@ -100,15 +100,17 @@ fetch code, execute upstream scripts, upload to S3 or deploy anything.
 CI and Lambda use the committed snapshot. Runtime ZIP builds from the same
 committed snapshot remain deterministic.
 
-The live S3 practice-review manifest controls `enabled`, intervals, retry days
-and final-interval archiving. Its `consumers` table registers each module that
-uses spaced review: `enabled`, `module`, `flow` and `time_limit`. A module is
-usable only when all five hold, checked before its actions:
+The live S3 practice-review manifest controls `enabled`, the global `schedule`
+rule and `shared_criteria`. Its `consumers` table registers each module that
+uses spaced review: `enabled`, `module`, `flow` and `time_limit`. Each module
+declares `pass_criteria` in its own `module.md`, referring to shared criteria
+by id or defining its own with an `id` and a `rule`. A module is usable only
+when all five hold, checked before its actions:
 
 1. practice review is enabled (`practice_module_disabled`); a manifest missing these settings, such as one without `consumers`, fails every module with `invalid_practice_config`
 2. its consumer entry is enabled (`consumer_disabled`, or `consumer_not_registered` when absent)
 3. its own module is enabled (`domain_module_disabled`, `invalid_domain_module`)
-4. its entry is valid (`invalid_consumer_config`, `invalid_review_time_limit`)
+4. its entry and pass criteria are valid (`invalid_consumer_config`, `invalid_review_time_limit`, `invalid_pass_criteria` for none, an unknown shared id, a repeated id or a missing rule)
 5. its workflow was imported: `flow` matches the definition in this server's snapshot (`workflow_mapping_changed_refresh_required`)
 
 `practice` reports a module switched off by 2 or 3 as `disabled` and any other
@@ -134,9 +136,8 @@ practice write tools.
 | `practice_design_canvas` | Read the exact selected session canvas as native drawing data, with its source revision; supports plain JSON and legacy compressed-json without saving. |
 | `practice_add_review` | Create an unstarted review object without overwriting an existing one. |
 | `practice_record_review` | Append an ended attempt/reflection and calculate scheduling deterministically. |
-| `practice_finish_round` | Close out a confirmed round, including System Design assessment and profile saves. |
+| `practice_finish_round` | Close out a confirmed attempt with its criteria judgment, including System Design assessment and profile saves. |
 | `practice_rebuild_design_profile` | Rebuild the generated index; see [System Design evidence](#system-design-evidence). |
-| `practice_recalculate_design_reviews` | Persist the cutover normalization described in [Queue and schedule](#queue-and-schedule). |
 | `practice_stage_canvas` | Stage a reviewed drawing and return its snapshot receipt. |
 | `practice_save_canvas` | Conditionally save a reviewed drawing and verify it by reading it back. |
 | `practice_create_note` | Create an approved practice data Markdown file if absent. |
@@ -228,42 +229,45 @@ reflection history and post-attempt focus. Feedback is requested after the
 independent attempt. The owner still has ordinary note-read access; the phase
 separation is a coaching rule, not an access control against the owner.
 
-Algorithm reviews follow the canonical outcome-based scheduling policy:
+Every module follows one schedule rule, read from the live manifest's
+`schedule`. A module cannot change it.
 
-- First independent completion: first interval from actual completion day.
-- On-time/late independent completion: advance one interval, capped at the last.
-- On-time/late independent completion at the final stage with
-  `archive_after_final: true`: set `status: archived`, `archived_on` to the
-  completion day and `next_review: null`. Without the flag, repeat the final
-  interval. Archived items leave the queue and refuse further review records.
-- Early independent extra practice: keep the existing due date and stage.
-- Assisted/incomplete ended round: retry interval, preserving the stage.
+- An item starts at stage 0: it has never passed. Stage N waits
+  `intervals[N - 1]` days (1, 3, 7, 14, 30, 60), counted from the day the
+  attempt ended.
+- A pass moves up one stage. A pass at the top stage, with
+  `archive_after_final: true`, sets `status: archived`, `archived_on` to the
+  completion day and `next_review: null`; without it the item repeats the top
+  interval. Archived items leave the queue and refuse further records.
+- A fail drops `on_fail.step_back` stages, never below 0, and is retried after
+  `on_fail.retry_days`.
+- Early attempts count like on-time ones.
 
-System Design advances by completed round, including early and late completions.
-Rounds 1 and 2 are guided, rounds 3 through 6 are mock interviews, and round 6
-also requires a summary citing existing observations without creating a new
-observation. The first five completions
-schedule the configured intervals from the actual completion date; the sixth
-always archives, independently of `archive_after_final`. An ended incomplete
-attempt retries without advancing the completed round count. A paused session
-remains a checkpoint, without a review record.
-System Design may omit outcome; older assisted and independent outcomes still
-count as completions. Retrying a registered attempt ID does not advance again,
-including after archive.
+Every ended attempt is judged, including a first attempt at a new problem. The
+agent submits `criteria`: every criterion in the module's `pass_criteria`, once
+each, with `met` and its `evidence`. The core rejects a missing, extra or
+repeated criterion with `criteria_mismatch` before any write, and computes the
+result itself: an attempt passes only when every criterion is met. The item
+stores `last_result` and `unmet_criteria`; the history entry lists each
+criterion with its evidence. Retrying a registered attempt ID does not advance
+again, including after archive.
 
-System Design queue and item reads replay complete saved history, including
-upcoming indexed rows, without writing. At cutover, the write-authorized
-`practice_recalculate_design_reviews` tool conditionally persists that same
-normalization for every indexed active System Design item. It preserves history
-and historical completion dates, including the final archive date. Repeating it
-does not rewrite already normalized notes. A concurrent edit rejects that write;
-refresh and retry. Run this migration against a temporary vault copy and review
-the resulting dates and archive statuses before authorizing it against the live
-vault. The asynchronous index updates from the persisted notes.
+Items recorded before this rule were migrated once with
+`bin/migrate-review-schedule.ts`, which replays each history from stage 0.
+Legacy outcomes convert as agreed: `independent` meets every criterion,
+`assisted` misses `no_substantive_help`, and `incomplete` misses the module's
+completion criterion (`tests_pass` or `all_steps_done`). Run it on a temporary
+vault copy first:
 
-Defaults are 1/3/7/14/60 days, a one-day retry and archiving after the final
-interval, read from the live manifest. `archive_after_final` defaults to false
-when the manifest omits it.
+```sh
+npx --no-install tsx bin/migrate-review-schedule.ts /path/to/vault-copy --report report.json
+npx --no-install tsx bin/migrate-review-schedule.ts /path/to/vault-copy --write
+```
+
+Without `--write` it only reports. With `--write` it refuses to run while any
+item has an error, rewrites only the schedule frontmatter, keeps every history
+entry as recorded and verifies that a second pass changes nothing.
+
 The configured IANA timezone determines today; UTC does not silently replace
 the vault calendar. `completed_on` preserves the actual completion date on a
 later save. Future dates and dates preceding the last recorded review are
@@ -278,19 +282,19 @@ the canvas save the current work without creating a review item or changing an
 existing item's due date, stage or review count. Preserve the session's original
 started date and resume its saved progress when the learner continues.
 
-Pausing or reaching the end of a day is not an `incomplete` outcome. That outcome
-is for an actually ended round assessed as incomplete. Use
-`practice_finish_round` after an ended round, learner reflection and confirmed
+Pausing or reaching the end of a day is not a failed attempt. Only an attempt
+that actually ended is judged. Use
+`practice_finish_round` after an ended attempt, learner reflection and confirmed
 saving; it delegates scheduling to the same registration flow as
 `practice_record_review`. A paused existing review may remain due or
 overdue until that recording succeeds.
 
 For example, start on November 12, save checkpoints on November 13 and 14, and
-end the first independent round on November 14. Its first review is due November
-15. If confirmation and saving happen on November 15, retain
+end the first attempt on November 14. Its first review is due November
+15, whether it passed or failed. If confirmation and saving happen on November 15, retain
 `completed_on: 2026-11-14`; do not count from the start or save date. Checkpoint
-saves alone start no countdown. A later successful due review uses its applicable
-stage interval, still measured from that round's actual completion date.
+saves alone start no countdown. A later review uses its applicable
+stage interval, still measured from that attempt's actual completion date.
 
 ## Concurrency and note edits
 
@@ -315,16 +319,13 @@ files are not writable through generic note tools. The generated profile uses
 the dedicated [evidence flow](#system-design-evidence). Multiple note saves are
 independent operations. Report each result honestly, including partial success.
 
-## System Design coaching modes
+## System Design attempts
 
-The stable review item tracks completed full rounds for each topic. See
-[Queue and schedule](#queue-and-schedule) for round modes, intervals and archive
-rules. A paused session keeps its UUID and mode.
-`practice_record_review` saves the outcome, count and schedule in one conditional
-write. Review queues and prompts return the next round, default coaching mode,
-and `summary_required` for the final mock interview.
-For older items, the service derives completions from dated English or Chinese
-round entries. The next confirmed record persists the derived state.
+There are no guided rounds or fixed round counts. A first attempt at a new
+problem may be coached; every later review is an independent attempt with a
+neutral prompt. Both are judged against the four System Design criteria, and
+any substantive help fails `no_substantive_help`. `practice_record_review` saves
+the judgment, count and schedule in one conditional write.
 
 ## System Design sessions
 
@@ -364,7 +365,7 @@ Open the selected new or resumed practice canvas before the first interview
 question. The template and saved-canvas tools display the editable Excalidraw
 scene in MCP Apps hosts. Keep the active editor open during practice.
 
-Before asking another question or requesting a canvas review, apply the stopping rule in sysd-solve. In Guided and Mock modes, give the final review immediately when the core flows and selected tradeoffs have been assessed, the learner asks to finish, or verified active time reaches the shortest of the returned `time_limits["system-design"]`, 45 minutes, and any shorter agreed budget. Use the evidence already available and identify any gaps. An idle or paused timer alone does not end the interview. An explicit pause keeps the round resumable.
+Before asking another question or requesting a canvas review, apply the stopping rule in sysd-solve. Give the final review immediately when the core flows and selected tradeoffs have been assessed, the learner asks to finish, or verified active time reaches the shortest of the returned `time_limits["system-design"]`, 45 minutes, and any shorter agreed budget. Use the evidence already available and identify any gaps. An idle or paused timer alone does not end the interview. An explicit pause keeps the round resumable.
 Before every coaching turn that depends on new work, ask the learner to click
 **Review canvas** inside the editor. Review the submitted text, positions and
 connections, including changes to existing elements and deletions since the

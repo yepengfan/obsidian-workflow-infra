@@ -21,14 +21,6 @@ const storedObservationSchema = conceptObservationSchema.extend({ attempt_id: z.
 
 const fence = /```practice-observations\r?\n([\s\S]*?)```/u;
 
-export function summaryCitesExistingObservations(summary: string | undefined, observations: readonly { observation_id: string }[]) {
-  if (!summary?.trim() || !observations.length) return false;
-  return observations.some(item => {
-    const id = item.observation_id.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-    return new RegExp(`(?:^|[^A-Za-z0-9._-])${id}(?![A-Za-z0-9._-])`, 'u').test(summary);
-  });
-}
-
 export function parseObservations(body: string, completionDate?: string, options: { deferUndated?: boolean } = {}): StoredObservation[] {
   const match = fence.exec(body);
   if (!match) return [];

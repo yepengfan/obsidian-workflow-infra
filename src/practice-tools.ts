@@ -16,7 +16,7 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   const readSecurity = readToolSecurity(settings);
   const outputSchema = z.looseObject({});
   server.registerTool('practice', { ...readSecurity, outputSchema,
-    description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm and System Design modules, and saved unfinished sessions. Offer Finish registration for pending_finalizations, preserving the saved round date and ID. Offer to resume one match, or ask which session to resume when several match; wait for the learner. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability, workflow and instruction catalog; never an assessment or saved attempt.',
+    description: 'Start practice. Omit domain for a combined due overview of enabled Algorithm and System Design modules, and saved unfinished sessions. Offer Finish registration for pending_finalizations, preserving the saved round date and ID. Offer to resume one match, or ask which session to resume when several match; wait for the learner. A sole confirmed enabled domain starts directly. Pass domain for an explicit domain request. Returns availability, the schedule rule, each module time limit and pass criteria, workflow and instruction catalog; never an assessment or saved attempt.',
     inputSchema: z.strictObject({ domain: domainSchema.optional() }) }, input => result(() => practice.workflow(input.domain)));
   server.registerTool('practice_instruction', { ...readSecurity, outputSchema,
     description: 'Read one chunk of a versioned practice instruction document listed by practice. Use for skill definitions and their shared guides; private learner records remain in S3.',
@@ -48,9 +48,6 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
   server.registerTool('practice_rebuild_design_profile', { ...writeSecurity, outputSchema,
     description: 'Rebuild the System Design profile atomically from canonical observation fences in all session assessments, including corrected older assessments.',
     inputSchema: z.strictObject({}) }, () => write(() => practice.rebuildDesignProfile()));
-  server.registerTool('practice_recalculate_design_reviews', { ...writeSecurity, outputSchema,
-    description: 'Persist completed-round scheduling for all indexed active System Design reviews at cutover. Preserves historical entries and dates. Replays final-round archive status. Conditional writes reject concurrent edits; retry safely after refreshing the index. First prove the migration on a temporary vault copy before authorizing the live migration.',
-    inputSchema: z.strictObject({}) }, () => write(() => practice.recalculateDesignReviews()));
   server.registerTool('practice_stage_canvas', { ...writeSecurity, outputSchema,
     _meta: { ...writeSecurity._meta, ui: { visibility: ['app', 'model'] }, 'openai/widgetAccessible': true },
     description: 'Stage a complete reviewed Excalidraw scene for a later confirmed save. For an older canvas use this only if the exact full scene is available. Returns a snapshot receipt.',
@@ -61,13 +58,13 @@ export function registerPracticeTools(server: McpServer, practice: Practice, set
     inputSchema: z.strictObject({ path: canvasPath, snapshot: revisionSchema.optional(), scene: z.record(z.string(), z.unknown()).optional(), revision: revisionSchema.nullable() }) },
   input => write(() => practice.saveCanvas(input.path, input, input.revision)));
   server.registerTool('practice_finish_round', { ...writeSecurity, outputSchema,
-    description: 'Shared closeout for every enrolled module. After reflection and save confirmation, submit the neutral topic and observed attempt together. System Design requires the matching session progress_path. For its first binding the saved session topic must match the review title. Retry using identical topic and round IDs. Returns verified schedule or archive status.',
+    description: 'Shared closeout for every enrolled module. After reflection and save confirmation, submit the neutral topic and observed attempt together, judging every pass criterion the module declares with its evidence; the server computes pass or fail. System Design requires the matching session progress_path. For its first binding the saved session topic must match the review title. Retry using identical topic and round IDs. Returns verified schedule or archive status.',
     inputSchema: finishRoundSchema }, input => write(() => practice.finishRound(input)));
   server.registerTool('practice_add_review', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit user confirmation, register a neutral review object without overwriting an existing one. Never invent an attempt or reflection. New entries have no scheduled date until a round is recorded.',
     inputSchema: addReviewSchema }, input => write(() => practice.add(input)));
   server.registerTool('practice_record_review', { ...writeSecurity, outputSchema,
-    description: 'After an actually ended round, learner reflection and explicit save confirmation, append the observed outcome and original reflection and calculate the next date. Preserve attempt_id across retries. Paused or multi-day WIP checkpoints are not ended rounds; save progress with note tools. completed_on is the actual local completion date, never a checkpoint or later save date. A stale revision is rejected.',
+    description: 'After an actually ended round, learner reflection and explicit save confirmation, judge every pass criterion the module declares, with evidence, and append the judgment and original reflection. The server computes pass or fail and the next date: a pass moves up one stage, a fail steps back one stage and retries the next day. Preserve attempt_id across retries. Paused or multi-day WIP checkpoints are not ended rounds; save progress with note tools. completed_on is the actual local completion date, never a checkpoint or later save date. A stale revision is rejected.',
     inputSchema: recordReviewSchema }, input => write(() => practice.record(input)));
   server.registerTool('practice_create_note', { ...writeSecurity, outputSchema,
     description: 'After preview and explicit save confirmation, create an approved Algorithm Pattern/Atom/Log or System Design Pattern/Insight/Log/session progress/canvas file. Create-if-absent only; files save independently. No configuration, guide, template or arbitrary vault writes.',

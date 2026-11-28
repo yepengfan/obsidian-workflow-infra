@@ -65,7 +65,7 @@ Keep independent attempts neutral, preserve learner reflections verbatim, and
 preview and confirm every proposed save. System Design step-transition autosave is enabled for the active round's canvas and progress note unless the learner opts out. This narrow exception covers both checkpoint writes. After saving, refresh the selected
 queue. An unsaved or paused attempt must not be presented as recorded or
 completed. A session may span multiple days: a saved progress/canvas checkpoint
-is not completion or an `incomplete` outcome. Resume the selected WIP session;
+is not completion or a failed attempt. Resume the selected WIP session;
 only recording an actually ended round updates its schedule, using the local
 completion date rather than checkpoint, start or later save dates.
 Honor an explicit request to continue without saving, retaining the
@@ -73,7 +73,7 @@ unsaved draft and distinguishing it from the persisted queue. Re-fetch the
 chosen queue before claiming its due work is complete. A failed queue read
 does not authorize an automatic new-problem handoff.
 
-System Design Guided learning is self-paced. Mock interviews use the configured `time_limits["system-design"]` as a continuation check-in. Follow the selected round’s timing and completion rules in sysd-solve.
+Each domain's `time_limits` entry is a one-time continuation check-in; work past it may continue but fails `within_time_limit` where the module declares it. Follow the selected domain's timing and completion rules in its workflow.
 An explicit pause preserves progress for resumption. Other domains follow their
 own time budgets. At the end of the sitting, wait before starting another problem.
 
@@ -98,4 +98,4 @@ same domain question again. Use the mapped workflow's topic-input step if no
 new topic was supplied. Keep the existing assessment, reflection, registration
 and explicitly confirmed save rules.
 
-Show each System Design topic with its next_round, coaching_mode and next_review date. Label round 3 as the first independent review.
+Show each topic with its stage and next_review date. Every review is an independent attempt judged against the domain's `pass_criteria`.
