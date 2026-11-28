@@ -1876,6 +1876,38 @@ describe('block signals from System Design rounds', () => {
     expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-27' });
   });
 
+  it('refuses a session whose attempt id a standalone review recorded meanwhile', async () => {
+    const { store, practice } = setup();
+    await enroll(practice);
+    const fresh = 'Learning/Practice/System-Design/Solutions/standalone-race/progress.md';
+    await practice.createNote(fresh, '---\n' + stringify({ topic: designRequest.title, tags: ['system-design/wip'] }) + '---\n## Assessment\n');
+    const add = practice.add.bind(practice);
+    // A standalone review records the same attempt id after this finish has passed its checks and claimed its note.
+    practice.add = async topic => {
+      practice.add = add;
+      const created = await add(topic);
+      await practice.record({ id: designRequest.id, revision: store.tag(items + designRequest.id + '.md'), attempt_id: 'raced',
+        criteria: criteria('system-design'), reflection: 'r', completed_on: '2026-11-14' });
+      return created;
+    };
+    await expect(practice.finishRound({ topic: designRequest, progress_path: fresh, attempt: { criteria: criteria('system-design', ['core_blocks_partial']),
+      attempt_id: 'raced', reflection: 'r', completed_on: '2026-11-14', problem: 'ticketmaster',
+      concept_observations: [observe('lock', 'dealing-with-contention', 'weak')] } })).rejects.toThrow('attempt_already_recorded');
+    expect(parseFrontmatter(store.files.get(items + designRequest.id + '.md')!)!.metadata).toMatchObject({ attempt_sessions: { raced: 'standalone' } });
+    expect(store.files.get(root + fresh)).not.toContain('```practice-observations');
+    expect(parseFrontmatter(store.files.get(items + block + '.md')!)!.metadata).toMatchObject({ next_review: '2026-11-27' });
+  });
+
+  it('reports a block item id held by an unregistered domain as not enrolled', async () => {
+    const { store, practice } = setup();
+    await practice.finishRound({ topic: { id: block, domain: 'algorithm', title: 'Contention', prompt: 'Solve it.' }, attempt: { attempt_id: 'algo-1',
+      criteria: criteria('algorithm'), reflection: 'r', completed_on: '2026-11-13' } });
+    store.files.set(items + block + '.md', store.files.get(items + block + '.md')!.replace('domain: algorithm', 'domain: behavioral'));
+    const before = store.files.get(items + block + '.md');
+    expect(await round(practice, 'retired', weakRound)).toMatchObject({ verified: true, block_signals: [{ block: 'dealing-with-contention', result: 'not_enrolled' }, { result: 'not_enrolled' }] });
+    expect(store.files.get(items + block + '.md')).toBe(before);
+  });
+
   it('keeps the problem to System Design', async () => {
     const { store, practice } = await seeded();
     await expect(practice.record(attempt(store.tag(items + item.id + '.md'), { problem: 'ticketmaster' }))).rejects.toThrow('unsupported_practice_domain');

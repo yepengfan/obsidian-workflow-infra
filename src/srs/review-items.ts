@@ -190,7 +190,8 @@ export class ReviewItems<Domain extends string> {
    * makes a repeated signal harmless.
    */
   async pullForward(id: string, domain: Domain, day: string, signalDate: string): Promise<PullForwardResult> {
-    const note = await this.note(id);
+    // Compared with the expected domain, so an item of any other domain, registered or not, is refused alike.
+    const note = await this.note(id, true);
     const { item } = note;
     if (item.domain !== domain) throw new PracticeError('review_domain_mismatch');
     if (!item.review_count || (item.last_review !== null && item.last_review >= signalDate)) return 'unchanged';

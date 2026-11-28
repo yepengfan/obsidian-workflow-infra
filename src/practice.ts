@@ -41,6 +41,9 @@ export const finishRoundSchema = z.strictObject({
   progress_path: z.string().max(1024).optional(),
 });
 export const listReviewsSchema = z.strictObject({ domain: domainSchema });
+/** The session key of an attempt recorded by a standalone review rather than finished from a session note. */
+const STANDALONE_SESSION = 'standalone';
+
 export class Practice {
   private readonly notes: PracticeNotes;
   private readonly workflows: PracticeWorkflow;
@@ -151,10 +154,13 @@ export class Practice {
     const details = current.item.attempt_ids.includes(input.attempt_id) ? undefined
       // A standalone review carries no evidence, so evidence-based module checks do not apply.
       : await this.checkAttempt(domainSchema.parse(current.item.domain), input.id, { ...input, concept_ids: current.item.concept_ids, concept_observations: undefined });
-    return this.recordChecked(input, details);
+    return this.recordChecked(input, details, STANDALONE_SESSION);
   }
-  /** Records an attempt whose module fields were already checked, with their history section. */
-  private recordChecked(input: z.infer<typeof recordReviewSchema>, details: string | undefined, session?: string) {
+  /**
+   * Records an attempt whose module fields were already checked, with their history section. `session` names
+   * where it was finished from; a standalone review records `STANDALONE_SESSION`, so every new attempt has one.
+   */
+  private recordChecked(input: z.infer<typeof recordReviewSchema>, details: string | undefined, session: string) {
     const { id, revision, attempt_id, reflection, completed_on, criteria, submission, observations, placement } = input;
     return this.items.record({ id, revision, attempt_id, reflection, completed_on, criteria, submission, observations, placement, details, session });
   }
@@ -222,13 +228,14 @@ export class Practice {
       await this.notes.put(progress_path, serialize({ ...claimed.metadata, confirmed_registration: { topic, attempt } }, unconfirmed.body), claimed.revision);
     }
     if (!current.item.attempt_ids.includes(attempt.attempt_id)) {
-      await this.recordChecked({ ...attempt, id: topic.id, revision: current.revision }, details, progress_path);
+      await this.recordChecked({ ...attempt, id: topic.id, revision: current.revision }, details, progress_path ?? STANDALONE_SESSION);
     }
     const verified = await this.items.note(topic.id);
-    // Of finishes racing on one attempt id from different sessions, the item's conditional write records exactly
-    // one with its session; the others store nothing and send no signals.
+    // Of calls racing on one attempt id, the item's conditional write records exactly one with its session; the
+    // others store nothing and send no signals. Only an attempt recorded before sessions were stored has none,
+    // and the check before the claim already required this session to be bound to it.
     const owner = verified.item.attempt_sessions[attempt.attempt_id];
-    if (progress_path && owner !== undefined && owner !== progress_path) throw new PracticeError('attempt_already_recorded');
+    if (progress_path && owner !== progress_path && !(owner === undefined && recorded)) throw new PracticeError('attempt_already_recorded');
     if (!verified.item.attempt_ids.includes(attempt.attempt_id) ||
       (verified.item.status === 'active' && !verified.item.next_review)) throw new PracticeError('registration_verification_failed');
     if (topic.domain === 'system-design' && progress_path) {
