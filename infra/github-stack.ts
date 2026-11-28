@@ -151,6 +151,10 @@ export class GitHubTrustStack extends Stack {
       }));
     }
     plan.addToPolicy(new iam.PolicyStatement({ actions: ['cloudformation:GetTemplateSummary'], resources: ['*'] }));
+    // Plan reads this foundation's own deployed template so that it refuses to
+    // deploy while a reviewed IAM change is still unapplied (bin/check-foundation.sh).
+    plan.addToPolicy(new iam.PolicyStatement({ actions: ['cloudformation:GetTemplate'],
+      resources: [`arn:${this.partition}:cloudformation:${this.region}:${this.account}:stack/${this.stackName}/*`] }));
     plan.addToPolicy(new iam.PolicyStatement({
       actions: ['cloudformation:CreateChangeSet'], resources: [stackArn],
       conditions: {
