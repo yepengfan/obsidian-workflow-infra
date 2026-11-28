@@ -574,7 +574,8 @@ profile. Only finish-triggered and explicit rebuilds replace that generated inde
 
 System Design rounds feed the SD Blocks schedule through the SRS core, never
 through the SD Blocks module (`src/system-design-module.ts`, rules in
-`src/design-blocks.ts`).
+`src/design-blocks.ts`). The signal is a separate `ReviewSignals` port that
+only the System Design module receives; the shared module ports stay read-only.
 
 - An observation may carry `block`, the id of the `Blocks.md` block it
   concerns. Tagged ids must be blocks of the map (`unknown_block`), checked

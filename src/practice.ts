@@ -53,7 +53,8 @@ export class Practice {
     this.notes = new PracticeNotes(store, settings.prefix, signal, settings.limits.practiceNoteBytes, settings.practice.writesEnabled ? dependencies.writer : undefined);
     ({ modules: this.modules, sdBlocks: this.sdBlocks } = practiceModules({ read: path => this.read(path), notesIn: prefix => this.notesIn(prefix),
       activeReviews: domain => this.index.activeReviews(domain, this.signal), item: async id => (await this.items.note(id, true)).item,
-      today: () => this.today(), signal, pullForward: (id, domain, day, signalDate) => this.items.pullForward(id, domain, day, signalDate),
+      today: () => this.today(), signal }, {
+      pullForward: (id, domain, day, signalDate) => this.items.pullForward(id, domain, day, signalDate),
       available: async domain => {
         try { await this.workflows.config(domain); return true; } catch { this.signal.throwIfAborted(); return false; }
       } }));

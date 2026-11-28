@@ -70,9 +70,13 @@ export interface PracticeModulePorts {
   item(id: string): Promise<ItemState & { domain: string }>;
   /** Today in the configured vault calendar. */
   today(): string;
+  readonly signal: AbortSignal;
+}
+
+/** Cross-module signals through the SRS core. Only a module that sends them receives this write capability. */
+export interface ReviewSignals {
   /** Whether a domain is usable now: its configuration guard passes. */
   available(domain: PracticeDomain): Promise<boolean>;
-  /** The core's cross-module signal; see `ReviewItems.pullForward`. */
+  /** See `ReviewItems.pullForward`. */
   pullForward(id: string, domain: PracticeDomain, day: string, signalDate: string): Promise<PullForwardResult>;
-  readonly signal: AbortSignal;
 }

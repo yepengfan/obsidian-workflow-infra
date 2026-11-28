@@ -2,7 +2,7 @@ import type { BlockMap } from './block-map.js';
 import { checkCoreBlocks, checkCoreConcepts, checkObservationBlocks, weakBlocks } from './design-blocks.js';
 import { PracticeError } from './errors.js';
 import { NoteError } from './paths.js';
-import type { ModuleAttempt, PracticeModule, PracticeModulePorts } from './practice-module.js';
+import type { ModuleAttempt, PracticeModule, ReviewSignals } from './practice-module.js';
 import { blockItemId } from './sd-blocks.js';
 import { addDays } from './srs/schedule.js';
 
@@ -16,7 +16,7 @@ export interface BlockSignal { block: string; item_id: string; result: 'pulled_f
  * through the core's `pullForward`; this module never calls SD Blocks.
  */
 export class SystemDesignModule implements PracticeModule {
-  constructor(private readonly ports: PracticeModulePorts, private readonly blockMap: () => Promise<BlockMap>) {}
+  constructor(private readonly signals: ReviewSignals, private readonly blockMap: () => Promise<BlockMap>) {}
 
   async attempt(_itemId: string, attempt: ModuleAttempt) {
     if (attempt.points?.length) throw new PracticeError('unsupported_practice_domain');
@@ -41,13 +41,13 @@ export class SystemDesignModule implements PracticeModule {
     // The service passes the round's stored observations, already parsed.
     const blocks = weakBlocks(attempt.concept_observations ?? []);
     if (!blocks.length) return {};
-    const usable = await this.ports.available('sd-blocks');
+    const usable = await this.signals.available('sd-blocks');
     const block_signals: BlockSignal[] = [];
     for (const block of blocks) {
       const item_id = blockItemId(block);
       if (!usable) { block_signals.push({ block, item_id, result: 'sd_blocks_unavailable' }); continue; }
       try {
-        block_signals.push({ block, item_id, result: await this.ports.pullForward(item_id, 'sd-blocks', addDays(attempt.completed_on, 1), attempt.completed_on) });
+        block_signals.push({ block, item_id, result: await this.signals.pullForward(item_id, 'sd-blocks', addDays(attempt.completed_on, 1), attempt.completed_on) });
       } catch (error) {
         // An item id held by another domain cannot be the block's item.
         const missing = (error instanceof NoteError && error.code === 'note_unavailable') ||
