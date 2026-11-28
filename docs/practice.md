@@ -667,8 +667,10 @@ never calls the SD Blocks module.
   - Without the setting `roadmap` is null. An unreadable plan, an invalid
     setting or an invalid list gives `status: unavailable` with its `reason`
     (`note_unavailable` or `invalid_roadmap`) instead of failing the workflow.
-- The workflow decides what a gap means for the learner. The sysd-solve skill
-  triages not-enrolled core blocks before new practice when two or more core
-  blocks have gaps, and probes the rest in Deep Dives. Blocks.md stays read-only
-  to the server: the skill drafts a missing row for the learner to confirm and
-  add.
+- The workflow decides what a gap means for the learner. Block names identify
+  techniques, so sysd-solve keeps the check private before the attempt and
+  tells the learner only the gap count. With two or more core gaps it offers
+  triage of the not-enrolled core blocks first, which names them, so that
+  attempt does not meet `no_substantive_help`. Other gaps become neutral Deep
+  Dives questions. Blocks.md stays read-only to the server: the skill drafts a
+  missing row in the debrief for the learner to confirm and add.
