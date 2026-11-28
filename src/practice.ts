@@ -12,7 +12,7 @@ import type { NoteStore, NoteWriter } from './note-store.js';
 import { PracticeError } from './errors.js';
 import { CANVAS_REVIEW_PREFIX, DESIGN_PROFILE, type PracticeDomain, domainSchema, practiceDomains, practiceNoteDomain, validatePracticeWritePath } from './practice-domains.js';
 import { designSessionTemplate, designSessionSchema } from './design-session.js';
-import { conceptObservationSchema, designOutline, parseObservations, renderProfile, upsertObservations, type StoredObservation } from './design-profile.js';
+import { conceptObservationSchema, designOutline, mergeAttemptObservations, parseObservations, renderProfile, upsertObservations, type StoredObservation } from './design-profile.js';
 import { readDesignCanvas, parseScene, writeDesignCanvas } from './design-canvas.js';
 import { attemptIdSchema, conceptIdSchema, dateSchema, reviewSummarySchema as summarySchema, slugSchema } from './practice-schema.js';
 import { parsePracticeNote, PracticeNotes } from './practice-note.js';
@@ -35,12 +35,15 @@ export const recordReviewSchema = z.strictObject({ id: slugSchema, revision: rev
   criteria: z.array(criterionResultSchema).min(1).max(20), reflection: requiredText,
   completed_on: dateSchema, submission: text.optional(), observations: text.optional(),
   concept_observations: z.array(conceptObservationSchema).max(20).optional(),
-  points: z.array(blockPointResultSchema).min(1).max(8).optional(), placement: z.boolean().optional() });
+  points: z.array(blockPointResultSchema).min(1).max(8).optional(), placement: z.boolean().optional(), problem: slugSchema.optional() });
 export const finishRoundSchema = z.strictObject({
   topic: addReviewSchema, attempt: recordReviewSchema.omit({ id: true, revision: true }),
   progress_path: z.string().max(1024).optional(),
 });
 export const listReviewsSchema = z.strictObject({ domain: domainSchema });
+/** The session key of an attempt recorded by a standalone review rather than finished from a session note. */
+const STANDALONE_SESSION = 'standalone';
+
 export class Practice {
   private readonly notes: PracticeNotes;
   private readonly workflows: PracticeWorkflow;
@@ -53,7 +56,11 @@ export class Practice {
     this.notes = new PracticeNotes(store, settings.prefix, signal, settings.limits.practiceNoteBytes, settings.practice.writesEnabled ? dependencies.writer : undefined);
     ({ modules: this.modules, sdBlocks: this.sdBlocks } = practiceModules({ read: path => this.read(path), notesIn: prefix => this.notesIn(prefix),
       activeReviews: domain => this.index.activeReviews(domain, this.signal), item: async id => (await this.items.note(id, true)).item,
-      today: () => this.today(), signal }));
+      today: () => this.today(), signal }, {
+      pullForward: (id, domain, day, signalDate) => this.items.pullForward(id, domain, day, signalDate),
+      available: async domain => {
+        try { await this.workflows.config(domain); return true; } catch { this.signal.throwIfAborted(); return false; }
+      } }));
     const checks = Object.fromEntries(Object.entries(this.modules).flatMap(([domain, module]) => module.check ? [[domain, () => module.check!()]] : []));
     this.workflows = new PracticeWorkflow(settings.practice, path => this.read(path), dependencies.now ?? (() => new Date()), signal, checks);
     this.items = new ReviewItems({
@@ -88,7 +95,7 @@ export class Practice {
   private async checkAttempt(domain: PracticeDomain, itemId: string, attempt: ModuleAttempt) {
     const module = this.modules[domain];
     if (!module?.attempt) {
-      if (attempt.points?.length) throw new PracticeError('unsupported_practice_domain');
+      if (attempt.points?.length || attempt.problem !== undefined) throw new PracticeError('unsupported_practice_domain');
       return undefined;
     }
     await this.workflows.config(domain);
@@ -142,12 +149,20 @@ export class Practice {
   }
   async record(input: z.infer<typeof recordReviewSchema>) {
     if (input.concept_observations?.length) throw new PracticeError('use_practice_finish_round_for_evidence');
-    const { points, ...attempt } = input;
     const current = await this.items.note(input.id);
     // A retry of a recorded attempt returns it unchanged, so only a new attempt is checked.
     const details = current.item.attempt_ids.includes(input.attempt_id) ? undefined
-      : await this.checkAttempt(domainSchema.parse(current.item.domain), input.id, { points, criteria: attempt.criteria });
-    return this.items.record({ ...attempt, details });
+      // A standalone review carries no evidence, so evidence-based module checks do not apply.
+      : await this.checkAttempt(domainSchema.parse(current.item.domain), input.id, { ...input, concept_ids: current.item.concept_ids, concept_observations: undefined });
+    return this.recordChecked(input, details, STANDALONE_SESSION);
+  }
+  /**
+   * Records an attempt whose module fields were already checked, with their history section. `session` names
+   * where it was finished from; a standalone review records `STANDALONE_SESSION`, so every new attempt has one.
+   */
+  private recordChecked(input: z.infer<typeof recordReviewSchema>, details: string | undefined, session: string) {
+    const { id, revision, attempt_id, reflection, completed_on, criteria, submission, observations, placement } = input;
+    return this.items.record({ id, revision, attempt_id, reflection, completed_on, criteria, submission, observations, placement, details, session });
   }
   async finishRound({ topic, attempt, progress_path }: z.infer<typeof finishRoundSchema>) {
     if (topic.domain !== 'system-design' && attempt.concept_observations?.length) throw new PracticeError('unsupported_practice_domain');
@@ -157,7 +172,13 @@ export class Practice {
     judge((await this.workflows.config(topic.domain)).policy!.pass_criteria, attempt.criteria);
     // A retry of a recorded attempt re-verifies it without checking it against a map that may have changed.
     const existing = this.modules[topic.domain]?.attempt ? await this.existingItem(topic.id) : null;
-    if (!existing?.item.attempt_ids.includes(attempt.attempt_id)) await this.checkAttempt(topic.domain, topic.id, attempt);
+    // An empty concept list takes the topic's, as registration below does.
+    const concept_ids = existing?.item.concept_ids.length ? existing.item.concept_ids : topic.concept_ids ?? [];
+    const recorded = existing?.item.attempt_ids.includes(attempt.attempt_id) ?? false;
+    // Module checks judge the round's evidence as the session will store it.
+    let evidence: StoredObservation[] | undefined;
+    const check = (concepts: readonly string[]) => this.checkAttempt(topic.domain, topic.id, { ...attempt, concept_ids: concepts, concept_observations: evidence });
+    let session: { note: { revision: string }; metadata: Record<string, unknown>; body: string; tags: unknown[] } | undefined;
     if (progress_path) {
       if (topic.domain !== 'system-design' || validatePracticeWritePath(progress_path) !== topic.domain ||
         !progress_path.startsWith(practiceDomains['system-design'].root + 'Solutions/') || !progress_path.endsWith('/progress.md')) throw new NoteError('invalid_path');
@@ -169,16 +190,28 @@ export class Practice {
         throw new PracticeError('session_topic_mismatch');
       }
       const bound = metadata.round_id === attempt.attempt_id && metadata.review_item_id === topic.id;
+      // A recorded attempt is retried only from the session it was recorded from: the one the item names, or for
+      // an attempt recorded without one, the session bound to it before this call.
+      const owner = existing?.item.attempt_sessions[attempt.attempt_id];
+      if (recorded && (owner === undefined ? !bound : owner !== progress_path)) throw new PracticeError('attempt_already_recorded');
       if ((!tags.includes('system-design/wip') && !(bound && tags.includes('system-design/done'))) ||
         (metadata.round_id && metadata.round_id !== attempt.attempt_id) ||
         (metadata.review_item_id != null && metadata.review_item_id !== topic.id) ||
         (metadata.round_completed_on && metadata.round_completed_on !== attempt.completed_on)) throw new PracticeError('session_round_mismatch');
       if (metadata.confirmed_registration && !isDeepStrictEqual(metadata.confirmed_registration, { topic, attempt })) throw new PracticeError('confirmed_registration_mismatch');
       await this.assessmentObservations({ progressPath: progress_path, completedOn: attempt.completed_on });
-      if (tags.includes('system-design/wip') && !metadata.confirmed_registration) {
-        await this.notes.put(progress_path, serialize({ ...metadata, round_id: attempt.attempt_id, review_item_id: topic.id,
-          round_completed_on: attempt.completed_on, confirmed_registration: { topic, attempt } }, body), note.revision);
-      }
+      evidence = mergeAttemptObservations(body, attempt.concept_observations ?? [], attempt.attempt_id, attempt.completed_on).attempt;
+      session = { note, metadata, body, tags };
+    }
+    let details = recorded ? undefined : await check(concept_ids);
+    // Claim an unconfirmed session before registering anything: the conditional write is the session's lock,
+    // so of two finishes racing on it only one registers an item. A claim without confirmed_registration
+    // still accepts a corrected retry of the same round.
+    const unconfirmed = progress_path && session && session.tags.includes('system-design/wip') && !session.metadata.confirmed_registration ? session : undefined;
+    let claimed: { metadata: Record<string, unknown>; revision: string } | undefined;
+    if (progress_path && unconfirmed) {
+      const metadata = { ...unconfirmed.metadata, round_id: attempt.attempt_id, review_item_id: topic.id, round_completed_on: attempt.completed_on };
+      claimed = { metadata, revision: await this.notes.put(progress_path, serialize(metadata, unconfirmed.body), unconfirmed.note.revision) };
     }
     await this.add(topic);
     let current = await this.items.note(topic.id);
@@ -186,20 +219,34 @@ export class Practice {
       await this.notes.put(current.path, serialize({ ...current.metadata, concept_ids: topic.concept_ids }, current.body), current.revision);
       current = await this.items.note(topic.id);
     }
+    // A concurrent first finish may have stored another concept list; judge against the stored one. This runs
+    // before the registration is confirmed, so a refused judgment can be corrected and retried.
+    if (!current.item.attempt_ids.includes(attempt.attempt_id) && !isDeepStrictEqual(current.item.concept_ids, concept_ids)) {
+      details = await check(current.item.concept_ids);
+    }
+    if (progress_path && unconfirmed && claimed) {
+      await this.notes.put(progress_path, serialize({ ...claimed.metadata, confirmed_registration: { topic, attempt } }, unconfirmed.body), claimed.revision);
+    }
     if (!current.item.attempt_ids.includes(attempt.attempt_id)) {
-      const registration = { ...attempt };
-      delete registration.concept_observations;
-      await this.record({ ...registration, id: topic.id, revision: current.revision });
+      await this.recordChecked({ ...attempt, id: topic.id, revision: current.revision }, details, progress_path ?? STANDALONE_SESSION);
     }
     const verified = await this.items.note(topic.id);
+    // Of calls racing on one attempt id, the item's conditional write records exactly one with its session; the
+    // others store nothing and send no signals. Only an attempt recorded before sessions were stored has none,
+    // and the check before the claim already required this session to be bound to it.
+    const owner = verified.item.attempt_sessions[attempt.attempt_id];
+    if (progress_path && owner !== progress_path && !(owner === undefined && recorded)) throw new PracticeError('attempt_already_recorded');
     if (!verified.item.attempt_ids.includes(attempt.attempt_id) ||
       (verified.item.status === 'active' && !verified.item.next_review)) throw new PracticeError('registration_verification_failed');
     if (topic.domain === 'system-design' && progress_path) {
       await this.persistDesignProfile(progress_path, attempt.attempt_id, attempt.completed_on, attempt.concept_observations ?? []);
     }
+    // A module's finish hook sees the observations stored for the recorded round; without a session none are stored.
+    let stored: StoredObservation[] = [];
     if (progress_path) {
       const note = await this.read(progress_path);
       const { metadata, body } = parsePracticeNote(note.text);
+      stored = parseObservations(body, attempt.completed_on).filter(item => item.attempt_id === attempt.attempt_id);
       if (metadata.round_id !== attempt.attempt_id || metadata.review_item_id !== topic.id ||
         metadata.round_completed_on !== attempt.completed_on) throw new PracticeError('session_round_mismatch');
       const tags = Array.isArray(metadata.tags) ? metadata.tags : [metadata.tags];
@@ -209,7 +256,9 @@ export class Practice {
           tags: tags.map(tag => tag === 'system-design/wip' ? 'system-design/done' : tag) }, body), note.revision);
       } else if (!tags.includes('system-design/done')) throw new PracticeError('session_round_mismatch');
     }
-    return { ...summarySchema.parse(verified.item), attempt_id: attempt.attempt_id, verified: true };
+    const finish = this.modules[topic.domain];
+    const extra = finish?.finish ? await finish.finish(topic.id, { ...attempt, concept_observations: stored }) : {};
+    return { ...summarySchema.parse(verified.item), attempt_id: attempt.attempt_id, verified: true, ...extra };
   }
 
   private async persistDesignProfile(progressPath: string, attemptId: string, date: string, observations: z.infer<typeof conceptObservationSchema>[]) {
@@ -217,12 +266,7 @@ export class Practice {
     const { metadata, body: assessment } = parsePracticeNote(note.text);
     const tags = Array.isArray(metadata.tags) ? metadata.tags : [metadata.tags];
     if (tags.includes('system-design/done')) return;
-    const prior = new Map(parseObservations(assessment, date).map(item => [item.observation_id, item]));
-    const stored: StoredObservation[] = observations.map(item => {
-      const observation = conceptObservationSchema.parse(item);
-      const existing = prior.get(observation.observation_id);
-      return { ...existing, ...observation, attempt_id: attemptId, date: observation.date ?? existing?.date ?? date };
-    });
+    const { stored } = mergeAttemptObservations(assessment, observations, attemptId, date);
     const body = upsertObservations(assessment, stored, date);
     await this.notes.put(progressPath, serialize(metadata, body), note.revision);
     await this.rebuildDesignProfile();

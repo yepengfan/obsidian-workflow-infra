@@ -438,8 +438,9 @@ SD Blocks reviews each building block article of System Design on its own
 schedule. Its rules sit behind the practice module contract
 (`src/practice-module.ts`): the service calls a module's hooks for its domain,
 after its configuration guard, for availability, the workflow and review
-results, adding items, attempt fields, reads of other domains' notes and canvas
-paths. `src/practice-modules.ts` wires the modules, so a new module adds hooks
+results, adding items, attempt fields, a finished round, reads of other
+domains' notes and canvas paths. `src/practice-modules.ts` wires the modules
+and gives them one block map loader per request, so a new module adds hooks
 there instead of branches in the service. Its data is `Learning/Practice/System-Design/Blocks.md`, which the
 learner maintains and the server only reads: one `## <block-id>` section per
 block with its `note` link, optional `cards` links and 4 to 8
@@ -568,3 +569,63 @@ sets each concept's current conclusion while contrary evidence is retained.
 attempts, including across different concepts; summaries remain descriptions,
 not identities. Generic practice note writes reject the
 profile. Only finish-triggered and explicit rebuilds replace that generated index.
+
+## Block signals
+
+System Design rounds feed the SD Blocks schedule through the SRS core, never
+through the SD Blocks module (`src/system-design-module.ts`, rules in
+`src/design-blocks.ts`). The signal is a separate `ReviewSignals` port that
+only the System Design module receives; the shared module ports stay read-only.
+
+- An observation may carry `block`, the id of the `Blocks.md` block it
+  concerns. Tagged ids must be blocks of the map (`unknown_block`), checked
+  before any write; a round with tags or a `problem` needs a valid map.
+- An attempt may name its `problem`, a row of the map's Problems table
+  (`unknown_problem`). Then `core_blocks_partial`, when the module judges it,
+  must be met exactly when every core block of that problem has at least one
+  learner observation tagged with it and all of them are `mastered` or
+  `partial` (`core_blocks_mismatch`). Without `problem`, the item's
+  `concept_ids` stand in for the core blocks: the same rule applies to the
+  observations' `concept_id`, using the item's stored list, or the topic's when
+  that is empty. An item without concepts has nothing to check. Other modules
+  refuse `problem`.
+- These checks judge the round's evidence as the session will store it: the
+  submitted observations merged over the attempt's saved ones, the same merge
+  the finish writes. A submission that repeats an `observation_id` is refused
+  (`duplicate_observation_id`). A standalone `practice_record_review` carries
+  no evidence, so its `core_blocks_partial` judgment is not checked. When a
+  concurrent first finish stored a different concept list, the attempt is
+  checked again against the stored list before the registration is confirmed.
+- A finish first claims an unbound session with a conditional write of
+  `round_id`, `review_item_id` and `round_completed_on`, then registers the
+  item, rechecks, and only then writes `confirmed_registration`. The claim is
+  the session's lock: of two finishes racing on one session, the loser fails
+  with `revision_conflict` before registering anything. A claimed but
+  unconfirmed session still accepts a corrected retry of the same round.
+  Recording an attempt also stores where it came from in the item's
+  `attempt_sessions`, in the same conditional write, so the item owns the
+  attempt: the session note path for a finish, or `standalone` for
+  `practice_record_review`. An attempt already recorded is retried only from that session, or
+  for one recorded without a session, from the session bound to it before the
+  call. Any other session is refused with `attempt_already_recorded`, before
+  it is written for a sequential reuse, and after the item is read back when
+  two sessions race on one attempt id. Either way it stores no observations
+  and sends no signals. A session refused after the race stays bound to the
+  reused id, so it needs a new session with its own attempt id.
+- After a round is recorded and verified, each block with a learner
+  observation answered `partial` or `weak` is signalled through the core's
+  `pullForward(item, domain, day, signalDate)`, with the day after the round.
+  The signal reads the observations stored in the session for that attempt, so
+  a retry whose payload differs cannot signal other blocks. The core refuses an
+  item of any other domain, registered or not (`review_domain_mismatch`), reported as `not_enrolled`. An active
+  item due later moves to that day; an archived item is reactivated at the
+  stage it reached and due that day. An item with no attempt yet, one already
+  due by then, or one reviewed on or after the round's day is unchanged, since
+  dates cannot order two attempts of one day, so a finish retry
+  sends harmless repeats. The finish result lists `block_signals`: one
+  `{block, item_id, result}` with `pulled_forward`, `reactivated`, `unchanged`,
+  `not_enrolled` for a block without an item, or `sd_blocks_unavailable` while
+  SD Blocks is off.
+- Once any observation is tagged, `Profile.md` groups concepts under
+  `## Block: <id>` by their latest tagged observation, with untagged concepts
+  under `## Other concepts`. Without tags it keeps the flat layout.

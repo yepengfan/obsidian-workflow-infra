@@ -1,10 +1,13 @@
 import { parse, stringify } from 'yaml';
+import { PracticeError } from './errors.js';
 import { z } from 'zod';
-import { conceptIdSchema, dateSchema } from './practice-schema.js';
+import { conceptIdSchema, dateSchema, slugSchema } from './practice-schema.js';
 
 export const conceptObservationSchema = z.strictObject({
   observation_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u).max(80),
   concept_id: conceptIdSchema,
+  /** The building block of the block map the observation concerns. */
+  block: slugSchema.optional(),
   error_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u).max(80).optional(),
   date: dateSchema.optional(),
   performance: z.enum(['mastered', 'partial', 'weak', 'uncovered']),
@@ -30,6 +33,27 @@ export function parseObservations(body: string, completionDate?: string, options
     if (date === undefined && options.deferUndated) return [];
     return [{ ...row, date: dateSchema.parse(date) }];
   });
+}
+
+/**
+ * The observations an attempt stores in its assessment: each submitted one is
+ * merged over the saved one with its id. `stored` is what the finish writes;
+ * `attempt` is the round's canonical evidence, read back from the assessment
+ * as that write leaves it, so it matches what is stored even when the saved
+ * assessment repeats an id. A submission may not repeat an id.
+ */
+export function mergeAttemptObservations(assessment: string, submitted: readonly ConceptObservation[], attemptId: string, date: string) {
+  const ids = submitted.map(item => item.observation_id);
+  if (new Set(ids).size !== ids.length) throw new PracticeError('duplicate_observation_id');
+  const saved = parseObservations(assessment, date);
+  const prior = new Map(saved.map(item => [item.observation_id, item]));
+  const stored: StoredObservation[] = submitted.map(item => {
+    const observation = conceptObservationSchema.parse(item);
+    const existing = prior.get(observation.observation_id);
+    return { ...existing, ...observation, attempt_id: attemptId, date: observation.date ?? existing?.date ?? date };
+  });
+  const attempt = parseObservations(upsertObservations(assessment, stored, date), date).filter(item => item.attempt_id === attemptId);
+  return { stored, attempt };
 }
 
 export function upsertObservations(body: string, incoming: readonly StoredObservation[], completionDate?: string): string {
@@ -58,11 +82,26 @@ export function renderProfile(observations: readonly StoredObservation[]): strin
   const byConcept = new Map<string, StoredObservation[]>();
   for (const item of evidenced) byConcept.set(item.concept_id, [...(byConcept.get(item.concept_id) ?? []), item]);
   const lines = ['# System Design profile', '', 'Generated from assessment observations. The latest learner answer is the current conclusion.'];
-  for (const [concept, items] of byConcept) {
+  const concept = (heading: string, name: string, items: StoredObservation[]) => {
     const current = items[items.length - 1]!;
     const contrary = items.filter(item => item.observation_id !== current.observation_id && item.performance !== current.performance);
-    lines.push('', `## ${concept}`, '', `Current: ${current.performance}. ${current.summary}`, '', `Evidence: ${current.date} ${current.observation_id}.`);
+    lines.push('', `${heading} ${name}`, '', `Current: ${current.performance}. ${current.summary}`, '', `Evidence: ${current.date} ${current.observation_id}.`);
     if (contrary.length) lines.push('', 'Contrary evidence: ' + contrary.map(item => `${item.date} ${item.observation_id} ${item.performance}`).join('; ') + '.');
+  };
+  // Concepts are grouped under the building block their latest tagged observation names, once any observation names one.
+  const blockOf = new Map([...byConcept].map(([name, items]) => [name, items.findLast(item => item.block !== undefined)?.block]));
+  if ([...blockOf.values()].every(block => block === undefined)) {
+    for (const [name, items] of byConcept) concept('##', name, items);
+  } else {
+    const groups = new Map<string, [string, StoredObservation[]][]>();
+    for (const [name, items] of byConcept) {
+      const group = blockOf.get(name) ?? '';
+      groups.set(group, [...(groups.get(group) ?? []), [name, items]]);
+    }
+    for (const [block, concepts] of [...groups].sort(([a], [b]) => (a === '' ? 1 : 0) - (b === '' ? 1 : 0))) {
+      lines.push('', block ? `## Block: ${block}` : '## Other concepts');
+      for (const [name, items] of concepts) concept('###', name, items);
+    }
   }
   const errors = new Map<string, StoredObservation[]>();
   for (const item of evidenced.filter(item => item.performance === 'weak' || item.performance === 'partial')) {

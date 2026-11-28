@@ -1,28 +1,18 @@
 import type { z } from 'zod';
-import { loadBlockMap, type BlockMap } from './block-map.js';
+import type { BlockMap } from './block-map.js';
 import { BLOCK_MAP, practiceDomains } from './practice-domains.js';
 import type { ItemState, ModuleAttempt, PracticeModule, PracticeModulePorts } from './practice-module.js';
 import { REVIEW_ITEMS_PREFIX } from './practice-schema.js';
 import { blockItemId, blockReviewCanvas, blocksOverview, type blockTemplateSchema, checkPoints, checkPointsAnswered, itemBlock, pointRotation,
   renderPoints } from './sd-blocks.js';
+import { PracticeError } from './errors.js';
 import { parseHistory } from './srs/history.js';
 
 const ROOT = practiceDomains['sd-blocks'].root;
 
 /** SD Blocks behind the practice module contract: the block map, point results and review canvases. */
 export class SdBlocksModule implements PracticeModule {
-  private map?: Promise<BlockMap>;
-
-  constructor(private readonly ports: PracticeModulePorts) {}
-
-  /**
-   * The checked block map. The module serves one request, so a loaded map is
-   * reused for the request; a failed load is not kept.
-   */
-  private blockMap() {
-    this.map ??= loadBlockMap(this.ports).catch((error: unknown) => { this.map = undefined; throw error; });
-    return this.map;
-  }
+  constructor(private readonly ports: PracticeModulePorts, private readonly blockMap: () => Promise<BlockMap>) {}
 
   /** Each block's item state. Items missing from the active index, archived or newly added, are read from their notes. */
   private async items() {
@@ -56,6 +46,7 @@ export class SdBlocksModule implements PracticeModule {
   async add(itemId: string) { itemBlock(await this.blockMap(), itemId); }
 
   async attempt(itemId: string, attempt: ModuleAttempt) {
+    if (attempt.problem !== undefined || attempt.concept_observations?.length) throw new PracticeError('unsupported_practice_domain');
     checkPoints(itemBlock(await this.blockMap(), itemId), attempt.points);
     checkPointsAnswered(attempt.criteria, attempt.points!);
     return renderPoints(attempt.points!);
