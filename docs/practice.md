@@ -256,7 +256,11 @@ Items recorded before this rule were migrated once with
 `bin/migrate-review-schedule.ts`, which replays each history from stage 0.
 Legacy outcomes convert as agreed: `independent` meets every criterion,
 `assisted` misses `no_substantive_help`, and `incomplete` misses the module's
-completion criterion (`tests_pass` or `all_steps_done`). Run it on a temporary
+completion criterion (`tests_pass` or `all_steps_done`). `completed`, written
+when a System Design attempt omitted its outcome, never recorded independence
+and misses `no_substantive_help`. Replay reads an attempt only at a full entry
+heading with its result line, and criteria only from that entry's own
+`#### Pass criteria` block, so learner text cannot change the result. Run it on a temporary
 vault copy first:
 
 ```sh

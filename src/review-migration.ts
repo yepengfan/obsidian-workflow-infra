@@ -15,6 +15,8 @@ import { nextSchedule, type ScheduleConfig } from './srs/schedule.js';
 
 /** The criteria a legacy outcome leaves unmet, per the agreed conversion. */
 const COMPLETION_CRITERIA: Record<PracticeDomain, string> = { algorithm: 'tests_pass', 'system-design': 'all_steps_done' };
+/** Legacy outcomes that ended without proven independence; `incomplete` misses the completion criterion instead. */
+const HELP_OUTCOMES = new Set(['assisted', '提示后完成', 'completed', '已完成']);
 const SCHEDULE_FIELDS = ['stage', 'next_review', 'last_review', 'review_count', 'status', 'archived_on', 'last_result', 'unmet_criteria'] as const;
 /** Fields the global rule replaces. */
 const RETIRED_FIELDS = ['last_outcome', 'completed_design_rounds'] as const;
@@ -42,7 +44,7 @@ export interface MigrationRow {
 function unmetCriteria(entry: HistoryEntry, domain: PracticeDomain, declared: readonly PassCriterion[]) {
   if (entry.unmet) return entry.unmet;
   if (entry.passed) return [];
-  const missing = entry.result === 'assisted' || entry.result === '提示后完成' ? 'no_substantive_help' : COMPLETION_CRITERIA[domain];
+  const missing = HELP_OUTCOMES.has(entry.result) ? 'no_substantive_help' : COMPLETION_CRITERIA[domain];
   if (!declared.some(criterion => criterion.id === missing)) throw new PracticeError('invalid_pass_criteria');
   return [missing];
 }

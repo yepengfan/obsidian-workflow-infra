@@ -49,6 +49,18 @@ describe('review schedule migration', () => {
     expect(row.entries[0]).toMatchObject({ passed: false, unmet: ['tests_pass'] });
   });
 
+  it('maps a System Design attempt recorded without an outcome to unproven independence', () => {
+    const { row } = migrateReview('sysd-dropbox', note({ review_count: 1 }, legacy(1, '2026-11-28', 'completed')), policy);
+    expect(row.entries[0]).toMatchObject({ passed: false, unmet: ['no_substantive_help'], stage: 0, next_review: '2026-11-29' });
+  });
+
+  it('keeps learner text that looks like a dated heading as content', () => {
+    const history = legacy(1, '2026-11-27', 'independent').replace('My notes.', 'My notes.\n### 2026-01-02 notes\nMore.') + legacy(2, '2026-11-28', 'independent');
+    const { row } = migrateReview('sysd-dropbox', note({ review_count: 2 }, history), policy);
+    expect(row.error).toBeUndefined();
+    expect(row.entries.map(entry => entry.stage)).toEqual([1, 2]);
+  });
+
   it('leaves an unstarted item unstarted', () => {
     const { row } = migrateReview('sysd-dropbox', note({}, ''), policy);
     expect(row.after).toEqual({ stage: 0, next_review: null, last_review: null, review_count: 0, status: 'active' });
@@ -56,7 +68,8 @@ describe('review schedule migration', () => {
 
   it.each([
     { name: 'a history that disagrees with review_count', text: note({ review_count: 2 }, legacy(1, '2026-11-28', 'assisted')), error: 'history_count_mismatch' },
-    { name: 'an unknown legacy outcome', text: note({ review_count: 1 }, legacy(1, '2026-11-28', 'completed')), error: 'invalid_practice_history' },
+    { name: 'an entry missing its result line', text: note({ review_count: 2 }, legacy(1, '2026-11-27', 'assisted') + '\n### 2026-11-28 · Round 2\n\nNo result.\n'), error: 'history_count_mismatch' },
+    { name: 'an unknown legacy outcome', text: note({ review_count: 1 }, legacy(1, '2026-11-28', 'finished')), error: 'invalid_practice_history' },
     { name: 'a note under another id', text: note({ id: 'other' }, ''), error: 'review_id_mismatch' },
   ])('reports $name without changing the note', ({ text, error }) => {
     expect(migrateReview('sysd-dropbox', text, policy)).toEqual({ row: expect.objectContaining({ error, changed: false }) });

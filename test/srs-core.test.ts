@@ -92,17 +92,31 @@ describe('practice history', () => {
 
   it('reads legacy outcomes, in English and Chinese, as passed or failed', () => {
     const body = '## Practice history\n\n### 2026-11-01 · 第 1 轮\n\n**独立完成** · 下次 2026-11-02\n\n' +
-      '### 2026-11-02 · Round 2\n\n**assisted** · Next review 2026-11-03\n\n### 2026-11-03 · Round 3\n\n**incomplete** · Next review 2026-11-04\n';
+      '### 2026-11-02 · Round 2\n\n**assisted** · Next review 2026-11-03\n\n### 2026-11-03 · Round 3\n\n**incomplete** · Next review 2026-11-04\n\n' +
+      '### 2026-11-04 · Round 4\n\n**completed** · Next review 2026-11-05\n\n### 2026-11-05 · 第 5 轮\n\n**已完成** · 下次 2026-11-06\n';
     expect(parseHistory(body).map(row => [row.round, row.result, row.passed, row.unmet])).toEqual([
-      [1, '独立完成', true, null], [2, 'assisted', false, null], [3, 'incomplete', false, null]]);
+      [1, '独立完成', true, null], [2, 'assisted', false, null], [3, 'incomplete', false, null], [4, 'completed', false, null], [5, '已完成', false, null]]);
+  });
+
+  it('reads criteria only from each entry\'s own block, never from learner text', () => {
+    const tricky = '### 2026-01-02 notes\n- Not met `tests_pass`: I worried about this.\n**Failed** · not a result';
+    const passed = renderEntry({ date: '2026-11-14', round: 1, passed: true, nextReview: '2026-11-15', reflection: tricky, submission: tricky, observations: tricky,
+      criteria: [{ id: 'no_substantive_help', met: true, evidence: 'None.' }, { id: 'tests_pass', met: true, evidence: 'Accepted.' }] });
+    const failed = renderEntry({ date: '2026-11-15', round: 2, passed: false, nextReview: '2026-11-16', reflection: tricky,
+      criteria: [{ id: 'no_substantive_help', met: false, evidence: 'Hint.' }, { id: 'tests_pass', met: true, evidence: 'Accepted.' }] });
+    expect(parseHistory('## Practice history\n' + passed + failed)).toEqual([
+      { date: '2026-11-14', round: 1, passed: true, result: 'Passed', unmet: [] },
+      { date: '2026-11-15', round: 2, passed: false, result: 'Failed', unmet: ['no_substantive_help'] },
+    ]);
   });
 
   it.each([
-    { name: 'an unknown outcome', body: '### 2026-11-01 · Round 1\n\n**completed** · Next review 2026-11-02\n' },
+    { name: 'an unknown outcome', body: '### 2026-11-01 · Round 1\n\n**finished** · Next review 2026-11-02\n' },
     { name: 'a skipped round', body: '### 2026-11-01 · Round 2\n\n**assisted** · Next review 2026-11-02\n' },
     { name: 'a date going back', body: '### 2026-11-02 · Round 1\n\n**assisted** · x\n\n### 2026-11-01 · Round 2\n\n**assisted** · x\n' },
-    { name: 'an unparsed dated heading', body: '### 2026-11-01 · Round 1\n\nNo result line.\n' },
+    { name: 'a heading copied out of sequence into learner text', body: '### 2026-11-01 · Round 1\n\n**assisted** · x\n\nMy notes:\n### 2026-11-01 · Round 5\n\n**independent** · x\n' },
     { name: 'a pass with an unmet criterion', body: '### 2026-11-01 · Round 1\n\n**Passed** · x\n\n#### Pass criteria\n\n- Not met `tests_pass`: no\n' },
+    { name: 'a judged entry without its criteria block', body: '### 2026-11-01 · Round 1\n\n**Failed** · x\n\n- Not met `tests_pass`: no\n' },
   ])('rejects $name', ({ body }) => {
     expect(() => parseHistory(body)).toThrow('invalid_practice_history');
   });
