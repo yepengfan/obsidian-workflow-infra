@@ -2029,6 +2029,11 @@ describe('the pre-problem check and the roadmap', () => {
       withRoadmap(store, plan, invalid);
       expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { status: 'unavailable', plan, reason: 'invalid_roadmap' } });
     }
+    withRoadmap(store, plan);
+    for (const text of ['# Plan without frontmatter\n', '---\nroadmap: [unclosed\n---\n# Plan\n']) {
+      store.files.set(root + plan, text);
+      expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { status: 'unavailable', plan, reason: 'invalid_roadmap' } });
+    }
     for (const setting of [42, 'Learning/Plans/SYSD/00_plan', '../outside.md', '/absolute.md']) {
       withRoadmap(store, setting, roadmap);
       expect(await practice.workflow('system-design')).toMatchObject({ roadmap: { status: 'unavailable', plan: null, reason: 'invalid_roadmap' } });

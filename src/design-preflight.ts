@@ -42,9 +42,11 @@ const roadmapEntrySchema = z.object({
 });
 export type RoadmapEntry = z.infer<typeof roadmapEntrySchema>;
 
-/** The `roadmap` list in a plan note's frontmatter (`invalid_roadmap`). */
+/** The `roadmap` list in a plan note's frontmatter; a note without valid frontmatter or list is `invalid_roadmap`. */
 export function parseRoadmap(text: string): RoadmapEntry[] {
-  const parsed = z.array(roadmapEntrySchema).min(1).max(200).safeParse(parsePracticeNote(text).metadata.roadmap);
+  let roadmap: unknown;
+  try { roadmap = parsePracticeNote(text).metadata.roadmap; } catch { throw new PracticeError('invalid_roadmap'); }
+  const parsed = z.array(roadmapEntrySchema).min(1).max(200).safeParse(roadmap);
   if (!parsed.success) throw new PracticeError('invalid_roadmap');
   return parsed.data;
 }

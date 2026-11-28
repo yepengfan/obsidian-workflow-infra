@@ -665,7 +665,7 @@ never calls the SD Blocks module.
     title as a breakdown. A check that cannot run gives its `error`, such as
     `invalid_block_map`.
   - Without the setting `roadmap` is null. An unreadable plan, an invalid
-    setting or an invalid list gives `status: unavailable` with its `reason`
+    setting, or a plan without valid frontmatter or list gives `status: unavailable` with its `reason`
     (`note_unavailable` or `invalid_roadmap`) instead of failing the workflow.
 - The workflow decides what a gap means for the learner. Block names identify
   techniques, so sysd-solve keeps the check private before the attempt and
